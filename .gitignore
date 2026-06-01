@@ -1,0 +1,28 @@
+# Entornos Virtuales
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# Variables de Entorno
+.env
+
+# Node y React
+node_modules/
+dist/
+build/
+.DS_Store
+
+# Base de datos local
+*.db
+*.sqlite3
+
+# Credenciales GCP
+credentials.json
+
+# Archivos subidos por usuarios
+backend/uploads/
+
+# SQLite local (Railway usará PostgreSQL)
+backend/tablask.db
