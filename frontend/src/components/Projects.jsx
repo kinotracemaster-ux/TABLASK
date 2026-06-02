@@ -19,7 +19,12 @@ export default function Projects() {
         else console.error("Error from API:", data);
       })
       .catch(err => console.error("Error fetching projects", err));
-    fetch(`${API}/api/connections/`).then(r => r.json()).then(setConnections).catch(console.error);
+    fetch(`${API}/api/connections/`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setConnections(data);
+      })
+      .catch(console.error);
   }, []);
 
   const connName = (id) => connections.find(c => c.id === id)?.name || `Conexión ${id}`;
