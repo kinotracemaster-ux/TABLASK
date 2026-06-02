@@ -27,14 +27,23 @@ import traceback
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
+last_exception_traceback = "No ha ocurrido ningún error aún."
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    global last_exception_traceback
     error_msg = traceback.format_exc()
+    last_exception_traceback = error_msg
     print("GLOBAL EXCEPTION:", error_msg)
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal Server Error", "traceback": error_msg}
     )
+
+@app.get("/api/debug/logs")
+def get_debug_logs():
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(last_exception_traceback)
 
 # El endpoint raíz ahora servirá el frontend de React (ver al final del archivo)
 
