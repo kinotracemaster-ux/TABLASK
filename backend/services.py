@@ -9,12 +9,22 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 SERVICE_ACCOUNT_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', '../credentials.json')
 
 def get_sheets_service():
-    if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        # Mock de servicio para pruebas locales sin credenciales
-        return None
-    creds = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-    return build('sheets', 'v4', credentials=creds)
+    creds_json = os.getenv('GOOGLE_CREDENTIALS_JSON')
+    if creds_json:
+        import json
+        try:
+            creds_dict = json.loads(creds_json)
+            creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+            return build('sheets', 'v4', credentials=creds)
+        except Exception as e:
+            print("Error cargando GOOGLE_CREDENTIALS_JSON:", e)
+            return None
+
+    if os.path.exists(SERVICE_ACCOUNT_FILE):
+        creds = service_account.Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+        return build('sheets', 'v4', credentials=creds)
+    return None
 
 def get_sheet_metadata(connection):
     """Obtiene los nombres de las hojas y sus encabezados."""
@@ -33,11 +43,8 @@ def get_sheet_metadata(connection):
     # Google Sheets logic
     service = get_sheets_service()
     if not service:
-        return {
-            "Productos": ["Código", "Nombre", "Marca", "Precio"],
-            "Inventario": ["Código", "Stock", "Bodega"],
-            "Base Maestra": ["ID_Producto", "Nombre_Final", "Costo", "Stock"]
-        }
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Faltan credenciales de Google Sheets en el servidor (GOOGLE_CREDENTIALS_JSON no configurado).")
         
     sheet_metadata = service.spreadsheets().get(spreadsheetId=connection.spreadsheet_id).execute()
     sheets = sheet_metadata.get('sheets', '')
@@ -72,24 +79,8 @@ def get_sheet_data(connection, range_name: str):
 
     service = get_sheets_service()
     if not service:
-        if "Productos" in range_name:
-            return [
-                ["Código", "Nombre", "Marca", "Precio"],
-                ["P001", "Laptop XPS", "Dell", "1500"],
-                ["P002", "iPhone 13", "Apple", "900"],
-            ]
-        elif "Inventario" in range_name:
-            return [
-                ["Código", "Stock", "Bodega"],
-                ["P001", "50", "Norte"],
-                ["P002", "30", "Sur"],
-            ]
-        elif "Base Maestra" in range_name:
-            return [
-                ["ID_Producto", "Nombre_Final", "Costo", "Stock"],
-                ["P001", "Laptop XPS 15", "1400", "45"]
-            ]
-        return []
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Faltan credenciales de Google Sheets en el servidor (GOOGLE_CREDENTIALS_JSON no configurado).")
         
     response = service.spreadsheets().values().get(
         spreadsheetId=connection.spreadsheet_id, range=range_name).execute()
@@ -103,8 +94,8 @@ def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
     """
     service = get_sheets_service()
     if not service:
-        # Mock: en desarrollo local sin credenciales, simulamos éxito
-        return {"mocked": True, "rows_written": len(data)}
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Faltan credenciales de Google Sheets en el servidor (GOOGLE_CREDENTIALS_JSON no configurado).")
 
     range_name = f"{sheet_name}!A1"
 
