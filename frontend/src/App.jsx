@@ -4,7 +4,8 @@ import Projects from './components/Projects';
 import Builder from './components/Builder';
 import PreviewSync from './components/PreviewSync';
 import Exports from './components/Exports';
-import { Database, Link2, LayoutDashboard, History, Download } from 'lucide-react';
+import MasterTable from './components/MasterTable';
+import { Database, Link2, LayoutDashboard, History, Download, Table2 } from 'lucide-react';
 
 function App() {
   return (
@@ -35,6 +36,12 @@ function App() {
               <Download className="w-5 h-5" />
               Formatos de Salida
             </Link>
+            <div className="border-t border-gray-100 my-2"></div>
+            <p className="text-xs text-gray-400 uppercase tracking-wider px-2 mb-1">Base de datos</p>
+            <Link to="/master/1" className="flex items-center gap-2 p-2 text-gray-700 hover:bg-purple-50 hover:text-purple-600 rounded-lg">
+              <Table2 className="w-5 h-5" />
+              Tabla Maestra
+            </Link>
           </nav>
         </aside>
 
@@ -47,6 +54,7 @@ function App() {
             <Route path="/builder/:id" element={<Builder />} />
             <Route path="/preview/:id" element={<PreviewSync />} />
             <Route path="/exports" element={<Exports />} />
+            <Route path="/master/:projectId" element={<MasterTable />} />
           </Routes>
         </main>
       </div>

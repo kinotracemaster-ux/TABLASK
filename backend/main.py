@@ -379,6 +379,296 @@ def read_projects(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
     projects = db.query(models.Project).offset(skip).limit(limit).all()
     return projects
 
+
+# ═══════════════════════════════════════════════════════════════════
+# ██ TABLA MAESTRA — Endpoints CRUD + Import + Sync
+# ═══════════════════════════════════════════════════════════════════
+
+@app.get("/api/master/{project_id}")
+def get_master_table(project_id: int, db: Session = Depends(get_db)):
+    """Obtiene la tabla maestra completa (columnas + filas) de un proyecto."""
+    columns = db.query(models.MasterColumn)\
+        .filter(models.MasterColumn.project_id == project_id)\
+        .order_by(models.MasterColumn.column_order).all()
+
+    rows_db = db.query(models.MasterRow)\
+        .filter(models.MasterRow.project_id == project_id).all()
+
+    # Aplanar cada fila: {"id": 1, "sku": "P001", "Descripción": "...", "Precio": "1500"}
+    rows = []
+    for r in rows_db:
+        row_data = json.loads(r.data) if r.data else {}
+        flat = {"_id": r.id, "SKU": r.sku, **row_data}
+        rows.append(flat)
+
+    return {
+        "columns": [{"id": c.id, "name": c.name, "column_order": c.column_order} for c in columns],
+        "rows": rows,
+        "total_rows": len(rows)
+    }
+
+
+@app.post("/api/master/{project_id}/import")
+def import_master(project_id: int, req: schemas.MasterImportRequest, db: Session = Depends(get_db)):
+    """Importa la primera base de la Maestra desde una conexión (Google Sheet o archivo)."""
+    conn = db.query(models.Connection).filter(models.Connection.id == req.connection_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Conexión no encontrada")
+
+    raw = get_sheet_data(conn, f"{req.sheet_name}!A1:Z")
+    if not raw or len(raw) < 2:
+        raise HTTPException(status_code=400, detail="La hoja no tiene datos suficientes")
+
+    headers = raw[0]
+    if req.sku_column not in headers:
+        raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column}' no encontrada en los encabezados")
+
+    sku_idx = headers.index(req.sku_column)
+
+    # Limpiar datos previos de la maestra
+    db.query(models.MasterColumn).filter(models.MasterColumn.project_id == project_id).delete()
+    db.query(models.MasterRow).filter(models.MasterRow.project_id == project_id).delete()
+
+    # Crear columnas (SKU siempre es la primera)
+    for i, h in enumerate(headers):
+        if h == req.sku_column:
+            continue  # SKU no se guarda como columna adicional, es campo fijo
+        db.add(models.MasterColumn(project_id=project_id, name=h, column_order=i))
+
+    # Crear filas
+    rows_added = 0
+    for row in raw[1:]:
+        sku_val = row[sku_idx] if sku_idx < len(row) else ""
+        if not sku_val:
+            continue
+
+        data = {}
+        for i, h in enumerate(headers):
+            if h == req.sku_column:
+                continue
+            data[h] = row[i] if i < len(row) else ""
+
+        db.add(models.MasterRow(
+            project_id=project_id,
+            sku=sku_val,
+            data=json.dumps(data, ensure_ascii=False)
+        ))
+        rows_added += 1
+
+    db.commit()
+    return {"message": f"Maestra importada: {rows_added} filas, {len(headers)-1} columnas", "rows_added": rows_added}
+
+
+# --- Columnas ---
+@app.post("/api/master/{project_id}/columns")
+def add_master_column(project_id: int, col: schemas.MasterColumnCreate, db: Session = Depends(get_db)):
+    """Agrega una columna nueva a la Maestra."""
+    max_order = db.query(models.MasterColumn)\
+        .filter(models.MasterColumn.project_id == project_id)\
+        .count()
+    db_col = models.MasterColumn(project_id=project_id, name=col.name, column_order=max_order)
+    db.add(db_col)
+
+    # Inicializar la columna con valor vacío en todas las filas
+    rows = db.query(models.MasterRow).filter(models.MasterRow.project_id == project_id).all()
+    for r in rows:
+        data = json.loads(r.data) if r.data else {}
+        data[col.name] = ""
+        r.data = json.dumps(data, ensure_ascii=False)
+
+    db.commit()
+    db.refresh(db_col)
+    return {"id": db_col.id, "name": db_col.name, "column_order": db_col.column_order}
+
+
+@app.put("/api/master/{project_id}/columns/{col_id}")
+def rename_master_column(project_id: int, col_id: int, col: schemas.MasterColumnCreate, db: Session = Depends(get_db)):
+    """Renombra una columna de la Maestra."""
+    db_col = db.query(models.MasterColumn)\
+        .filter(models.MasterColumn.id == col_id, models.MasterColumn.project_id == project_id).first()
+    if not db_col:
+        raise HTTPException(status_code=404, detail="Columna no encontrada")
+
+    old_name = db_col.name
+    db_col.name = col.name
+
+    # Actualizar el nombre en todas las filas
+    rows = db.query(models.MasterRow).filter(models.MasterRow.project_id == project_id).all()
+    for r in rows:
+        data = json.loads(r.data) if r.data else {}
+        if old_name in data:
+            data[col.name] = data.pop(old_name)
+            r.data = json.dumps(data, ensure_ascii=False)
+
+    db.commit()
+    return {"id": db_col.id, "name": db_col.name}
+
+
+@app.delete("/api/master/{project_id}/columns/{col_id}")
+def delete_master_column(project_id: int, col_id: int, db: Session = Depends(get_db)):
+    """Elimina una columna de la Maestra."""
+    db_col = db.query(models.MasterColumn)\
+        .filter(models.MasterColumn.id == col_id, models.MasterColumn.project_id == project_id).first()
+    if not db_col:
+        raise HTTPException(status_code=404, detail="Columna no encontrada")
+
+    col_name = db_col.name
+
+    # Eliminar de todas las filas
+    rows = db.query(models.MasterRow).filter(models.MasterRow.project_id == project_id).all()
+    for r in rows:
+        data = json.loads(r.data) if r.data else {}
+        data.pop(col_name, None)
+        r.data = json.dumps(data, ensure_ascii=False)
+
+    db.delete(db_col)
+    db.commit()
+    return {"message": f"Columna '{col_name}' eliminada"}
+
+
+# --- Filas ---
+@app.post("/api/master/{project_id}/rows")
+def add_master_row(project_id: int, row: schemas.MasterRowCreate, db: Session = Depends(get_db)):
+    """Agrega una fila nueva a la Maestra."""
+    existing = db.query(models.MasterRow)\
+        .filter(models.MasterRow.project_id == project_id, models.MasterRow.sku == row.sku).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"SKU '{row.sku}' ya existe en la Maestra")
+
+    db_row = models.MasterRow(
+        project_id=project_id,
+        sku=row.sku,
+        data=json.dumps(row.data, ensure_ascii=False)
+    )
+    db.add(db_row)
+    db.commit()
+    db.refresh(db_row)
+    return {"_id": db_row.id, "SKU": db_row.sku, **json.loads(db_row.data)}
+
+
+@app.put("/api/master/{project_id}/rows/{row_id}")
+def update_master_row(project_id: int, row_id: int, update: schemas.MasterRowUpdate, db: Session = Depends(get_db)):
+    """Edita una fila (celda) de la Maestra."""
+    db_row = db.query(models.MasterRow)\
+        .filter(models.MasterRow.id == row_id, models.MasterRow.project_id == project_id).first()
+    if not db_row:
+        raise HTTPException(status_code=404, detail="Fila no encontrada")
+
+    if update.sku is not None:
+        db_row.sku = update.sku
+
+    if update.data is not None:
+        current_data = json.loads(db_row.data) if db_row.data else {}
+        current_data.update(update.data)
+        db_row.data = json.dumps(current_data, ensure_ascii=False)
+
+    db.commit()
+    db.refresh(db_row)
+    return {"_id": db_row.id, "SKU": db_row.sku, **json.loads(db_row.data)}
+
+
+@app.delete("/api/master/{project_id}/rows/{row_id}")
+def delete_master_row(project_id: int, row_id: int, db: Session = Depends(get_db)):
+    """Elimina una fila de la Maestra."""
+    db_row = db.query(models.MasterRow)\
+        .filter(models.MasterRow.id == row_id, models.MasterRow.project_id == project_id).first()
+    if not db_row:
+        raise HTTPException(status_code=404, detail="Fila no encontrada")
+    db.delete(db_row)
+    db.commit()
+    return {"message": f"Fila SKU '{db_row.sku}' eliminada"}
+
+
+# --- Sync: Origen → Maestra ---
+@app.post("/api/master/{project_id}/sync")
+def sync_to_master(project_id: int, req: schemas.MasterSyncRequest, db: Session = Depends(get_db)):
+    """Sincroniza datos desde una tabla origen hacia la Maestra usando SKU como llave."""
+    conn = db.query(models.Connection).filter(models.Connection.id == req.connection_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Conexión no encontrada")
+
+    raw = get_sheet_data(conn, f"{req.sheet_name}!A1:Z")
+    if not raw or len(raw) < 2:
+        raise HTTPException(status_code=400, detail="La tabla origen está vacía")
+
+    src_headers = raw[0]
+    if req.sku_column not in src_headers:
+        raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column}' no encontrada en el origen")
+
+    src_sku_idx = src_headers.index(req.sku_column)
+
+    # Cargar filas actuales de la Maestra indexadas por SKU
+    master_rows = db.query(models.MasterRow).filter(models.MasterRow.project_id == project_id).all()
+    master_by_sku = {r.sku: r for r in master_rows}
+
+    # Cargar columnas actuales
+    existing_cols = {c.name for c in db.query(models.MasterColumn).filter(models.MasterColumn.project_id == project_id).all()}
+
+    rows_updated = 0
+    rows_added = 0
+
+    # Asegurar que las columnas destino existan en la Maestra
+    max_order = len(existing_cols)
+    for src_col, dst_col in req.field_mappings.items():
+        if dst_col not in existing_cols and dst_col != "SKU":
+            db.add(models.MasterColumn(project_id=project_id, name=dst_col, column_order=max_order))
+            existing_cols.add(dst_col)
+            max_order += 1
+
+    for src_row in raw[1:]:
+        sku_val = src_row[src_sku_idx] if src_sku_idx < len(src_row) else ""
+        if not sku_val:
+            continue
+
+        if sku_val in master_by_sku:
+            # Actualizar campos mapeados
+            mr = master_by_sku[sku_val]
+            data = json.loads(mr.data) if mr.data else {}
+            changed = False
+            for src_col, dst_col in req.field_mappings.items():
+                if src_col in src_headers:
+                    idx = src_headers.index(src_col)
+                    new_val = src_row[idx] if idx < len(src_row) else ""
+                    if data.get(dst_col) != new_val:
+                        data[dst_col] = new_val
+                        changed = True
+            if changed:
+                mr.data = json.dumps(data, ensure_ascii=False)
+                rows_updated += 1
+        elif req.add_new_rows:
+            # Crear fila nueva
+            data = {}
+            for src_col, dst_col in req.field_mappings.items():
+                if src_col in src_headers:
+                    idx = src_headers.index(src_col)
+                    data[dst_col] = src_row[idx] if idx < len(src_row) else ""
+            new_row = models.MasterRow(
+                project_id=project_id,
+                sku=sku_val,
+                data=json.dumps(data, ensure_ascii=False)
+            )
+            db.add(new_row)
+            master_by_sku[sku_val] = new_row
+            rows_added += 1
+
+    db.commit()
+    return {
+        "message": f"Sincronización completada: {rows_updated} actualizadas, {rows_added} nuevas",
+        "rows_updated": rows_updated,
+        "rows_added": rows_added
+    }
+
+
+# --- Exportación desde Maestra ---
+@app.get("/api/master/{project_id}/export-columns")
+def get_master_columns_for_export(project_id: int, db: Session = Depends(get_db)):
+    """Devuelve las columnas de la Maestra para usarlas en formatos de salida."""
+    columns = db.query(models.MasterColumn)\
+        .filter(models.MasterColumn.project_id == project_id)\
+        .order_by(models.MasterColumn.column_order).all()
+    return ["SKU"] + [c.name for c in columns]
+
+
 # --- Frontend Serving (Railway Single Deployment) ---
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

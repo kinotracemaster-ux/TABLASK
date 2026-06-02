@@ -127,3 +127,54 @@ class ExportFormat(ExportFormatBase):
     class Config:
         from_attributes = True
 
+
+# Master Table
+class MasterColumnBase(BaseModel):
+    name: str
+    column_order: int = 0
+
+class MasterColumnCreate(MasterColumnBase):
+    pass
+
+class MasterColumn(MasterColumnBase):
+    id: int
+    project_id: int
+
+    class Config:
+        from_attributes = True
+
+class MasterRowBase(BaseModel):
+    sku: str
+    data: Dict[str, Any]
+
+class MasterRowCreate(MasterRowBase):
+    pass
+
+class MasterRowUpdate(BaseModel):
+    sku: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
+class MasterRow(MasterRowBase):
+    id: int
+    project_id: int
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class MasterImportRequest(BaseModel):
+    connection_id: int
+    sheet_name: str
+    sku_column: str  # Nombre de la columna que contiene el SKU
+
+class MasterSyncRequest(BaseModel):
+    connection_id: int
+    sheet_name: str
+    sku_column: str  # Columna del SKU en la tabla origen
+    field_mappings: Dict[str, str]  # {"columna_origen": "columna_maestra"}
+    add_new_rows: bool = True  # Si agrega SKUs nuevos automáticamente
+
+class MasterTableResponse(BaseModel):
+    columns: List[MasterColumn]
+    rows: List[Dict[str, Any]]  # Lista de dicts con sku + data aplanada
+    total_rows: int
