@@ -9,6 +9,18 @@ from .database import engine, get_db
 # Create DB tables
 models.Base.metadata.create_all(bind=engine)
 
+# Auto-migrate DB (agregando las columnas nuevas a PostgreSQL si faltan)
+try:
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        conn.execute(text("ALTER TABLE projects ADD COLUMN master_connection_id INTEGER"))
+        conn.execute(text("ALTER TABLE projects ADD COLUMN master_sheet_name VARCHAR"))
+        conn.commit()
+        print("Migraciones aplicadas con éxito.")
+except Exception as e:
+    # Si falla es porque las columnas ya existen o la tabla no existe aún, ignorar.
+    print("Migraciones omitidas (ya existen las columnas o error benigno):", e)
+
 app = FastAPI(title="Actualizar Tablas K API")
 
 # CORS: en producción aceptamos cualquier origen (Railway + Vercel)
