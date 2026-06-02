@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Play, AlertCircle, ArrowLeft } from 'lucide-react';
 
+const API = import.meta.env.VITE_API_URL || '';
 export default function PreviewSync() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -15,7 +16,7 @@ export default function PreviewSync() {
       const parsed = JSON.parse(savedPayload);
       setPayload(parsed);
       
-      fetch('http://localhost:8000/api/sync/preview', {
+      fetch(`${API}/api/sync/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: savedPayload
@@ -37,7 +38,7 @@ export default function PreviewSync() {
   const handleExecute = async () => {
     if(!payload) return;
     try {
-      const res = await fetch('http://localhost:8000/api/sync/execute', {
+      const res = await fetch(`${API}/api/sync/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

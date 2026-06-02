@@ -23,9 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def read_root():
-    return {"message": "Bienvenido a la API de Actualizar Tablas K"}
+# El endpoint raíz ahora servirá el frontend de React (ver al final del archivo)
 
 # --- Connections ---
 @app.post("/api/connections/", response_model=schemas.Connection)
@@ -381,3 +379,20 @@ def read_projects(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
     projects = db.query(models.Project).offset(skip).limit(limit).all()
     return projects
 
+# --- Frontend Serving (Railway Single Deployment) ---
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
+frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+
+if os.path.exists(frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+
+    @app.get("/{catchall:path}")
+    def serve_react_app(catchall: str):
+        file_path = os.path.join(frontend_dist, catchall)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # Fallback to index.html for React Router
+        return FileResponse(os.path.join(frontend_dist, "index.html"))

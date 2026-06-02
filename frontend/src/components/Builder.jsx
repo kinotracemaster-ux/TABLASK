@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Settings2, ArrowRight } from 'lucide-react';
 
+const API = import.meta.env.VITE_API_URL || '';
 export default function Builder() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -20,7 +21,7 @@ export default function Builder() {
   const [mappings, setMappings] = useState([{ source_field: '', target_field: '', is_key: true }]);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/connections/')
+    fetch(`${API}/api/connections/`)
       .then(res => res.json())
       .then(data => setConnections(data));
   }, []);
@@ -28,7 +29,7 @@ export default function Builder() {
   const loadMetadata = async (connId, setter) => {
     const conn = connections.find(c => c.id == connId);
     if(conn) {
-      const res = await fetch(`http://localhost:8000/api/connections/${conn.id}/metadata`);
+      const res = await fetch(`${API}/api/connections/${conn.id}/metadata`);
       const data = await res.json();
       setter(data);
     }

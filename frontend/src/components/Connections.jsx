@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link2, Plus, Server, CheckCircle2 } from 'lucide-react';
 
+const API = import.meta.env.VITE_API_URL || '';
 export default function Connections() {
   const [connections, setConnections] = useState([]);
   const [url, setUrl] = useState('');
@@ -11,7 +12,7 @@ export default function Connections() {
 
   // Fetch connections on load
   useEffect(() => {
-    fetch('http://localhost:8000/api/connections/')
+    fetch(`${API}/api/connections/`)
       .then(res => res.json())
       .then(data => setConnections(data))
       .catch(err => console.error("Error fetching connections", err));
@@ -24,7 +25,7 @@ export default function Connections() {
     try {
       if (type === 'google_sheets') {
         if (!url) return;
-        const res = await fetch('http://localhost:8000/api/connections/', {
+        const res = await fetch(`${API}/api/connections/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, google_sheet_url: url })
@@ -43,7 +44,7 @@ export default function Connections() {
         formData.append('name', name);
         formData.append('file', file);
         
-        const res = await fetch('http://localhost:8000/api/connections/upload', {
+        const res = await fetch(`${API}/api/connections/upload`, {
           method: 'POST',
           body: formData
         });

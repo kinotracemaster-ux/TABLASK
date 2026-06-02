@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { LayoutDashboard, Plus, FolderSync, ArrowRight, RefreshCw, CheckCircle2, AlertCircle, XCircle, FileDown, Send } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL || '';
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
