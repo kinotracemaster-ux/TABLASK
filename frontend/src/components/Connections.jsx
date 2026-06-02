@@ -37,7 +37,12 @@ export default function Connections() {
           setName('');
         } else {
           const errData = await res.json().catch(() => ({}));
-          alert("Error al agregar conexión: " + (errData.detail || 'Verifique la URL o el backend'));
+          let errMsg = errData.detail || 'Verifique la URL o el backend';
+          if (errData.traceback) {
+            errMsg += '\n\nTRACEBACK:\n' + errData.traceback.substring(0, 500);
+            console.error(errData.traceback);
+          }
+          alert("Error al agregar conexión:\n" + errMsg);
         }
       } else {
         if (!file) return;

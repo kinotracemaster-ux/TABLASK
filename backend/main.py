@@ -23,6 +23,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import traceback
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    error_msg = traceback.format_exc()
+    print("GLOBAL EXCEPTION:", error_msg)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "traceback": error_msg}
+    )
+
 # El endpoint raíz ahora servirá el frontend de React (ver al final del archivo)
 
 # --- Connections ---
