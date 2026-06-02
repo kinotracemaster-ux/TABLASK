@@ -75,9 +75,15 @@ export default function MasterTable() {
   const loadMasterSheets = async (connId) => {
     setMasterConnId(connId);
     if (!connId) return;
-    const res = await fetch(`${API}/api/connections/${connId}/metadata`);
-    const data = await res.json();
-    setMasterSheets(data.sheets || {});
+    try {
+      const res = await fetch(`${API}/api/connections/${connId}/metadata`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Error cargando hojas');
+      setMasterSheets(data.sheets || {});
+    } catch (err) {
+      alert(err.message);
+      setMasterSheets({});
+    }
   };
 
   const handleLink = async () => {
@@ -107,9 +113,15 @@ export default function MasterTable() {
   const loadSyncSheets = async (connId) => {
     setSyncConnId(connId);
     if (!connId) return;
-    const res = await fetch(`${API}/api/connections/${connId}/metadata`);
-    const data = await res.json();
-    setSyncSheets(data.sheets || {});
+    try {
+      const res = await fetch(`${API}/api/connections/${connId}/metadata`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Error cargando hojas');
+      setSyncSheets(data.sheets || {});
+    } catch (err) {
+      alert(err.message);
+      setSyncSheets({});
+    }
   };
 
   const handleSync = async () => {
