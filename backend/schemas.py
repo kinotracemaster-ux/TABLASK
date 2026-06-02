@@ -29,7 +29,7 @@ class ConnectionCreate(ConnectionBase):
 class Connection(ConnectionBase):
     id: int
     spreadsheet_id: Optional[str] = None
-    user_id: int
+    user_id: Optional[int] = None
     
     class Config:
         from_attributes = True
@@ -46,7 +46,7 @@ class ProjectCreate(ProjectBase):
 
 class Project(ProjectBase):
     id: int
-    user_id: int
+    user_id: Optional[int] = None
     created_at: datetime
     
     class Config:
