@@ -24,7 +24,7 @@ class Connection(Base):
     file_path = Column(String, nullable=True)
     
     owner = relationship("User", back_populates="connections")
-    projects = relationship("Project", back_populates="connection")
+    projects = relationship("Project", foreign_keys="[Project.connection_id]", back_populates="connection")
 
 class Project(Base):
     __tablename__ = "projects"
