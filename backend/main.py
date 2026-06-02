@@ -36,12 +36,10 @@ def create_connection(connection: schemas.ConnectionCreate, db: Session = Depend
     
     spreadsheet_id = match.group(1)
     
-    # Mocking user_id=1 for V1
     db_connection = models.Connection(
         name=connection.name, 
         google_sheet_url=connection.google_sheet_url,
-        spreadsheet_id=spreadsheet_id,
-        user_id=1 
+        spreadsheet_id=spreadsheet_id
     )
     db.add(db_connection)
     db.commit()

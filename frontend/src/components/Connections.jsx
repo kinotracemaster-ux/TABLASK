@@ -36,7 +36,8 @@ export default function Connections() {
           setUrl('');
           setName('');
         } else {
-          alert("Error al agregar conexión.");
+          const errData = await res.json().catch(() => ({}));
+          alert("Error al agregar conexión: " + (errData.detail || 'Verifique la URL o el backend'));
         }
       } else {
         if (!file) return;
