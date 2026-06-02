@@ -38,6 +38,8 @@ class Connection(ConnectionBase):
 class ProjectBase(BaseModel):
     name: str
     connection_id: int
+    master_connection_id: Optional[int] = None
+    master_sheet_name: Optional[str] = None
 
 class ProjectCreate(ProjectBase):
     pass
@@ -108,12 +110,8 @@ class ExportFormatBase(BaseModel):
     project_id: int
     source_connection_id: int
     source_sheet_name: str
-    # Dict con mapeo: columna_origen -> nombre_en_csv
-    # Ej: {"Nombre_Final": "title", "Stock": "inventory_count"}
     columns_mapping: Dict[str, str]
-    # 'csv_download' o 'google_sheets'
     output_type: str = "csv_download"
-    # Solo si output_type == 'google_sheets'
     output_spreadsheet_id: Optional[str] = None
     output_sheet_name: Optional[str] = None
 
@@ -128,53 +126,15 @@ class ExportFormat(ExportFormatBase):
         from_attributes = True
 
 
-# Master Table
-class MasterColumnBase(BaseModel):
-    name: str
-    column_order: int = 0
-
-class MasterColumnCreate(MasterColumnBase):
-    pass
-
-class MasterColumn(MasterColumnBase):
-    id: int
-    project_id: int
-
-    class Config:
-        from_attributes = True
-
-class MasterRowBase(BaseModel):
-    sku: str
-    data: Dict[str, Any]
-
-class MasterRowCreate(MasterRowBase):
-    pass
-
-class MasterRowUpdate(BaseModel):
-    sku: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
-
-class MasterRow(MasterRowBase):
-    id: int
-    project_id: int
-    updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
-class MasterImportRequest(BaseModel):
-    connection_id: int
-    sheet_name: str
-    sku_column: str  # Nombre de la columna que contiene el SKU
-
+# Master Table (Google Sheets backed)
 class MasterSyncRequest(BaseModel):
-    connection_id: int
-    sheet_name: str
-    sku_column: str  # Columna del SKU en la tabla origen
+    source_connection_id: int
+    source_sheet_name: str
+    sku_column_source: str
+    sku_column_master: str
     field_mappings: Dict[str, str]  # {"columna_origen": "columna_maestra"}
-    add_new_rows: bool = True  # Si agrega SKUs nuevos automáticamente
+    add_new_rows: bool = True
 
-class MasterTableResponse(BaseModel):
-    columns: List[MasterColumn]
-    rows: List[Dict[str, Any]]  # Lista de dicts con sku + data aplanada
-    total_rows: int
+class MasterLinkRequest(BaseModel):
+    master_connection_id: int
+    master_sheet_name: str

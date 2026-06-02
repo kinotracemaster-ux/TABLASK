@@ -32,18 +32,19 @@ class Project(Base):
     name = Column(String, nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"))
     connection_id = Column(Integer, ForeignKey("connections.id"))
+    master_connection_id = Column(Integer, ForeignKey("connections.id"), nullable=True)
+    master_sheet_name = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     owner = relationship("User", back_populates="projects")
-    connection = relationship("Connection", back_populates="projects")
+    connection = relationship("Connection", foreign_keys=[connection_id], back_populates="projects")
+    master_connection = relationship("Connection", foreign_keys=[master_connection_id])
     mappings = relationship("FieldMapping", back_populates="project", cascade="all, delete-orphan")
     source_tables = relationship("SourceTable", back_populates="project", cascade="all, delete-orphan")
     target_tables = relationship("TargetTable", back_populates="project", cascade="all, delete-orphan")
     sync_rules = relationship("SyncRule", back_populates="project", cascade="all, delete-orphan")
     sync_logs = relationship("SyncLog", back_populates="project", cascade="all, delete-orphan")
     export_formats = relationship("ExportFormat", back_populates="project", cascade="all, delete-orphan")
-    master_columns = relationship("MasterColumn", back_populates="project", cascade="all, delete-orphan")
-    master_rows = relationship("MasterRow", back_populates="project", cascade="all, delete-orphan")
 
 class SourceTable(Base):
     __tablename__ = "source_tables"
@@ -117,28 +118,5 @@ class ExportFormat(Base):
 
     project = relationship("Project", back_populates="export_formats")
     source_connection = relationship("Connection")
-
-
-class MasterColumn(Base):
-    """Columna dinámica de la Tabla Maestra de un proyecto."""
-    __tablename__ = "master_columns"
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"))
-    name = Column(String, nullable=False)
-    column_order = Column(Integer, default=0)
-
-    project = relationship("Project", back_populates="master_columns")
-
-
-class MasterRow(Base):
-    """Fila de la Tabla Maestra. El campo 'sku' es la llave y 'data' es un JSON con los valores."""
-    __tablename__ = "master_rows"
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"))
-    sku = Column(String, nullable=False, index=True)
-    data = Column(Text, nullable=False, default="{}")  # JSON: {"Descripción": "...", "Precio": "1500"}
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    project = relationship("Project", back_populates="master_rows")
 
 
