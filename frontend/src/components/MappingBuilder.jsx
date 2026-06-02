@@ -19,6 +19,20 @@ export default function MappingBuilder() {
     setMappings(newMappings);
   };
 
+  const loadSourceData = async (connId) => {
+    setSourceConnId(connId);
+    if (!connId) return;
+    try {
+      const res = await fetch(`${API}/api/connections/${connId}/metadata`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Error cargando metadatos');
+      setSourceSheets(data.sheets || {});
+    } catch (err) {
+      alert(err.message);
+      setSourceSheets({});
+    }
+  };
+
   const handleSave = () => {
     console.log("Configuración a guardar en la BD:", mappings);
     // Aquí haríamos un POST al backend (FastAPI)

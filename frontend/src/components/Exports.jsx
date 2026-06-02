@@ -30,13 +30,19 @@ export default function Exports() {
     fetch(`${API}/api/connections/`).then(r => r.json()).then(setConnections).catch(console.error);
   }, []);
 
-  useEffect(() => {
-    if (!sourceConnId) return;
-    fetch(`${API}/api/connections/${sourceConnId}/metadata`)
-      .then(r => r.json())
-      .then(data => setMasterSheets(data.sheets || {}))
-      .catch(console.error);
-  }, [sourceConnId]);
+  const loadSheets = async (connId) => {
+    setSourceConnId(connId);
+    if (!connId) return;
+    try {
+      const res = await fetch(`${API}/api/connections/${connId}/metadata`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Error cargando metadatos');
+      setMasterSheets(data.sheets || {});
+    } catch (err) {
+      alert(err.message);
+      setMasterSheets({});
+    }
+  };
 
   const addColMapping = () => setColMappings([...colMappings, { master_col: '', csv_col: '' }]);
   const removeColMapping = (i) => setColMappings(colMappings.filter((_, idx) => idx !== i));
@@ -187,7 +193,7 @@ export default function Exports() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tabla Master (conexión origen)</label>
-                <select value={sourceConnId} onChange={e => setSourceConnId(e.target.value)} required
+                <select value={sourceConnId} onChange={e => loadSheets(e.target.value)} required
                   className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none">
                   <option value="">Seleccionar conexión...</option>
                   {connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
