@@ -38,6 +38,13 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # El endpoint raíz ahora servirá el frontend de React (ver al final del archivo)
 
+# --- Reset DB (Solo Desarrollo) ---
+@app.post("/api/debug/reset-db")
+def reset_database():
+    models.Base.metadata.drop_all(bind=engine)
+    models.Base.metadata.create_all(bind=engine)
+    return {"message": "Base de datos reseteada con éxito. Actualiza la página."}
+
 # --- Connections ---
 @app.post("/api/connections/", response_model=schemas.Connection)
 def create_connection(connection: schemas.ConnectionCreate, db: Session = Depends(get_db)):

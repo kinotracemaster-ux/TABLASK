@@ -12,7 +12,13 @@ export default function Projects() {
   const [runAllStatus, setRunAllStatus] = useState({}); // { [proj.id]: { loading, results, errors } }
 
   useEffect(() => {
-    fetch(`${API}/api/projects/`).then(r => r.json()).then(setProjects).catch(console.error);
+    fetch(`${API}/api/projects/`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setProjects(data);
+        else console.error("Error from API:", data);
+      })
+      .catch(err => console.error("Error fetching projects", err));
     fetch(`${API}/api/connections/`).then(r => r.json()).then(setConnections).catch(console.error);
   }, []);
 

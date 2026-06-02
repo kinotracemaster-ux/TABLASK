@@ -14,7 +14,10 @@ export default function Connections() {
   useEffect(() => {
     fetch(`${API}/api/connections/`)
       .then(res => res.json())
-      .then(data => setConnections(data))
+      .then(data => {
+        if (Array.isArray(data)) setConnections(data);
+        else console.error("Error from API:", data);
+      })
       .catch(err => console.error("Error fetching connections", err));
   }, []);
 
