@@ -30,10 +30,11 @@ export default function MasterTable() {
   const [syncConnId, setSyncConnId] = useState('');
   const [syncSheets, setSyncSheets] = useState({});
   const [syncSheet, setSyncSheet] = useState('');
-  const [syncSkuColSource, setSyncSkuColSource] = useState('SKU');
+  const [syncSkuColSource, setSyncSkuColSource] = useState('');
   const [syncSkuColMaster, setSyncSkuColMaster] = useState('');
   const [syncMappings, setSyncMappings] = useState([{ src: '', dst: '' }]);
   const [syncing, setSyncing] = useState(false);
+  const [syncPreview, setSyncPreview] = useState(null); // resultado del preview
 
   useEffect(() => {
     loadConnections();
@@ -136,39 +137,75 @@ export default function MasterTable() {
     }
   };
 
-  const handleSync = async () => {
-    if (!syncSkuColSource || !syncSkuColMaster) {
-      alert("Por favor selecciona ambas columnas llave.");
-      return;
-    }
-    const confirmMsg = `¿Confirmas que deseas enlazar usando la columna '${syncSkuColSource}' del origen contra la columna '${syncSkuColMaster}' de la tabla maestra?`;
-    if(!window.confirm(confirmMsg)) return;
-
-    setSyncing(true);
+  const getSyncPayload = () => {
     const fieldMappings = {};
     syncMappings.forEach(m => { if (m.src && m.dst) fieldMappings[m.src] = m.dst; });
+    return {
+      source_connection_id: parseInt(syncConnId),
+      source_sheet_name: syncSheet,
+      sku_column_source: syncSkuColSource,
+      sku_column_master: syncSkuColMaster,
+      field_mappings: fieldMappings,
+      add_new_rows: true
+    };
+  };
+
+  // Paso 1: Vista previa (no escribe)
+  const handlePreviewSync = async () => {
+    if (!syncSkuColSource || !syncSkuColMaster) {
+      alert("Por favor selecciona ambas columnas llave (origen y maestra).");
+      return;
+    }
+    const payload = getSyncPayload();
+    if (Object.keys(payload.field_mappings).length === 0) {
+      alert("Debes asignar al menos un campo de datos a sincronizar (aparte de la llave).");
+      return;
+    }
+    setSyncing(true);
+    setSyncPreview(null);
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/master-sync-preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSyncPreview(data);
+      } else {
+        const errorDetail = data.detail || data.traceback || JSON.stringify(data);
+        alert('❌ Error al calcular preview:\n\n' + errorDetail);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('❌ Error de conexión: ' + err.message);
+    }
+    setSyncing(false);
+  };
+
+  // Paso 2: Confirmar y escribir
+  const handleConfirmSync = async () => {
+    setSyncing(true);
     try {
       const res = await fetch(`${API}/api/projects/${projectId}/master-sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source_connection_id: parseInt(syncConnId),
-          source_sheet_name: syncSheet,
-          sku_column_source: syncSkuColSource,
-          sku_column_master: syncSkuColMaster,
-          field_mappings: fieldMappings,
-          add_new_rows: true
-        })
+        body: JSON.stringify(getSyncPayload())
       });
       const data = await res.json();
       if (res.ok) {
         alert(`✅ ${data.message}`);
         setShowSync(false);
+        setSyncPreview(null);
         loadMasterData();
       } else {
-        alert('Error: ' + data.detail);
+        const errorDetail = data.detail || data.traceback || JSON.stringify(data);
+        alert('❌ Error en sincronización:\n\n' + errorDetail);
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      alert('❌ Error de conexión: ' + err.message);
+    }
     setSyncing(false);
   };
 
@@ -279,9 +316,11 @@ export default function MasterTable() {
             </div>
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Campo Llave en Origen</label>
-              <div className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-gray-100 text-gray-600">
-                SKU (Fijo)
-              </div>
+              <select value={syncSkuColSource} onChange={e => setSyncSkuColSource(e.target.value)}
+                disabled={!syncSheet} className="w-full border border-gray-300 rounded-lg p-2 text-sm">
+                <option value="">Seleccionar columna llave...</option>
+                {syncSourceCols.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Campo Llave en Maestra</label>
@@ -319,13 +358,112 @@ export default function MasterTable() {
               </div>
             ))}
           </div>
-          <div className="flex gap-2 mt-4">
-            <button onClick={handleSync} disabled={syncing || !syncSkuColSource || !syncSkuColMaster}
-              className="bg-orange-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 text-sm">
-              {syncing ? 'Escribiendo en Google Sheets...' : 'Ejecutar Sincronización'}
-            </button>
-            <button onClick={() => setShowSync(false)} className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm">Cancelar</button>
-          </div>
+          {/* Botón de Vista Previa */}
+          {!syncPreview && (
+            <div className="flex gap-2 mt-4">
+              <button onClick={handlePreviewSync} disabled={syncing || !syncSkuColSource || !syncSkuColMaster}
+                className="bg-orange-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 text-sm">
+                {syncing ? 'Calculando...' : '🔍 Ver Vista Previa'}
+              </button>
+              <button onClick={() => { setShowSync(false); setSyncPreview(null); }} className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm">Cancelar</button>
+            </div>
+          )}
+
+          {/* Resultados del Preview */}
+          {syncPreview && (
+            <div className="mt-5 border-t border-orange-200 pt-5">
+              <h4 className="font-semibold text-gray-800 mb-3">📋 Resultado del Análisis</h4>
+              
+              {/* Stats Cards */}
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                <div className="bg-white p-3 rounded-lg border border-gray-200 text-center">
+                  <p className="text-xs text-gray-500">Total Origen</p>
+                  <p className="text-xl font-bold text-gray-800">{syncPreview.total_origen}</p>
+                </div>
+                <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 text-center">
+                  <p className="text-xs text-blue-600">📊 Actualizarán</p>
+                  <p className="text-xl font-bold text-blue-700">{syncPreview.rows_updated}</p>
+                </div>
+                <div className="bg-green-50 p-3 rounded-lg border border-green-200 text-center">
+                  <p className="text-xs text-green-600">➕ Nuevos</p>
+                  <p className="text-xl font-bold text-green-700">{syncPreview.rows_added}</p>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-center">
+                  <p className="text-xs text-gray-500">Sin Cambio</p>
+                  <p className="text-xl font-bold text-gray-600">{syncPreview.rows_unchanged}</p>
+                </div>
+              </div>
+
+              {/* Detalle de productos nuevos */}
+              {syncPreview.detail_added?.length > 0 && (
+                <details className="mb-3">
+                  <summary className="cursor-pointer text-sm font-medium text-green-700 hover:text-green-900">
+                    ➕ {syncPreview.rows_added} producto(s) nuevo(s) — ver detalle
+                  </summary>
+                  <div className="mt-2 bg-green-50 rounded-lg p-3 max-h-40 overflow-y-auto">
+                    {syncPreview.detail_added.map((item, i) => (
+                      <div key={i} className="text-sm text-green-800 py-1 border-b border-green-100 last:border-0">
+                        <span className="font-medium">{item.sku}</span>
+                        <span className="text-green-600 ml-2">
+                          {Object.entries(item.datos || {}).map(([k, v]) => `${k}: ${v}`).join(' • ')}
+                        </span>
+                      </div>
+                    ))}
+                    {syncPreview.rows_added > 50 && <p className="text-xs text-green-500 mt-1">...y {syncPreview.rows_added - 50} más</p>}
+                  </div>
+                </details>
+              )}
+
+              {/* Detalle de productos actualizados */}
+              {syncPreview.detail_updated?.length > 0 && (
+                <details className="mb-3">
+                  <summary className="cursor-pointer text-sm font-medium text-blue-700 hover:text-blue-900">
+                    📊 {syncPreview.rows_updated} producto(s) con cambios — ver detalle
+                  </summary>
+                  <div className="mt-2 bg-blue-50 rounded-lg p-3 max-h-40 overflow-y-auto">
+                    {syncPreview.detail_updated.map((item, i) => (
+                      <div key={i} className="text-sm text-blue-800 py-1 border-b border-blue-100 last:border-0">
+                        <span className="font-medium">{item.sku}</span>
+                        <span className="text-blue-600 ml-2">
+                          {Object.entries(item.cambios || {}).map(([k, v]) => `${k}: "${v.antes}" → "${v['después']}"`).join(' • ')}
+                        </span>
+                      </div>
+                    ))}
+                    {syncPreview.rows_updated > 50 && <p className="text-xs text-blue-500 mt-1">...y {syncPreview.rows_updated - 50} más</p>}
+                  </div>
+                </details>
+              )}
+
+              {/* Detalle sin cambios */}
+              {syncPreview.detail_unchanged?.length > 0 && (
+                <details className="mb-3">
+                  <summary className="cursor-pointer text-sm font-medium text-gray-500 hover:text-gray-700">
+                    Sin cambio: {syncPreview.rows_unchanged} producto(s) ya están actualizados
+                  </summary>
+                  <div className="mt-2 bg-gray-50 rounded-lg p-3 max-h-32 overflow-y-auto">
+                    <p className="text-sm text-gray-600">{syncPreview.detail_unchanged.join(', ')}</p>
+                    {syncPreview.rows_unchanged > 50 && <p className="text-xs text-gray-400 mt-1">...y {syncPreview.rows_unchanged - 50} más</p>}
+                  </div>
+                </details>
+              )}
+
+              {/* Botones de acción */}
+              <div className="flex gap-2 mt-4">
+                {(syncPreview.rows_updated > 0 || syncPreview.rows_added > 0) ? (
+                  <button onClick={handleConfirmSync} disabled={syncing}
+                    className="bg-green-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 text-sm">
+                    {syncing ? 'Escribiendo en Google Sheets...' : `✅ Confirmar y Sincronizar (${syncPreview.rows_updated + syncPreview.rows_added} cambios)`}
+                  </button>
+                ) : (
+                  <div className="bg-gray-100 text-gray-600 px-5 py-2 rounded-lg text-sm font-medium">
+                    ✓ No hay cambios que aplicar. Todo está actualizado.
+                  </div>
+                )}
+                <button onClick={() => { setSyncPreview(null); }} className="text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-50 text-sm">← Modificar Mapeo</button>
+                <button onClick={() => { setShowSync(false); setSyncPreview(null); }} className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm">Cancelar</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

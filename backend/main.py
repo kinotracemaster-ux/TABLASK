@@ -175,7 +175,27 @@ def preview_sync(req: SyncPreviewRequest, db: Session = Depends(get_db)):
 
 @app.post("/api/sync/execute")
 def execute_sync(req: SyncPreviewRequest, db: Session = Depends(get_db)):
+    from .services import write_sheet_data
+    
     preview = preview_sync(req, db)
+    
+    # Escribir los datos procesados de vuelta al Google Sheet destino
+    target_conn = db.query(models.Connection).filter(models.Connection.id == req.target_connection_id).first()
+    if not target_conn or not target_conn.spreadsheet_id:
+        raise HTTPException(status_code=400, detail="La conexión destino no tiene un Google Sheet asociado para escribir.")
+    
+    preview_data = preview.get("preview_data", [])
+    if preview_data and preview.get("rows_changed", 0) > 0:
+        print(f"[execute_sync] Escribiendo {len(preview_data)} filas a {target_conn.spreadsheet_id} / {req.target_sheet_name}")
+        write_result = write_sheet_data(
+            spreadsheet_id=target_conn.spreadsheet_id,
+            sheet_name=req.target_sheet_name,
+            data=preview_data
+        )
+        print(f"[execute_sync] Resultado Google API: {write_result}")
+    else:
+        write_result = {"rows_written": 0, "note": "Sin cambios detectados, no se escribió nada."}
+        print(f"[execute_sync] Sin cambios, no se escribió al Sheet.")
     
     # Guardar SyncLog
     db_log = models.SyncLog(
@@ -189,7 +209,13 @@ def execute_sync(req: SyncPreviewRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_log)
     
-    return {"message": "Sincronización ejecutada con éxito", "log_id": db_log.id, "preview": preview}
+    return {
+        "message": f"Sincronización ejecutada: {preview.get('rows_changed', 0)} filas actualizadas en Google Sheets.",
+        "log_id": db_log.id,
+        "rows_changed": preview.get("rows_changed", 0),
+        "rows_added": preview.get("rows_added", 0),
+        "google_sheets_result": write_result
+    }
 
 # --- Export Formats ---
 import json
@@ -489,13 +515,8 @@ def get_master_table(project_id: int, db: Session = Depends(get_db)):
     }
 
 
-@app.post("/api/projects/{project_id}/master-sync")
-def sync_to_master(project_id: int, req: schemas.MasterSyncRequest, db: Session = Depends(get_db)):
-    """Sincroniza datos desde una tabla origen hacia la Tabla Maestra en Google Sheets."""
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
-    if not project or not project.master_connection_id:
-        raise HTTPException(status_code=404, detail="El proyecto no tiene una tabla maestra enlazada")
-        
+def _compute_master_sync(project, req, db):
+    """Lógica compartida: calcula el cruce origen→maestra sin escribir. Retorna el resultado."""
     # 1. Leer Origen
     src_conn = db.query(models.Connection).filter(models.Connection.id == req.source_connection_id).first()
     if not src_conn:
@@ -508,7 +529,7 @@ def sync_to_master(project_id: int, req: schemas.MasterSyncRequest, db: Session 
     src_headers = src_raw[0]
     
     if req.sku_column_source not in src_headers:
-        raise HTTPException(status_code=400, detail=f"Columna '{req.sku_column_source}' no encontrada en el origen. Es obligatorio que exista para cruzar datos.")
+        raise HTTPException(status_code=400, detail=f"Columna '{req.sku_column_source}' no encontrada en el origen.")
     src_sku_idx = src_headers.index(req.sku_column_source)
     
     # 2. Leer Maestra
@@ -516,35 +537,34 @@ def sync_to_master(project_id: int, req: schemas.MasterSyncRequest, db: Session 
     master_raw = get_sheet_data(master_conn, f"{project.master_sheet_name}!A1:Z")
     
     if not master_raw:
-        # Si la maestra está totalmente vacía, iniciamos con las columnas mapeadas + SKU
         master_headers = [req.sku_column_master] + list(set(req.field_mappings.values()))
         master_raw = [master_headers]
     else:
         master_headers = master_raw[0]
         
-    # Asegurar que todas las columnas mapeadas existan en la maestra
     for dst_col in req.field_mappings.values():
         if dst_col not in master_headers:
             master_headers.append(dst_col)
-            
-    # Si agregamos columnas nuevas, hay que actualizar master_raw[0]
     master_raw[0] = master_headers
     
     if req.sku_column_master not in master_headers:
         raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column_master}' no encontrada en la maestra")
     master_sku_idx = master_headers.index(req.sku_column_master)
     
-    # Indexar la maestra actual por SKU para fácil actualización
+    # Indexar la maestra actual por SKU
     master_by_sku = {}
     for i, row in enumerate(master_raw[1:]):
         sku_val = row[master_sku_idx] if master_sku_idx < len(row) else ""
         if sku_val:
-            # Rellenar con vacíos si la fila es más corta que los headers
             padded_row = row + [""] * (len(master_headers) - len(row))
             master_by_sku[sku_val] = {"index": i + 1, "data": padded_row}
             
     rows_updated = 0
     rows_added = 0
+    rows_unchanged = 0
+    detail_updated = []
+    detail_added = []
+    detail_unchanged = []
     
     # 3. Procesar datos del Origen y cruzar con la Maestra
     for src_row in src_raw[1:]:
@@ -553,47 +573,106 @@ def sync_to_master(project_id: int, req: schemas.MasterSyncRequest, db: Session 
             continue
             
         if sku_val in master_by_sku:
-            # Actualizar
             mr_info = master_by_sku[sku_val]
             mr_data = mr_info["data"]
             changed = False
+            changes_detail = {}
             
             for src_col, dst_col in req.field_mappings.items():
                 if src_col in src_headers:
                     s_idx = src_headers.index(src_col)
                     m_idx = master_headers.index(dst_col)
-                    
                     new_val = src_row[s_idx] if s_idx < len(src_row) else ""
-                    if mr_data[m_idx] != new_val:
+                    old_val = mr_data[m_idx]
+                    if old_val != new_val:
+                        changes_detail[dst_col] = {"antes": old_val, "después": new_val}
                         mr_data[m_idx] = new_val
                         changed = True
             
             if changed:
                 master_raw[mr_info["index"]] = mr_data
                 rows_updated += 1
+                detail_updated.append({"sku": sku_val, "cambios": changes_detail})
+            else:
+                rows_unchanged += 1
+                detail_unchanged.append(sku_val)
                 
         elif req.add_new_rows:
-            # Añadir nuevo
             new_mr_data = [""] * len(master_headers)
             new_mr_data[master_sku_idx] = sku_val
             
+            new_fields = {}
             for src_col, dst_col in req.field_mappings.items():
                 if src_col in src_headers:
                     s_idx = src_headers.index(src_col)
                     m_idx = master_headers.index(dst_col)
                     new_val = src_row[s_idx] if s_idx < len(src_row) else ""
                     new_mr_data[m_idx] = new_val
+                    new_fields[dst_col] = new_val
                     
             master_raw.append(new_mr_data)
             rows_added += 1
-            
-    # 4. Escribir de vuelta a Google Sheets
-    write_result = write_sheet_data(master_conn.spreadsheet_id, project.master_sheet_name, master_raw)
+            detail_added.append({"sku": sku_val, "datos": new_fields})
     
     return {
-        "message": f"Sincronización a Maestra completada: {rows_updated} actualizadas, {rows_added} nuevas.",
+        "master_raw": master_raw,
+        "master_conn": master_conn,
         "rows_updated": rows_updated,
         "rows_added": rows_added,
+        "rows_unchanged": rows_unchanged,
+        "total_origen": len(src_raw) - 1,
+        "total_maestra": len(master_raw) - 1,
+        "detail_updated": detail_updated[:50],  # Limitar para no enviar demasiado
+        "detail_added": detail_added[:50],
+        "detail_unchanged": detail_unchanged[:50],
+    }
+
+
+@app.post("/api/projects/{project_id}/master-sync-preview")
+def preview_master_sync(project_id: int, req: schemas.MasterSyncRequest, db: Session = Depends(get_db)):
+    """Vista previa: calcula el cruce sin escribir a Google Sheets."""
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project or not project.master_connection_id:
+        raise HTTPException(status_code=404, detail="El proyecto no tiene una tabla maestra enlazada")
+    
+    result = _compute_master_sync(project, req, db)
+    
+    return {
+        "rows_updated": result["rows_updated"],
+        "rows_added": result["rows_added"],
+        "rows_unchanged": result["rows_unchanged"],
+        "total_origen": result["total_origen"],
+        "total_maestra": result["total_maestra"],
+        "detail_updated": result["detail_updated"],
+        "detail_added": result["detail_added"],
+        "detail_unchanged": result["detail_unchanged"],
+    }
+
+
+@app.post("/api/projects/{project_id}/master-sync")
+def sync_to_master(project_id: int, req: schemas.MasterSyncRequest, db: Session = Depends(get_db)):
+    """Ejecuta la sincronización: calcula y ESCRIBE a Google Sheets."""
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project or not project.master_connection_id:
+        raise HTTPException(status_code=404, detail="El proyecto no tiene una tabla maestra enlazada")
+    
+    result = _compute_master_sync(project, req, db)
+    
+    master_raw = result["master_raw"]
+    master_conn = result["master_conn"]
+    
+    # Escribir a Google Sheets
+    print(f"[master-sync] Origen: {result['total_origen']} filas, Maestra: {result['total_maestra']} filas")
+    print(f"[master-sync] Actualizadas: {result['rows_updated']}, Nuevas: {result['rows_added']}, Sin cambio: {result['rows_unchanged']}")
+    
+    write_result = write_sheet_data(master_conn.spreadsheet_id, project.master_sheet_name, master_raw)
+    print(f"[master-sync] Resultado Google API: {write_result}")
+    
+    return {
+        "message": f"Sincronización completada: {result['rows_updated']} actualizadas, {result['rows_added']} nuevas.",
+        "rows_updated": result["rows_updated"],
+        "rows_added": result["rows_added"],
+        "rows_unchanged": result["rows_unchanged"],
         "google_sheets_result": write_result
     }
 

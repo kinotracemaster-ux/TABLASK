@@ -48,7 +48,14 @@ def process_sync(
             records.append(r_dict)
         source_indices[source_name] = records
 
-    # Cruce de datos
+    # Cruce de datos: actualizar registros existentes
+    # Recopilar todas las claves del destino para detectar los que faltan
+    target_key_values = set()
+    for record in target_records:
+        key_val = record.get(target_key)
+        if key_val:
+            target_key_values.add(key_val)
+    
     for record in target_records:
         key_val = record.get(target_key)
         if not key_val: continue
@@ -79,6 +86,38 @@ def process_sync(
                     
         if changed:
             rows_changed_count += 1
+    
+    # Agregar productos del origen que NO existen en el destino
+    # Agrupar mappings por tabla de origen
+    source_tables_in_mappings = set(m['source_table'] for m in mappings)
+    
+    for src_table in source_tables_in_mappings:
+        src_key_mapping = next((m for m in mappings if m['source_table'] == src_table and m['is_key']), None)
+        if not src_key_mapping: continue
+        
+        src_key_field = src_key_mapping['source_field']
+        src_records = source_indices.get(src_table, [])
+        
+        # Obtener los mappings de datos (no clave) para esta tabla
+        data_mappings = [m for m in mappings if m['source_table'] == src_table and not m['is_key']]
+        
+        for src_record in src_records:
+            src_key_val = src_record.get(src_key_field, "")
+            if not src_key_val: continue
+            
+            # Si este producto NO existe en el destino, agregarlo
+            if src_key_val not in target_key_values:
+                new_record = {h: "" for h in target_headers}
+                new_record[target_key] = src_key_val  # Poner la llave
+                
+                # Copiar los campos mapeados
+                for dm in data_mappings:
+                    if dm['source_field'] in src_record:
+                        new_record[dm['target_field']] = src_record[dm['source_field']]
+                
+                target_records.append(new_record)
+                target_key_values.add(src_key_val)  # Evitar duplicados si hay múltiples tablas
+                rows_added_count += 1
             
     # Volver a formato de lista de listas
     preview_data = [target_headers]
@@ -89,6 +128,6 @@ def process_sync(
     return {
         "preview_data": preview_data,
         "rows_changed": rows_changed_count,
-        "rows_added": rows_added_count, # Simplified for MVP
+        "rows_added": rows_added_count,
         "errors": 0
     }

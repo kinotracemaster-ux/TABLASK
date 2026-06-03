@@ -37,6 +37,7 @@ export default function PreviewSync() {
 
   const handleExecute = async () => {
     if(!payload) return;
+    if(!window.confirm("¿Confirmas ejecutar la actualización? Los datos se escribirán directamente en el Google Sheet destino.")) return;
     try {
       const res = await fetch(`${API}/api/sync/execute`, {
         method: 'POST',
@@ -45,13 +46,15 @@ export default function PreviewSync() {
       });
       const data = await res.json();
       if(res.ok) {
-        alert("¡Actualización de datos realizada con éxito!");
+        alert(`✅ ${data.message}\n\n📊 Filas actualizadas: ${data.rows_changed || 0}\n➕ Filas nuevas: ${data.rows_added || 0}`);
         navigate('/projects');
       } else {
-        alert("Error: " + data.detail);
+        const errorDetail = data.detail || data.traceback || JSON.stringify(data);
+        alert('❌ Error en sincronización:\n\n' + errorDetail);
       }
     } catch(err) {
       console.error(err);
+      alert('❌ Error de conexión: ' + err.message);
     }
   };
 
