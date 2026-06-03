@@ -120,3 +120,19 @@ class ExportFormat(Base):
     source_connection = relationship("Connection")
 
 
+class Process(Base):
+    """Proceso de importación: trae datos de una fuente externa hacia la Tabla Maestra."""
+    __tablename__ = "processes"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)              # "Actualizar Inventario"
+    description = Column(String, nullable=True)        # "Trae stock del proveedor X"
+    source_connection_id = Column(Integer, ForeignKey("connections.id"))
+    source_sheet_name = Column(String, nullable=False)  # Hoja en el origen
+    sku_column_source = Column(String, nullable=False)  # Nombre de col SKU en origen
+    sku_column_master = Column(String, nullable=False)  # Nombre de col SKU en maestra
+    field_mappings = Column(Text, nullable=False)       # JSON: {"col_origen": "col_maestra"}
+    add_new_rows = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    source_connection = relationship("Connection")

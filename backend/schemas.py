@@ -138,3 +138,26 @@ class MasterSyncRequest(BaseModel):
 class MasterLinkRequest(BaseModel):
     master_connection_id: int
     master_sheet_name: str
+
+
+# Processes (Importación)
+class ProcessBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    source_connection_id: int
+    source_sheet_name: str
+    sku_column_source: str
+    sku_column_master: str
+    field_mappings: Dict[str, str]  # {"col_origen": "col_maestra"}
+    add_new_rows: bool = True
+    is_active: bool = True
+
+class ProcessCreate(ProcessBase):
+    pass
+
+class Process(ProcessBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

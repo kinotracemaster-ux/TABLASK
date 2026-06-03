@@ -470,18 +470,56 @@ def link_master_table(project_id: int, req: schemas.MasterLinkRequest, db: Sessi
     return {"message": "Tabla maestra enlazada correctamente"}
 
 
-@app.post("/api/projects/{project_id}/master-unlink")
-def unlink_master_table(project_id: int, db: Session = Depends(get_db)):
-    """Desvincula la Tabla Maestra actual del proyecto."""
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+# --- Global Master Table Endpoints ---
+@app.get("/api/master")
+def get_global_master(db: Session = Depends(get_db)):
+    project, master_conn, master_sheet = _get_master_info(db)
+    if not project or not master_conn:
+        raise HTTPException(status_code=404, detail="No hay tabla maestra enlazada.")
         
+    raw = get_sheet_data(master_conn, f"{master_sheet}!A1:Z")
+    if not raw or len(raw) == 0:
+        return {"columns": [], "rows": [], "total_rows": 0, "master_connection_id": project.master_connection_id, "master_sheet_name": master_sheet}
+        
+    columns = raw[0]
+    rows = raw[1:] if len(raw) > 1 else []
+    return {
+        "columns": columns,
+        "rows": rows,
+        "total_rows": len(rows),
+        "master_connection_id": project.master_connection_id,
+        "master_sheet_name": master_sheet
+    }
+
+@app.post("/api/master/link")
+def link_global_master(req: schemas.MasterLinkRequest, db: Session = Depends(get_db)):
+    project = db.query(models.Project).first()
+    if not project:
+        # Create a default project if none exists
+        project = models.Project(name="Global Project")
+        db.add(project)
+        db.commit()
+        db.refresh(project)
+        
+    conn = db.query(models.Connection).filter(models.Connection.id == req.master_connection_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Conexión maestra no encontrada")
+        
+    project.master_connection_id = req.master_connection_id
+    project.master_sheet_name = req.master_sheet_name
+    db.commit()
+    
+    return {"message": "Tabla maestra enlazada correctamente"}
+
+@app.post("/api/master/unlink")
+def unlink_global_master(db: Session = Depends(get_db)):
+    project, _, _ = _get_master_info(db)
+    if not project:
+        return {"message": "No hay tabla maestra para desvincular"}
     project.master_connection_id = None
     project.master_sheet_name = None
     db.commit()
-    
-    return {"message": "Tabla maestra desvinculada correctamente"}
+    return {"message": "Tabla maestra desvinculada"}
 
 
 @app.get("/api/projects/{project_id}/master")
@@ -688,6 +726,269 @@ def get_master_columns_for_export(project_id: int, db: Session = Depends(get_db)
     master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
     raw = get_sheet_data(master_conn, f"{project.master_sheet_name}!A1:Z1")
     
+    if raw and len(raw) > 0:
+        return raw[0]
+    return []
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ██ PROCESOS DE IMPORTACIÓN
+# ═══════════════════════════════════════════════════════════════════
+
+@app.post("/api/processes/", response_model=schemas.Process)
+def create_process(proc: schemas.ProcessCreate, db: Session = Depends(get_db)):
+    db_proc = models.Process(
+        name=proc.name,
+        description=proc.description,
+        source_connection_id=proc.source_connection_id,
+        source_sheet_name=proc.source_sheet_name,
+        sku_column_source=proc.sku_column_source,
+        sku_column_master=proc.sku_column_master,
+        field_mappings=json.dumps(proc.field_mappings, ensure_ascii=False),
+        add_new_rows=proc.add_new_rows,
+        is_active=proc.is_active
+    )
+    db.add(db_proc)
+    db.commit()
+    db.refresh(db_proc)
+    db_proc.field_mappings = json.loads(db_proc.field_mappings)
+    return db_proc
+
+@app.get("/api/processes/", response_model=list[schemas.Process])
+def list_processes(db: Session = Depends(get_db)):
+    procs = db.query(models.Process).all()
+    for p in procs:
+        p.field_mappings = json.loads(p.field_mappings)
+    return procs
+
+@app.delete("/api/processes/{process_id}")
+def delete_process(process_id: int, db: Session = Depends(get_db)):
+    proc = db.query(models.Process).filter(models.Process.id == process_id).first()
+    if not proc:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    db.delete(proc)
+    db.commit()
+    return {"message": "Proceso eliminado"}
+
+@app.put("/api/processes/{process_id}", response_model=schemas.Process)
+def update_process(process_id: int, proc: schemas.ProcessCreate, db: Session = Depends(get_db)):
+    db_proc = db.query(models.Process).filter(models.Process.id == process_id).first()
+    if not db_proc:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    db_proc.name = proc.name
+    db_proc.description = proc.description
+    db_proc.source_connection_id = proc.source_connection_id
+    db_proc.source_sheet_name = proc.source_sheet_name
+    db_proc.sku_column_source = proc.sku_column_source
+    db_proc.sku_column_master = proc.sku_column_master
+    db_proc.field_mappings = json.dumps(proc.field_mappings, ensure_ascii=False)
+    db_proc.add_new_rows = proc.add_new_rows
+    db_proc.is_active = proc.is_active
+    db.commit()
+    db.refresh(db_proc)
+    db_proc.field_mappings = json.loads(db_proc.field_mappings)
+    return db_proc
+
+
+def _get_master_info(db):
+    """Obtiene el proyecto con maestra enlazada (usa el primero disponible)."""
+    project = db.query(models.Project).filter(models.Project.master_connection_id.isnot(None)).first()
+    if not project:
+        return None, None, None
+    master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
+    return project, master_conn, project.master_sheet_name
+
+
+def _run_single_process(proc, db):
+    """Ejecuta un proceso individual: importa datos desde origen a la maestra."""
+    project, master_conn, master_sheet = _get_master_info(db)
+    if not project or not master_conn:
+        return {"process": proc.name, "status": "error", "error": "No hay tabla maestra enlazada"}
+
+    field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
+
+    # Construir el request como MasterSyncRequest
+    req = schemas.MasterSyncRequest(
+        source_connection_id=proc.source_connection_id,
+        source_sheet_name=proc.source_sheet_name,
+        sku_column_source=proc.sku_column_source,
+        sku_column_master=proc.sku_column_master,
+        field_mappings=field_mappings,
+        add_new_rows=proc.add_new_rows
+    )
+
+    try:
+        result = _compute_master_sync(project, req, db)
+
+        # Escribir a Google Sheets
+        master_raw = result["master_raw"]
+        write_result = write_sheet_data(master_conn.spreadsheet_id, master_sheet, master_raw)
+
+        return {
+            "process": proc.name,
+            "status": "success",
+            "rows_updated": result["rows_updated"],
+            "rows_added": result["rows_added"],
+            "rows_unchanged": result["rows_unchanged"],
+            "total_origen": result["total_origen"],
+        }
+    except Exception as e:
+        return {"process": proc.name, "status": "error", "error": str(e)}
+
+
+@app.post("/api/processes/{process_id}/preview")
+def preview_process(process_id: int, db: Session = Depends(get_db)):
+    """Vista previa de un proceso individual (no escribe)."""
+    proc = db.query(models.Process).filter(models.Process.id == process_id).first()
+    if not proc:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+
+    project, master_conn, master_sheet = _get_master_info(db)
+    if not project or not master_conn:
+        raise HTTPException(status_code=400, detail="No hay tabla maestra enlazada. Ve a Tabla Maestra y enlaza un Google Sheet primero.")
+
+    field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
+
+    req = schemas.MasterSyncRequest(
+        source_connection_id=proc.source_connection_id,
+        source_sheet_name=proc.source_sheet_name,
+        sku_column_source=proc.sku_column_source,
+        sku_column_master=proc.sku_column_master,
+        field_mappings=field_mappings,
+        add_new_rows=proc.add_new_rows
+    )
+
+    result = _compute_master_sync(project, req, db)
+
+    return {
+        "process_name": proc.name,
+        "rows_updated": result["rows_updated"],
+        "rows_added": result["rows_added"],
+        "rows_unchanged": result["rows_unchanged"],
+        "total_origen": result["total_origen"],
+        "total_maestra": result["total_maestra"],
+        "detail_updated": result["detail_updated"],
+        "detail_added": result["detail_added"],
+        "detail_unchanged": result["detail_unchanged"],
+    }
+
+
+@app.post("/api/processes/{process_id}/run")
+def run_process(process_id: int, db: Session = Depends(get_db)):
+    """Ejecuta un proceso individual (escribe a Google Sheets)."""
+    proc = db.query(models.Process).filter(models.Process.id == process_id).first()
+    if not proc:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+
+    result = _run_single_process(proc, db)
+    if result["status"] == "error":
+        raise HTTPException(status_code=400, detail=result.get("error", "Error desconocido"))
+
+    return result
+
+
+@app.post("/api/run-all")
+def run_all_processes_and_exports(db: Session = Depends(get_db)):
+    """
+    ⚡ BOTÓN MAESTRO: Ejecuta todo el ciclo.
+    1. Corre todos los procesos de importación activos (origen → maestra)
+    2. Corre todos los formatos de salida tipo google_sheets (maestra → hojas destino)
+    """
+    from .services import write_sheet_data as ws
+
+    project, master_conn, master_sheet = _get_master_info(db)
+    if not project or not master_conn:
+        raise HTTPException(status_code=400, detail="No hay tabla maestra enlazada.")
+
+    import_results = []
+    export_results = []
+    errors = []
+
+    # ── PASO 1: Importar (Procesos activos) ──
+    active_processes = db.query(models.Process).filter(models.Process.is_active == True).all()
+    for proc in active_processes:
+        result = _run_single_process(proc, db)
+        if result["status"] == "success":
+            import_results.append(result)
+        else:
+            errors.append(result)
+
+    # ── PASO 2: Distribuir (Formatos de salida) ──
+    all_formats = db.query(models.ExportFormat).filter(
+        models.ExportFormat.project_id == project.id
+    ).all()
+
+    for fmt in all_formats:
+        try:
+            col_map = json.loads(fmt.columns_mapping)
+
+            # Leer la Maestra (fuente de verdad)
+            raw_data = get_sheet_data(master_conn, f"{master_sheet}!A1:Z")
+            if not raw_data:
+                errors.append({"process": f"Formato: {fmt.name}", "status": "error", "error": "Maestra vacía"})
+                continue
+
+            master_headers = raw_data[0]
+            master_rows = raw_data[1:]
+
+            output_data = [list(col_map.values())]
+            for row in master_rows:
+                row_dict = {master_headers[i]: (row[i] if i < len(row) else "") for i in range(len(master_headers))}
+                output_row = [row_dict.get(mc, "") for mc in col_map.keys()]
+                output_data.append(output_row)
+
+            if fmt.output_type == "google_sheets" and fmt.output_spreadsheet_id and fmt.output_sheet_name:
+                wr = ws(
+                    spreadsheet_id=fmt.output_spreadsheet_id,
+                    sheet_name=fmt.output_sheet_name,
+                    data=output_data
+                )
+                export_results.append({
+                    "process": f"📤 {fmt.name}",
+                    "status": "success",
+                    "type": "google_sheets",
+                    "rows_written": wr.get("rows_written", len(output_data) - 1)
+                })
+            elif fmt.output_type == "csv_download":
+                export_results.append({
+                    "process": f"📤 {fmt.name}",
+                    "status": "ready",
+                    "type": "csv_download",
+                    "rows_ready": len(output_data) - 1,
+                    "download_url": f"/api/exports/{fmt.id}/download"
+                })
+        except Exception as e:
+            errors.append({"process": f"Formato: {fmt.name}", "status": "error", "error": str(e)})
+
+    total_updated = sum(r.get("rows_updated", 0) for r in import_results)
+    total_added = sum(r.get("rows_added", 0) for r in import_results)
+
+    return {
+        "message": f"Ciclo completo: {len(import_results)} procesos + {len(export_results)} formatos ejecutados.",
+        "import_results": import_results,
+        "export_results": export_results,
+        "errors": errors,
+        "summary": {
+            "processes_ok": len(import_results),
+            "exports_ok": len(export_results),
+            "errors": len(errors),
+            "total_rows_updated": total_updated,
+            "total_rows_added": total_added
+        }
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ██ COLUMNAS DE LA MAESTRA (para UI)
+# ═══════════════════════════════════════════════════════════════════
+
+@app.get("/api/master-columns")
+def get_master_columns(db: Session = Depends(get_db)):
+    """Devuelve las columnas de la Maestra sin necesidad de project_id."""
+    project, master_conn, master_sheet = _get_master_info(db)
+    if not project or not master_conn:
+        return []
+    raw = get_sheet_data(master_conn, f"{master_sheet}!A1:Z1")
     if raw and len(raw) > 0:
         return raw[0]
     return []
