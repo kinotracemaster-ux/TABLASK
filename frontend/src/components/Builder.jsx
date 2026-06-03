@@ -57,7 +57,7 @@ export default function Builder() {
       project_id: parseInt(id),
       target_connection_id: parseInt(targetConnectionId),
       target_sheet_name: targetSheet,
-      target_key: mappings.find(m => m.is_key)?.target_field,
+      target_key: "SKU",
       source_connections: {
         [sourceSheet]: parseInt(sourceConnectionId)
       },
@@ -145,7 +145,7 @@ export default function Builder() {
               <div className="mt-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={mapping.is_key} onChange={e => updateMapping(idx, 'is_key', e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                  <span className="text-sm font-medium">Es Clave</span>
+                  <span className="text-sm font-medium">Es Clave (SKU)</span>
                 </label>
               </div>
             </div>

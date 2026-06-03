@@ -57,7 +57,6 @@ def process_sync(
         # Buscar en cada tabla de origen
         for mapping in mappings:
             if mapping['is_key']: continue # Ya sabemos cuál es la clave
-            
             src_table = mapping['source_table']
             src_field = mapping['source_field']
             tgt_field = mapping['target_field']

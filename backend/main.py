@@ -164,6 +164,9 @@ def preview_sync(req: SyncPreviewRequest, db: Session = Depends(get_db)):
         if src_conn:
             source_datasets[source_name] = get_sheet_data(src_conn, f"{source_name}!A1:Z")
         
+    # Forzar que la llave siempre sea 'SKU' según el requerimiento
+    req.target_key = "SKU"
+    
     # 3. Procesar
     result = process_sync(target_data, source_datasets, req.mappings, req.target_key)
     if "error" in result:
@@ -490,8 +493,12 @@ def sync_to_master(project_id: int, req: schemas.MasterSyncRequest, db: Session 
         raise HTTPException(status_code=400, detail="La tabla origen está vacía")
     
     src_headers = src_raw[0]
+    
+    # La llave de la maestra siempre es 'SKU', pero la de origen se define al subir
+    req.sku_column_master = "SKU"
+    
     if req.sku_column_source not in src_headers:
-        raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column_source}' no encontrada en el origen")
+        raise HTTPException(status_code=400, detail=f"Columna '{req.sku_column_source}' no encontrada en el origen. Es obligatorio que exista para cruzar datos.")
     src_sku_idx = src_headers.index(req.sku_column_source)
     
     # 2. Leer Maestra

@@ -7,12 +7,12 @@ const API = import.meta.env.VITE_API_URL || '';
 export default function MasterTable() {
   const { projectId } = useParams();
   const [loading, setLoading] = useState(true);
-  
+
   // Data state
   const [columns, setColumns] = useState([]);
   const [rows, setRows] = useState([]);
   const [totalRows, setTotalRows] = useState(0);
-  
+
   // Link state
   const [showLink, setShowLink] = useState(false);
   const [connections, setConnections] = useState([]);
@@ -20,7 +20,7 @@ export default function MasterTable() {
   const [masterSheets, setMasterSheets] = useState({});
   const [masterSheet, setMasterSheet] = useState('');
   const [linking, setLinking] = useState(false);
-  
+
   // Active master info
   const [activeMasterConnId, setActiveMasterConnId] = useState(null);
   const [activeMasterSheet, setActiveMasterSheet] = useState(null);
@@ -30,8 +30,8 @@ export default function MasterTable() {
   const [syncConnId, setSyncConnId] = useState('');
   const [syncSheets, setSyncSheets] = useState({});
   const [syncSheet, setSyncSheet] = useState('');
-  const [syncSkuColSource, setSyncSkuColSource] = useState('');
-  const [syncSkuColMaster, setSyncSkuColMaster] = useState('');
+  const [syncSkuColSource, setSyncSkuColSource] = useState('SKU');
+  const [syncSkuColMaster, setSyncSkuColMaster] = useState('SKU');
   const [syncMappings, setSyncMappings] = useState([{ src: '', dst: '' }]);
   const [syncing, setSyncing] = useState(false);
 
@@ -92,9 +92,9 @@ export default function MasterTable() {
       const res = await fetch(`${API}/api/projects/${projectId}/master-link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          master_connection_id: parseInt(masterConnId), 
-          master_sheet_name: masterSheet 
+        body: JSON.stringify({
+          master_connection_id: parseInt(masterConnId),
+          master_sheet_name: masterSheet
         })
       });
       if (res.ok) {
@@ -181,14 +181,14 @@ export default function MasterTable() {
             className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition text-sm">
             <Link2 className="w-4 h-4" /> Enlazar Google Sheet
           </button>
-          
+
           {activeMasterConnId && (
             <button onClick={() => setShowSync(!showSync)}
               className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-orange-700 transition text-sm">
               <ArrowDownToLine className="w-4 h-4" /> Sincronizar desde Origen
             </button>
           )}
-          
+
           <button onClick={loadMasterData}
             className="flex items-center gap-2 border border-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50 transition text-sm">
             <RefreshCw className="w-4 h-4" />
@@ -253,19 +253,15 @@ export default function MasterTable() {
             </div>
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Campo Llave en Origen</label>
-              <select value={syncSkuColSource} onChange={e => setSyncSkuColSource(e.target.value)}
-                disabled={!syncSheet} className="w-full border border-gray-300 rounded-lg p-2 text-sm">
-                <option value="">Seleccionar...</option>
-                {syncSourceCols.map(col => <option key={col} value={col}>{col}</option>)}
-              </select>
+              <div className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-gray-100 text-gray-600">
+                SKU (Fijo)
+              </div>
             </div>
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Campo Llave en Maestra</label>
-              <select value={syncSkuColMaster} onChange={e => setSyncSkuColMaster(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg p-2 text-sm">
-                <option value="">Seleccionar...</option>
-                {columns.map(col => <option key={col} value={col}>{col}</option>)}
-              </select>
+              <div className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-gray-100 text-gray-600">
+                SKU (Fijo)
+              </div>
             </div>
           </div>
           {/* Field mappings */}
