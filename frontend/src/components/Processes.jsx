@@ -273,7 +273,7 @@ export default function Processes() {
               <div>
                 <label className="block text-sm font-medium text-amber-800 mb-1">🔑 Columna llave en ORIGEN</label>
                 <select value={skuColSource} onChange={e => setSkuColSource(e.target.value)} required
-                  disabled={!sourceSheet} className="w-full border border-gray-300 rounded-lg p-2 text-sm">
+                  disabled={!sourceSheet} className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
                   <option value="">Seleccionar (ej: Código, SKU)...</option>
                   {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -281,12 +281,10 @@ export default function Processes() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-amber-800 mb-1">🔑 Columna llave en MAESTRA</label>
-                <select value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm">
-                  <option value="">Seleccionar (ej: SKU)...</option>
-                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <p className="text-xs text-amber-600 mt-1">El nombre puede ser diferente, lo importante es que el contenido sea el mismo</p>
+                <input list="master-cols-list" value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required
+                  placeholder="Escribe o selecciona (ej: SKU)"
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white" />
+                <p className="text-xs text-amber-600 mt-1">Escríbelo si la tabla maestra aún está vacía.</p>
               </div>
             </div>
 
@@ -299,19 +297,22 @@ export default function Processes() {
                 <button type="button" onClick={() => setFieldMappings([...fieldMappings, { src: '', dst: '' }])}
                   className="text-indigo-600 text-sm font-medium hover:underline">+ Añadir campo</button>
               </div>
+              
+              <datalist id="master-cols-list">
+                {masterCols.map(c => <option key={c} value={c} />)}
+              </datalist>
+
               {fieldMappings.map((m, i) => (
                 <div key={i} className="flex gap-3 items-center mb-2">
                   <select value={m.src} onChange={e => { const u = [...fieldMappings]; u[i].src = e.target.value; setFieldMappings(u); }}
-                    className="flex-1 border border-gray-300 rounded-lg p-2 text-sm">
+                    className="flex-1 border border-gray-300 rounded-lg p-2 text-sm bg-white">
                     <option value="">Campo origen...</option>
                     {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <span className="text-gray-400">→</span>
-                  <select value={m.dst} onChange={e => { const u = [...fieldMappings]; u[i].dst = e.target.value; setFieldMappings(u); }}
-                    className="flex-1 border border-gray-300 rounded-lg p-2 text-sm">
-                    <option value="">Campo maestra...</option>
-                    {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <input list="master-cols-list" value={m.dst} onChange={e => { const u = [...fieldMappings]; u[i].dst = e.target.value; setFieldMappings(u); }}
+                    placeholder="Escribe o selecciona campo maestra..."
+                    className="flex-1 border border-gray-300 rounded-lg p-2 text-sm bg-white" />
                   {fieldMappings.length > 1 && (
                     <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
                       className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>

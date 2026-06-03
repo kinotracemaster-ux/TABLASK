@@ -208,7 +208,7 @@ export default function MasterTable() {
               <select value={masterConnId} onChange={e => loadMasterSheets(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg p-2 text-sm">
                 <option value="">Seleccionar conexión...</option>
-                {connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {connections.filter(c => c.connection_type === 'google_sheets').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="flex-1">

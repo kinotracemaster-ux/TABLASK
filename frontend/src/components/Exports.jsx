@@ -235,23 +235,25 @@ export default function Exports() {
                 </button>
               </div>
 
+              <datalist id="export-master-cols-list">
+                {masterCols.map(c => <option key={c} value={c} />)}
+              </datalist>
+
               <div className="space-y-2">
                 {colMappings.map((cm, i) => (
                   <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3 border border-gray-100">
                     <div className="flex-1">
                       <label className="text-xs text-gray-500 mb-1 block">Columna en Maestra</label>
-                      <select value={cm.master_col} onChange={e => updateColMapping(i, 'master_col', e.target.value)}
-                        className="w-full border border-gray-300 rounded p-1.5 text-sm">
-                        <option value="">Seleccionar...</option>
-                        {masterCols.map(col => <option key={col} value={col}>{col}</option>)}
-                      </select>
+                      <input list="export-master-cols-list" value={cm.master_col} onChange={e => updateColMapping(i, 'master_col', e.target.value)}
+                        placeholder="Ej: SKU, Precio..."
+                        className="w-full border border-gray-300 rounded p-1.5 text-sm bg-white" />
                     </div>
                     <ChevronRight className="w-4 h-4 text-gray-400 mt-4 flex-shrink-0" />
                     <div className="flex-1">
                       <label className="text-xs text-gray-500 mb-1 block">Nombre en la salida</label>
                       <input value={cm.csv_col} onChange={e => updateColMapping(i, 'csv_col', e.target.value)}
                         placeholder="Ej: title, stock, price"
-                        className="w-full border border-gray-300 rounded p-1.5 text-sm" />
+                        className="w-full border border-gray-300 rounded p-1.5 text-sm bg-white" />
                     </div>
                     {colMappings.length > 1 && (
                       <button type="button" onClick={() => removeColMapping(i)}
