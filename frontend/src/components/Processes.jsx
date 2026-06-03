@@ -384,19 +384,19 @@ export default function Processes() {
                   <div className="border-t border-gray-100 bg-gray-50 p-4">
                     <div className="grid grid-cols-4 gap-3 mb-3">
                       <div className="bg-white p-2 rounded-lg border text-center">
-                        <p className="text-xs text-gray-500">Total Origen</p>
+                        <p className="text-xs text-gray-500">Filas de Origen</p>
                         <p className="text-lg font-bold text-gray-800">{st.preview.total_origen}</p>
                       </div>
                       <div className="bg-blue-50 p-2 rounded-lg border border-blue-200 text-center">
-                        <p className="text-xs text-blue-600">Actualizarán</p>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase">Se Sobreescribirán</p>
                         <p className="text-lg font-bold text-blue-700">{st.preview.rows_updated}</p>
                       </div>
                       <div className="bg-green-50 p-2 rounded-lg border border-green-200 text-center">
-                        <p className="text-xs text-green-600">Nuevos</p>
+                        <p className="text-[10px] font-bold text-green-600 uppercase">Se Añadirán (Nuevos)</p>
                         <p className="text-lg font-bold text-green-700">{st.preview.rows_added}</p>
                       </div>
                       <div className="bg-gray-50 p-2 rounded-lg border text-center">
-                        <p className="text-xs text-gray-500">Sin Cambio</p>
+                        <p className="text-[10px] font-bold text-gray-500 uppercase">Iguales (Sin Cambio)</p>
                         <p className="text-lg font-bold text-gray-600">{st.preview.rows_unchanged}</p>
                       </div>
                     </div>

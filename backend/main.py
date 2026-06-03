@@ -801,6 +801,8 @@ def _get_master_info(db):
 
 def _run_single_process(proc, db):
     """Ejecuta un proceso individual: importa datos desde origen a la maestra."""
+    from .services import write_sheet_data
+
     project, master_conn, master_sheet = _get_master_info(db)
     if not project or not master_conn:
         return {"process": proc.name, "status": "error", "error": "No hay tabla maestra enlazada"}
@@ -833,7 +835,8 @@ def _run_single_process(proc, db):
             "total_origen": result["total_origen"],
         }
     except Exception as e:
-        return {"process": proc.name, "status": "error", "error": str(e)}
+        import traceback
+        return {"process": proc.name, "status": "error", "error": f"{str(e)}\n{traceback.format_exc()}"}
 
 
 @app.post("/api/processes/{process_id}/preview")
