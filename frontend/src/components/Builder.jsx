@@ -52,12 +52,18 @@ export default function Builder() {
   };
 
   const handlePreview = () => {
+    const keyMapping = mappings.find(m => m.is_key);
+    if (!keyMapping || !keyMapping.target_field || !keyMapping.source_field) {
+      alert("Debes marcar un mapeo como 'Es Clave' y asegurarte de que ambos campos (Origen y Destino) estén seleccionados para la llave.");
+      return;
+    }
+    
     // Save to local storage or state management to pass to preview
     const payload = {
       project_id: parseInt(id),
       target_connection_id: parseInt(targetConnectionId),
       target_sheet_name: targetSheet,
-      target_key: "SKU",
+      target_key: keyMapping.target_field,
       source_connections: {
         [sourceSheet]: parseInt(sourceConnectionId)
       },
@@ -145,7 +151,7 @@ export default function Builder() {
               <div className="mt-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={mapping.is_key} onChange={e => updateMapping(idx, 'is_key', e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                  <span className="text-sm font-medium">Es Clave (SKU)</span>
+                  <span className="text-sm font-medium">Es Clave (Llave de Cruce)</span>
                 </label>
               </div>
             </div>

@@ -31,7 +31,7 @@ export default function MasterTable() {
   const [syncSheets, setSyncSheets] = useState({});
   const [syncSheet, setSyncSheet] = useState('');
   const [syncSkuColSource, setSyncSkuColSource] = useState('SKU');
-  const [syncSkuColMaster, setSyncSkuColMaster] = useState('SKU');
+  const [syncSkuColMaster, setSyncSkuColMaster] = useState('');
   const [syncMappings, setSyncMappings] = useState([{ src: '', dst: '' }]);
   const [syncing, setSyncing] = useState(false);
 
@@ -137,6 +137,13 @@ export default function MasterTable() {
   };
 
   const handleSync = async () => {
+    if (!syncSkuColSource || !syncSkuColMaster) {
+      alert("Por favor selecciona ambas columnas llave.");
+      return;
+    }
+    const confirmMsg = `¿Confirmas que deseas enlazar usando la columna '${syncSkuColSource}' del origen contra la columna '${syncSkuColMaster}' de la tabla maestra?`;
+    if(!window.confirm(confirmMsg)) return;
+
     setSyncing(true);
     const fieldMappings = {};
     syncMappings.forEach(m => { if (m.src && m.dst) fieldMappings[m.src] = m.dst; });
@@ -278,9 +285,11 @@ export default function MasterTable() {
             </div>
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Campo Llave en Maestra</label>
-              <div className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-gray-100 text-gray-600">
-                SKU (Fijo)
-              </div>
+              <select value={syncSkuColMaster} onChange={e => setSyncSkuColMaster(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm">
+                <option value="">Seleccionar...</option>
+                {columns.map(col => <option key={col} value={col}>{col}</option>)}
+              </select>
             </div>
           </div>
           {/* Field mappings */}

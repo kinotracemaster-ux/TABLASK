@@ -77,6 +77,12 @@ export default function PreviewSync() {
       </div>
 
       <div className="grid grid-cols-4 gap-4 mb-8">
+        {payload && (
+          <div className="col-span-4 bg-yellow-50 p-4 rounded-xl border border-yellow-200 shadow-sm text-center mb-4">
+            <h3 className="text-yellow-800 text-sm font-medium">Llaves detectadas para el cruce:</h3>
+            <p className="text-lg font-bold text-yellow-900">Origen: '{payload.mappings.find(m => m.is_key)?.source_field}' ➡️ Maestra: '{payload.target_key}'</p>
+          </div>
+        )}
         <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm text-center">
           <h3 className="text-gray-500 text-sm font-medium">Filas que Cambiarán</h3>
           <p className="text-3xl font-bold text-blue-600">{preview?.rows_changed || 0}</p>
