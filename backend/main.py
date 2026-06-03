@@ -445,6 +445,20 @@ def link_master_table(project_id: int, req: schemas.MasterLinkRequest, db: Sessi
     return {"message": "Tabla maestra enlazada correctamente"}
 
 
+@app.post("/api/projects/{project_id}/master-unlink")
+def unlink_master_table(project_id: int, db: Session = Depends(get_db)):
+    """Desvincula la Tabla Maestra actual del proyecto."""
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        
+    project.master_connection_id = None
+    project.master_sheet_name = None
+    db.commit()
+    
+    return {"message": "Tabla maestra desvinculada correctamente"}
+
+
 @app.get("/api/projects/{project_id}/master")
 def get_master_table(project_id: int, db: Session = Depends(get_db)):
     """Obtiene los datos directamente de la Tabla Maestra (Google Sheet)."""

@@ -122,7 +122,7 @@ export default function Builder() {
 
       {/* Mappings */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-        <h2 className="text-lg font-semibold mb-4">3. Mapeo de Campos</h2>
+        <h2 className="text-lg font-semibold mb-4">3. Asignación de Columnas (Mapeo de Info)</h2>
         
         <div className="space-y-4">
           {mappings.map((mapping, idx) => (

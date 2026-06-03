@@ -109,6 +109,18 @@ export default function MasterTable() {
     setLinking(false);
   };
 
+  const handleUnlink = async () => {
+    if(!window.confirm("¿Estás seguro de que deseas desvincular la tabla maestra actual?")) return;
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/master-unlink`, { method: 'POST' });
+      if (res.ok) {
+        alert("✅ Tabla maestra desvinculada correctamente");
+        setShowLink(false);
+        loadMasterData();
+      }
+    } catch(err) { console.error(err); }
+  };
+
   // --- Sync ---
   const loadSyncSheets = async (connId) => {
     setSyncConnId(connId);
@@ -177,10 +189,17 @@ export default function MasterTable() {
           )}
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setShowLink(!showLink)}
-            className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition text-sm">
-            <Link2 className="w-4 h-4" /> Enlazar Google Sheet
-          </button>
+          {!activeMasterConnId ? (
+            <button onClick={() => setShowLink(!showLink)}
+              className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition text-sm">
+              <Link2 className="w-4 h-4" /> Enlazar Tabla Maestra
+            </button>
+          ) : (
+            <button onClick={handleUnlink}
+              className="flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-600 transition text-sm">
+              <Link2 className="w-4 h-4" /> Desvincular Tabla
+            </button>
+          )}
 
           {activeMasterConnId && (
             <button onClick={() => setShowSync(!showSync)}
@@ -267,7 +286,7 @@ export default function MasterTable() {
           {/* Field mappings */}
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-medium text-gray-700">Mapeo de campos a actualizar <span className="text-gray-400">(Origen → Maestra)</span></label>
+              <label className="text-sm font-medium text-gray-700">Asignación de Columnas (Mapeo de Info) <span className="text-gray-400">(Origen → Maestra)</span></label>
               <button onClick={() => setSyncMappings([...syncMappings, { src: '', dst: '' }])} className="text-orange-600 text-sm font-medium hover:underline">+ Añadir Campo</button>
             </div>
             {syncMappings.map((m, i) => (

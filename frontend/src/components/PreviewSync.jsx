@@ -45,7 +45,7 @@ export default function PreviewSync() {
       });
       const data = await res.json();
       if(res.ok) {
-        alert("Sincronización exitosa!");
+        alert("¡Actualización de datos realizada con éxito!");
         navigate('/projects');
       } else {
         alert("Error: " + data.detail);
@@ -67,7 +67,7 @@ export default function PreviewSync() {
             <ArrowLeft className="w-4 h-4" /> Volver al Constructor
           </button>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            Vista Previa de Actualización
+            Vista Previa del Cambio de Datos
           </h1>
           <p className="text-gray-600">Revisa los cambios antes de enviarlos a Google Sheets.</p>
         </div>
