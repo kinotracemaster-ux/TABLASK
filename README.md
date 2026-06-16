@@ -37,3 +37,6 @@ La aplicación React estará disponible en http://localhost:5173.
 2. **Crea un Nuevo Proyecto en Railway** conectando tu repositorio de GitHub.
 3. **Servicio Backend**: Configura el *Root Directory* a `/backend` en Railway y establece el *Start Command* a `uvicorn main:app --host 0.0.0.0 --port $PORT`. Añade la base de datos PostgreSQL y las variables de entorno (`DATABASE_URL`).
 4. **Servicio Frontend**: Configura el *Root Directory* a `/frontend` en Railway. Railway detectará Vite y compilará la app automáticamente.
+
+---
+*Última actualización: 16 de Junio de 2026*
