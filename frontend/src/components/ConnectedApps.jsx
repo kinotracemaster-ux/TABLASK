@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Network, Key, Trash2, Plus, AlertCircle, Copy, Check } from 'lucide-react';
-import { apiCall } from '../utils/api';
-
+const API = import.meta.env.VITE_API_URL || '';
 export default function ConnectedApps() {
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -17,7 +16,9 @@ export default function ConnectedApps() {
 
   const fetchApps = async () => {
     try {
-      const data = await apiCall('/api/intake/apps');
+      const res = await fetch(`${API}/api/intake/apps`);
+      if (!res.ok) throw new Error("Error al obtener las apps");
+      const data = await res.json();
       setApps(data);
     } catch (err) {
       setError(err.message);
@@ -29,10 +30,13 @@ export default function ConnectedApps() {
   const handleCreateApp = async (e) => {
     e.preventDefault();
     try {
-      const newApp = await apiCall('/api/intake/apps', {
+      const res = await fetch(`${API}/api/intake/apps`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newAppName })
       });
+      if (!res.ok) throw new Error("Error en el servidor");
+      const newApp = await res.json();
       setApps([...apps, newApp]);
       setIsModalOpen(false);
       setNewAppName("");
@@ -44,7 +48,8 @@ export default function ConnectedApps() {
   const handleDelete = async (id) => {
     if (!window.confirm("¿Seguro que quieres eliminar esta App? Perderá acceso inmediatamente.")) return;
     try {
-      await apiCall(`/api/intake/apps/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API}/api/intake/apps/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Error en el servidor");
       setApps(apps.filter(a => a.id !== id));
     } catch (err) {
       alert("Error eliminando: " + err.message);
