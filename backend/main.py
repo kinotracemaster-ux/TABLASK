@@ -17,8 +17,7 @@ try:
         conn.execute(text("ALTER TABLE projects ADD COLUMN master_sheet_name VARCHAR"))
         conn.commit()
 except Exception as e:
-    # Si falla es porque las columnas ya existen o la tabla no existe aún, ignorar.
-    pass
+    print("Migraciones omitidas (ya existen las columnas o error benigno):", e)
 
 try:
     with engine.connect() as conn:
@@ -33,8 +32,7 @@ except Exception as e:
 
 app = FastAPI(title="Actualizar Tablas K API")
 
-# CORS: en producción aceptamos cualquier origen (Railway + Vercel)
-# En desarrollo local solo localhost:5173
+# CORS
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 
 app.add_middleware(
@@ -57,8 +55,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     error_msg = traceback.format_exc()
     last_exception_traceback = error_msg
     print("GLOBAL EXCEPTION:", error_msg)
-    
-    # Intentar loguear a la base de datos
+
     try:
         from .routers.logs import log_event
         db = next(get_db())
@@ -77,6 +74,186 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal Server Error", "traceback": error_msg}
     )
 
+
+# ═══════════════════════════════════════════════════════════════════
+# ██ FUNCIONES INTERNAS COMPARTIDAS (deben definirse ANTES de los routers)
+# ═══════════════════════════════════════════════════════════════════
+
+def _get_master_info(db):
+    """Obtiene el proyecto, conexión maestra y nombre de hoja activos."""
+    project = db.query(models.Project).filter(
+        models.Project.master_connection_id.isnot(None)
+    ).first()
+    if not project:
+        return None, None, None
+    master_conn = db.query(models.Connection).filter(
+        models.Connection.id == project.master_connection_id
+    ).first()
+    return project, master_conn, project.master_sheet_name
+
+
+def _compute_master_sync(project, req, db):
+    """Lógica compartida: calcula el cruce origen→maestra sin escribir. Retorna el resultado."""
+    from .services import get_sheet_data
+
+    # 1. Leer Origen
+    src_conn = db.query(models.Connection).filter(models.Connection.id == req.source_connection_id).first()
+    if not src_conn:
+        raise HTTPException(status_code=404, detail="Conexión origen no encontrada")
+
+    src_raw = get_sheet_data(src_conn, f"{req.source_sheet_name}!A1:Z")
+    if not src_raw or len(src_raw) < 2:
+        raise HTTPException(status_code=400, detail="La tabla origen está vacía")
+
+    src_headers = src_raw[0]
+
+    if req.sku_column_source not in src_headers:
+        raise HTTPException(status_code=400, detail=f"Columna '{req.sku_column_source}' no encontrada en el origen.")
+    src_sku_idx = src_headers.index(req.sku_column_source)
+
+    # 2. Leer Maestra
+    master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
+    master_raw = get_sheet_data(master_conn, f"{project.master_sheet_name}!A1:Z")
+
+    if not master_raw:
+        master_headers = [req.sku_column_master] + list(set(req.field_mappings.values()))
+        master_raw = [master_headers]
+    else:
+        master_headers = master_raw[0]
+
+    for dst_col in req.field_mappings.values():
+        if dst_col not in master_headers:
+            master_headers.append(dst_col)
+    master_raw[0] = master_headers
+
+    if req.sku_column_master not in master_headers:
+        raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column_master}' no encontrada en la maestra")
+    master_sku_idx = master_headers.index(req.sku_column_master)
+
+    # Indexar la maestra actual por SKU
+    master_by_sku = {}
+    for i, row in enumerate(master_raw[1:]):
+        sku_val = row[master_sku_idx] if master_sku_idx < len(row) else ""
+        if sku_val:
+            padded_row = row + [""] * (len(master_headers) - len(row))
+            master_by_sku[sku_val] = {"index": i + 1, "data": padded_row}
+
+    rows_updated = 0
+    rows_added = 0
+    rows_unchanged = 0
+    detail_updated = []
+    detail_added = []
+    detail_unchanged = []
+
+    # 3. Procesar datos del Origen y cruzar con la Maestra
+    for src_row in src_raw[1:]:
+        sku_val = src_row[src_sku_idx] if src_sku_idx < len(src_row) else ""
+        if not sku_val:
+            continue
+
+        if sku_val in master_by_sku:
+            mr_info = master_by_sku[sku_val]
+            mr_data = mr_info["data"]
+            changed = False
+            changes_detail = {}
+
+            for src_col, dst_col in req.field_mappings.items():
+                if src_col in src_headers:
+                    s_idx = src_headers.index(src_col)
+                    m_idx = master_headers.index(dst_col)
+                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
+                    old_val = mr_data[m_idx]
+                    if old_val != new_val:
+                        changes_detail[dst_col] = {"antes": old_val, "después": new_val}
+                        mr_data[m_idx] = new_val
+                        changed = True
+
+            if changed:
+                master_raw[mr_info["index"]] = mr_data
+                rows_updated += 1
+                detail_updated.append({"sku": sku_val, "cambios": changes_detail})
+            else:
+                rows_unchanged += 1
+                detail_unchanged.append(sku_val)
+
+        elif req.add_new_rows:
+            new_mr_data = [""] * len(master_headers)
+            new_mr_data[master_sku_idx] = sku_val
+
+            new_fields = {}
+            for src_col, dst_col in req.field_mappings.items():
+                if src_col in src_headers:
+                    s_idx = src_headers.index(src_col)
+                    m_idx = master_headers.index(dst_col)
+                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
+                    new_mr_data[m_idx] = new_val
+                    new_fields[dst_col] = new_val
+
+            master_raw.append(new_mr_data)
+            rows_added += 1
+            detail_added.append({"sku": sku_val, "datos": new_fields})
+
+    return {
+        "master_raw": master_raw,
+        "master_conn": master_conn,
+        "rows_updated": rows_updated,
+        "rows_added": rows_added,
+        "rows_unchanged": rows_unchanged,
+        "total_origen": len(src_raw) - 1,
+        "total_maestra": len(master_raw) - 1,
+        "detail_updated": detail_updated[:50],
+        "detail_added": detail_added[:50],
+        "detail_unchanged": detail_unchanged[:50],
+    }
+
+
+def _run_single_process(proc, db):
+    """Ejecuta un proceso individual: calcula el diff y escribe en Google Sheets."""
+    import json as _json
+    from .services import write_sheet_data
+
+    try:
+        project, master_conn, master_sheet = _get_master_info(db)
+        if not project or not master_conn:
+            return {"process": proc.name, "status": "error", "error": "No hay tabla maestra enlazada."}
+
+        field_mappings = _json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
+
+        req = schemas.MasterSyncRequest(
+            source_connection_id=proc.source_connection_id,
+            source_sheet_name=proc.source_sheet_name,
+            sku_column_source=proc.sku_column_source,
+            sku_column_master=proc.sku_column_master,
+            field_mappings=field_mappings,
+            add_new_rows=proc.add_new_rows
+        )
+
+        result = _compute_master_sync(project, req, db)
+        master_raw = result["master_raw"]
+
+        if result["rows_updated"] > 0 or result["rows_added"] > 0:
+            write_sheet_data(master_conn.spreadsheet_id, master_sheet, master_raw)
+
+        return {
+            "process": proc.name,
+            "status": "success",
+            "rows_updated": result["rows_updated"],
+            "rows_added": result["rows_added"],
+            "rows_unchanged": result["rows_unchanged"],
+        }
+    except Exception as e:
+        return {
+            "process": proc.name,
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ██ ROUTERS (deben importarse DESPUÉS de las funciones internas)
+# ═══════════════════════════════════════════════════════════════════
+
 from .routers import logs, staging, connections, processes, intake
 app.include_router(logs.router)
 app.include_router(staging.router)
@@ -84,7 +261,6 @@ app.include_router(connections.router)
 app.include_router(processes.router)
 app.include_router(intake.router)
 
-# El endpoint raíz ahora servirá el frontend de React (ver al final del archivo)
 
 # --- Reset DB (Solo Desarrollo) ---
 @app.post("/api/debug/reset-db")
@@ -93,7 +269,6 @@ def reset_database():
     models.Base.metadata.create_all(bind=engine)
     return {"message": "Base de datos reseteada con éxito. Actualiza la página."}
 
-# Las rutas de Connections han sido movidas a routers/connections.py
 
 # --- Projects ---
 @app.post("/api/projects/", response_model=schemas.Project)
@@ -104,71 +279,60 @@ def create_project(project: schemas.ProjectCreate, db: Session = Depends(get_db)
     db.refresh(db_project)
     return db_project
 
-from .services import get_sheet_metadata, get_sheet_data
+
+from .services import get_sheet_metadata, get_sheet_data, write_sheet_data
 from .sync_engine import process_sync
 from pydantic import BaseModel
 from typing import Dict, List, Any
+import json
 
-# La ruta de metadata ha sido movida a routers/connections.py
 
-# --- Sync ---
+# --- Sync (legacy, mantenido por compatibilidad) ---
 class SyncPreviewRequest(BaseModel):
     project_id: int
     target_connection_id: int
     target_sheet_name: str
     target_key: str
-    source_connections: Dict[str, int] # e.g. {"Productos": 1}
-    mappings: List[Dict[str, Any]] # list of dicts
+    source_connections: Dict[str, int]
+    mappings: List[Dict[str, Any]]
 
 @app.post("/api/sync/preview")
 def preview_sync(req: SyncPreviewRequest, db: Session = Depends(get_db)):
     target_conn = db.query(models.Connection).filter(models.Connection.id == req.target_connection_id).first()
     if not target_conn: raise HTTPException(status_code=404, detail="Destino no encontrado")
-    
-    # 1. Traer datos destino
+
     target_data = get_sheet_data(target_conn, f"{req.target_sheet_name}!A1:Z")
-    
-    # 2. Traer datos origen
+
     source_datasets = {}
     for source_name, conn_id in req.source_connections.items():
         src_conn = db.query(models.Connection).filter(models.Connection.id == conn_id).first()
         if src_conn:
             source_datasets[source_name] = get_sheet_data(src_conn, f"{source_name}!A1:Z")
-            
-    # La llave la define el usuario en el frontend
-    
-    # 3. Procesar
+
     result = process_sync(target_data, source_datasets, req.mappings, req.target_key)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
-        
+
     return result
 
 @app.post("/api/sync/execute")
 def execute_sync(req: SyncPreviewRequest, db: Session = Depends(get_db)):
-    from .services import write_sheet_data
-    
     preview = preview_sync(req, db)
-    
-    # Escribir los datos procesados de vuelta al Google Sheet destino
+
     target_conn = db.query(models.Connection).filter(models.Connection.id == req.target_connection_id).first()
     if not target_conn or not target_conn.spreadsheet_id:
         raise HTTPException(status_code=400, detail="La conexión destino no tiene un Google Sheet asociado para escribir.")
-    
+
     preview_data = preview.get("preview_data", [])
     if preview_data and preview.get("rows_changed", 0) > 0:
-        print(f"[execute_sync] Escribiendo {len(preview_data)} filas a {target_conn.spreadsheet_id} / {req.target_sheet_name}")
         write_result = write_sheet_data(
             spreadsheet_id=target_conn.spreadsheet_id,
             sheet_name=req.target_sheet_name,
             data=preview_data
         )
-        print(f"[execute_sync] Resultado Google API: {write_result}")
     else:
         write_result = {"rows_written": 0, "note": "Sin cambios detectados, no se escribió nada."}
-        print(f"[execute_sync] Sin cambios, no se escribió al Sheet.")
-    
-    # Guardar SyncLog
+
     db_log = models.SyncLog(
         project_id=req.project_id,
         rows_changed=preview.get("rows_changed", 0),
@@ -179,17 +343,17 @@ def execute_sync(req: SyncPreviewRequest, db: Session = Depends(get_db)):
     db.add(db_log)
     db.commit()
     db.refresh(db_log)
-    
+
     return {
-        "message": f"Sincronización ejecutada: {preview.get('rows_changed', 0)} filas actualizadas en Google Sheets.",
+        "message": f"Sincronización ejecutada: {preview.get('rows_changed', 0)} filas actualizadas.",
         "log_id": db_log.id,
         "rows_changed": preview.get("rows_changed", 0),
         "rows_added": preview.get("rows_added", 0),
         "google_sheets_result": write_result
     }
 
+
 # --- Export Formats ---
-import json
 import csv
 import io
 from fastapi.responses import StreamingResponse
@@ -197,7 +361,6 @@ from fastapi.responses import StreamingResponse
 @app.post("/api/exports/", response_model=schemas.ExportFormat)
 def create_export_format(fmt: schemas.ExportFormatCreate, db: Session = Depends(get_db)):
     import re
-    # Si viene una URL de Google Sheets como destino, extraer el ID
     output_spreadsheet_id = fmt.output_spreadsheet_id
     if output_spreadsheet_id and 'docs.google.com' in output_spreadsheet_id:
         match = re.search(r'/d/([a-zA-Z0-9-_]+)', output_spreadsheet_id)
@@ -226,27 +389,21 @@ def read_export_formats(project_id: int = None, db: Session = Depends(get_db)):
     if project_id:
         q = q.filter(models.ExportFormat.project_id == project_id)
     results = q.all()
-    # Parse JSON column mapping for each
     for r in results:
         r.columns_mapping = json.loads(r.columns_mapping)
     return results
 
 @app.get("/api/exports/{export_id}/download")
 def download_export_csv(export_id: int, db: Session = Depends(get_db)):
-    """Genera y descarga un CSV en base a la plantilla de salida."""
     fmt = db.query(models.ExportFormat).filter(models.ExportFormat.id == export_id).first()
     if not fmt:
         raise HTTPException(status_code=404, detail="Formato de salida no encontrado")
 
-    # Cargar el mapeo de columnas
-    col_map: dict = json.loads(fmt.columns_mapping)  # {"col_master": "col_csv", ...}
-
-    # Obtener conexión (Tabla Master)
+    col_map: dict = json.loads(fmt.columns_mapping)
     conn = db.query(models.Connection).filter(models.Connection.id == fmt.source_connection_id).first()
     if not conn:
         raise HTTPException(status_code=404, detail="Conexión de la Tabla Master no encontrada")
 
-    # Leer todos los datos de la hoja
     raw_data = get_sheet_data(conn, f"{fmt.source_sheet_name}!A1:Z")
     if not raw_data:
         raise HTTPException(status_code=400, detail="La tabla master está vacía o no se pudo leer")
@@ -254,11 +411,8 @@ def download_export_csv(export_id: int, db: Session = Depends(get_db)):
     master_headers = raw_data[0]
     master_rows = raw_data[1:]
 
-    # Filtrar y renombrar columnas
     output = io.StringIO()
     writer = csv.writer(output)
-
-    # Cabeceras del CSV de salida (los valores del mapeo)
     csv_headers = list(col_map.values())
     writer.writerow(csv_headers)
 
@@ -277,9 +431,6 @@ def download_export_csv(export_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/exports/{export_id}/push")
 def push_export_to_sheets(export_id: int, db: Session = Depends(get_db)):
-    """Empuja los datos transformados directamente a un Google Sheet destino."""
-    from .services import write_sheet_data
-
     fmt = db.query(models.ExportFormat).filter(models.ExportFormat.id == export_id).first()
     if not fmt:
         raise HTTPException(status_code=404, detail="Formato de salida no encontrado")
@@ -289,8 +440,6 @@ def push_export_to_sheets(export_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Configura el Google Sheet destino primero")
 
     col_map: dict = json.loads(fmt.columns_mapping)
-
-    # Leer la Tabla Master origen
     conn = db.query(models.Connection).filter(models.Connection.id == fmt.source_connection_id).first()
     if not conn:
         raise HTTPException(status_code=404, detail="Conexión de la Tabla Master no encontrada")
@@ -302,14 +451,12 @@ def push_export_to_sheets(export_id: int, db: Session = Depends(get_db)):
     master_headers = raw_data[0]
     master_rows = raw_data[1:]
 
-    # Construir los datos con las columnas mapeadas
-    output_data = [list(col_map.values())]  # fila de cabeceras
+    output_data = [list(col_map.values())]
     for row in master_rows:
         row_dict = {master_headers[i]: (row[i] if i < len(row) else "") for i in range(len(master_headers))}
         output_row = [row_dict.get(master_col, "") for master_col in col_map.keys()]
         output_data.append(output_row)
 
-    # Escribir al Google Sheet destino
     result = write_sheet_data(
         spreadsheet_id=fmt.output_spreadsheet_id,
         sheet_name=fmt.output_sheet_name,
@@ -322,19 +469,13 @@ def push_export_to_sheets(export_id: int, db: Session = Depends(get_db)):
         "mocked": result.get("mocked", False)
     }
 
+
 # --- Actualizar Todo ---
 @app.post("/api/sync/run-all")
 def run_all_exports(project_id: int, db: Session = Depends(get_db)):
-    """
-    Ejecuta TODOS los formatos de salida de tipo 'google_sheets' para un proyecto.
-    También puede re-leer todas las fuentes y empujar a los destinos.
-    """
-    from .services import write_sheet_data
-
     results = []
     errors = []
 
-    # Obtener todos los formatos del proyecto
     all_formats = db.query(models.ExportFormat)\
         .filter(models.ExportFormat.project_id == project_id)\
         .all()
@@ -345,8 +486,6 @@ def run_all_exports(project_id: int, db: Session = Depends(get_db)):
     for fmt in all_formats:
         try:
             col_map: dict = json.loads(fmt.columns_mapping)
-
-            # Leer la Tabla Master origen
             conn = db.query(models.Connection)\
                 .filter(models.Connection.id == fmt.source_connection_id).first()
             if not conn:
@@ -361,7 +500,6 @@ def run_all_exports(project_id: int, db: Session = Depends(get_db)):
             master_headers = raw_data[0]
             master_rows = raw_data[1:]
 
-            # Construir datos transformados
             output_data = [list(col_map.values())]
             for row in master_rows:
                 row_dict = {master_headers[i]: (row[i] if i < len(row) else "") for i in range(len(master_headers))}
@@ -369,7 +507,6 @@ def run_all_exports(project_id: int, db: Session = Depends(get_db)):
                 output_data.append(output_row)
 
             if fmt.output_type == "google_sheets" and fmt.output_spreadsheet_id and fmt.output_sheet_name:
-                # Empujar a Google Sheet destino
                 write_result = write_sheet_data(
                     spreadsheet_id=fmt.output_spreadsheet_id,
                     sheet_name=fmt.output_sheet_name,
@@ -382,7 +519,6 @@ def run_all_exports(project_id: int, db: Session = Depends(get_db)):
                     "status": "success"
                 })
             elif fmt.output_type == "csv_download":
-                # Para CSV, simplemente indicamos que está listo para descargar
                 results.append({
                     "format": fmt.name,
                     "type": "csv_download",
@@ -394,7 +530,6 @@ def run_all_exports(project_id: int, db: Session = Depends(get_db)):
         except Exception as e:
             errors.append({"format": fmt.name, "error": str(e)})
 
-    # Registrar en SyncLog
     db_log = models.SyncLog(
         project_id=project_id,
         rows_changed=sum(r.get("rows_written", r.get("rows_ready", 0)) for r in results),
@@ -419,39 +554,36 @@ def read_projects(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
 
 
 # ═══════════════════════════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════
 # ██ TABLA MAESTRA — Enlazada a Google Sheets
 # ═══════════════════════════════════════════════════════════════════
 
 @app.post("/api/projects/{project_id}/master-link")
 def link_master_table(project_id: int, req: schemas.MasterLinkRequest, db: Session = Depends(get_db)):
-    """Enlaza una conexión de Google Sheets para que actúe como la Tabla Maestra del proyecto."""
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-        
+
     conn = db.query(models.Connection).filter(models.Connection.id == req.master_connection_id).first()
     if not conn:
         raise HTTPException(status_code=404, detail="Conexión maestra no encontrada")
-        
+
     project.master_connection_id = req.master_connection_id
     project.master_sheet_name = req.master_sheet_name
     db.commit()
-    
+
     return {"message": "Tabla maestra enlazada correctamente"}
 
 
-# --- Global Master Table Endpoints ---
 @app.get("/api/master")
 def get_global_master(db: Session = Depends(get_db)):
     project, master_conn, master_sheet = _get_master_info(db)
     if not project or not master_conn:
         raise HTTPException(status_code=404, detail="No hay tabla maestra enlazada.")
-        
+
     raw = get_sheet_data(master_conn, f"{master_sheet}!A1:Z")
     if not raw or len(raw) == 0:
         return {"columns": [], "rows": [], "total_rows": 0, "master_connection_id": project.master_connection_id, "master_sheet_name": master_sheet}
-        
+
     columns = raw[0]
     rows = raw[1:] if len(raw) > 1 else []
     return {
@@ -466,20 +598,19 @@ def get_global_master(db: Session = Depends(get_db)):
 def link_global_master(req: schemas.MasterLinkRequest, db: Session = Depends(get_db)):
     project = db.query(models.Project).first()
     if not project:
-        # Create a default project if none exists
         project = models.Project(name="Global Project")
         db.add(project)
         db.commit()
         db.refresh(project)
-        
+
     conn = db.query(models.Connection).filter(models.Connection.id == req.master_connection_id).first()
     if not conn:
         raise HTTPException(status_code=404, detail="Conexión maestra no encontrada")
-        
+
     project.master_connection_id = req.master_connection_id
     project.master_sheet_name = req.master_sheet_name
     db.commit()
-    
+
     return {"message": "Tabla maestra enlazada correctamente"}
 
 @app.post("/api/master/unlink")
@@ -495,26 +626,25 @@ def unlink_global_master(db: Session = Depends(get_db)):
 
 @app.get("/api/projects/{project_id}/master")
 def get_master_table(project_id: int, db: Session = Depends(get_db)):
-    """Obtiene los datos directamente de la Tabla Maestra (Google Sheet)."""
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project or not project.master_connection_id:
         raise HTTPException(status_code=404, detail="El proyecto no tiene una tabla maestra enlazada")
-        
+
     master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
-    
+
     raw = get_sheet_data(master_conn, f"{project.master_sheet_name}!A1:Z")
     if not raw:
         return {"columns": [], "rows": [], "total_rows": 0}
-        
+
     headers = raw[0]
     rows = []
-    
+
     for i, row in enumerate(raw[1:]):
         row_dict = {"_id": i}
         for j, h in enumerate(headers):
             row_dict[h] = row[j] if j < len(row) else ""
         rows.append(row_dict)
-        
+
     return {
         "columns": headers,
         "rows": rows,
@@ -524,18 +654,14 @@ def get_master_table(project_id: int, db: Session = Depends(get_db)):
     }
 
 
-from .services import _get_master_info, _compute_master_sync, _run_single_process
-
-
 @app.post("/api/projects/{project_id}/master-sync-preview")
 def preview_master_sync(project_id: int, req: schemas.MasterSyncRequest, db: Session = Depends(get_db)):
-    """Vista previa: calcula el cruce sin escribir a Google Sheets."""
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project or not project.master_connection_id:
         raise HTTPException(status_code=404, detail="El proyecto no tiene una tabla maestra enlazada")
-    
+
     result = _compute_master_sync(project, req, db)
-    
+
     return {
         "rows_updated": result["rows_updated"],
         "rows_added": result["rows_added"],
@@ -550,23 +676,16 @@ def preview_master_sync(project_id: int, req: schemas.MasterSyncRequest, db: Ses
 
 @app.post("/api/projects/{project_id}/master-sync")
 def sync_to_master(project_id: int, req: schemas.MasterSyncRequest, db: Session = Depends(get_db)):
-    """Ejecuta la sincronización: calcula y ESCRIBE a Google Sheets."""
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project or not project.master_connection_id:
         raise HTTPException(status_code=404, detail="El proyecto no tiene una tabla maestra enlazada")
-    
+
     result = _compute_master_sync(project, req, db)
-    
     master_raw = result["master_raw"]
     master_conn = result["master_conn"]
-    
-    # Escribir a Google Sheets
-    print(f"[master-sync] Origen: {result['total_origen']} filas, Maestra: {result['total_maestra']} filas")
-    print(f"[master-sync] Actualizadas: {result['rows_updated']}, Nuevas: {result['rows_added']}, Sin cambio: {result['rows_unchanged']}")
-    
+
     write_result = write_sheet_data(master_conn.spreadsheet_id, project.master_sheet_name, master_raw)
-    print(f"[master-sync] Resultado Google API: {write_result}")
-    
+
     return {
         "message": f"Sincronización completada: {result['rows_updated']} actualizadas, {result['rows_added']} nuevas.",
         "rows_updated": result["rows_updated"],
@@ -576,23 +695,18 @@ def sync_to_master(project_id: int, req: schemas.MasterSyncRequest, db: Session 
     }
 
 
-# --- Exportación desde Maestra ---
 @app.get("/api/projects/{project_id}/master-columns")
 def get_master_columns_for_export(project_id: int, db: Session = Depends(get_db)):
-    """Devuelve las columnas de la Maestra leyendo los encabezados del Google Sheet enlazado."""
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project or not project.master_connection_id:
         return []
-        
+
     master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
     raw = get_sheet_data(master_conn, f"{project.master_sheet_name}!A1:Z1")
-    
+
     if raw and len(raw) > 0:
         return raw[0]
     return []
-
-
-# Las rutas de Processes han sido movidas a routers/processes.py
 
 
 @app.post("/api/run-all")
@@ -602,8 +716,6 @@ def run_all_processes_and_exports(db: Session = Depends(get_db)):
     1. Corre todos los procesos de importación activos (origen → maestra)
     2. Corre todos los formatos de salida tipo google_sheets (maestra → hojas destino)
     """
-    from .services import write_sheet_data as ws
-
     project, master_conn, master_sheet = _get_master_info(db)
     if not project or not master_conn:
         raise HTTPException(status_code=400, detail="No hay tabla maestra enlazada.")
@@ -630,7 +742,6 @@ def run_all_processes_and_exports(db: Session = Depends(get_db)):
         try:
             col_map = json.loads(fmt.columns_mapping)
 
-            # Leer la Maestra (fuente de verdad)
             raw_data = get_sheet_data(master_conn, f"{master_sheet}!A1:Z")
             if not raw_data:
                 errors.append({"process": f"Formato: {fmt.name}", "status": "error", "error": "Maestra vacía"})
@@ -646,7 +757,7 @@ def run_all_processes_and_exports(db: Session = Depends(get_db)):
                 output_data.append(output_row)
 
             if fmt.output_type == "google_sheets" and fmt.output_spreadsheet_id and fmt.output_sheet_name:
-                wr = ws(
+                wr = write_sheet_data(
                     spreadsheet_id=fmt.output_spreadsheet_id,
                     sheet_name=fmt.output_sheet_name,
                     data=output_data
@@ -692,7 +803,6 @@ def run_all_processes_and_exports(db: Session = Depends(get_db)):
 
 @app.get("/api/master-columns")
 def get_master_columns(db: Session = Depends(get_db)):
-    """Devuelve las columnas de la Maestra sin necesidad de project_id."""
     project, master_conn, master_sheet = _get_master_info(db)
     if not project or not master_conn:
         return []
@@ -705,7 +815,6 @@ def get_master_columns(db: Session = Depends(get_db)):
 # --- Frontend Serving (Railway Single Deployment) ---
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-import os
 
 frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 
@@ -717,5 +826,4 @@ if os.path.exists(frontend_dist):
         file_path = os.path.join(frontend_dist, catchall)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-        # Fallback to index.html for React Router
         return FileResponse(os.path.join(frontend_dist, "index.html"))
