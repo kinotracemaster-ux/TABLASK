@@ -19,9 +19,12 @@ class User(UserBase):
 # Connections
 class ConnectionBase(BaseModel):
     name: str
-    google_sheet_url: Optional[str] = None
     connection_type: str = "google_sheets"
+    google_sheet_url: Optional[str] = None
     file_path: Optional[str] = None
+    http_url: Optional[str] = None
+    http_method: str = "GET"
+    http_headers: Optional[str] = None
 
 class ConnectionCreate(ConnectionBase):
     pass
@@ -159,5 +162,63 @@ class Process(ProcessBase):
     id: int
     created_at: datetime
 
+    class Config:
+        from_attributes = True
+
+# Execution Logs
+class ExecutionLogBase(BaseModel):
+    process_id: Optional[int] = None
+    batch_id: Optional[str] = None
+    event_type: str
+    status: str
+    message: str
+    technical_detail: Optional[str] = None
+    rows_affected: int = 0
+    duration_ms: int = 0
+
+class ExecutionLogCreate(ExecutionLogBase):
+    pass
+
+class ExecutionLog(ExecutionLogBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# Staging
+class StagingBatchBase(BaseModel):
+    process_id: int
+    status: str = "pending"
+    diff_result: str
+
+class StagingBatchCreate(StagingBatchBase):
+    raw_data: Optional[str] = None
+    normalized_data: str
+
+class StagingBatch(StagingBatchBase):
+    id: int
+    created_at: datetime
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None
+    expires_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# Connected Apps (Intake API)
+class ConnectedAppBase(BaseModel):
+    name: str
+    target_project_id: Optional[int] = None
+    is_active: bool = True
+
+class ConnectedAppCreate(ConnectedAppBase):
+    pass
+
+class ConnectedApp(ConnectedAppBase):
+    id: int
+    api_key: str
+    created_at: datetime
+    
     class Config:
         from_attributes = True

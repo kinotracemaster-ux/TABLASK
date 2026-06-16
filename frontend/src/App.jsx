@@ -3,7 +3,10 @@ import Connections from './components/Connections';
 import Processes from './components/Processes';
 import Exports from './components/Exports';
 import MasterTable from './components/MasterTable';
-import { Database, Link2, Settings2, Download, Table2 } from 'lucide-react';
+import ActivityLogs from './components/ActivityLogs';
+import StagingQueue from './components/StagingQueue';
+import ConnectedApps from './components/ConnectedApps';
+import { Database, Link2, Settings2, Download, Table2, Terminal, ShieldAlert, Network } from 'lucide-react';
 
 function App() {
   return (
@@ -28,14 +31,26 @@ function App() {
               <Settings2 className="w-5 h-5" />
               1. Importar (Procesos)
             </Link>
+            <Link to="/staging" className="flex items-center gap-2 p-2 text-gray-700 hover:bg-yellow-50 hover:text-yellow-600 rounded-lg">
+              <ShieldAlert className="w-5 h-5" />
+              2. Staging (Aprobación)
+            </Link>
             <Link to="/exports" className="flex items-center gap-2 p-2 text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-lg">
               <Download className="w-5 h-5" />
-              2. Distribuir (Salidas)
+              3. Distribuir (Salidas)
             </Link>
             <div className="border-t border-gray-100 my-2"></div>
             <Link to="/connections" className="flex items-center gap-2 p-2 text-gray-700 hover:bg-gray-100 rounded-lg mt-2">
               <Link2 className="w-5 h-5" />
               Fuentes Externas
+            </Link>
+            <Link to="/intake" className="flex items-center gap-2 p-2 text-gray-700 hover:bg-pink-50 hover:text-pink-600 rounded-lg">
+              <Network className="w-5 h-5" />
+              Ingesta API (Webhooks)
+            </Link>
+            <Link to="/logs" className="flex items-center gap-2 p-2 text-gray-700 hover:bg-gray-100 rounded-lg">
+              <Terminal className="w-5 h-5" />
+              Logs de Actividad
             </Link>
           </nav>
         </aside>
@@ -45,8 +60,11 @@ function App() {
           <Routes>
             <Route path="/" element={<MasterTable />} />
             <Route path="/processes" element={<Processes />} />
+            <Route path="/staging" element={<StagingQueue />} />
             <Route path="/connections" element={<Connections />} />
+            <Route path="/intake" element={<ConnectedApps />} />
             <Route path="/exports" element={<Exports />} />
+            <Route path="/logs" element={<ActivityLogs />} />
           </Routes>
         </main>
       </div>

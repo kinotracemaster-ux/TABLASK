@@ -17,11 +17,20 @@ class Connection(Base):
     __tablename__ = "connections"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    # Campos para Google Sheets
     google_sheet_url = Column(String, nullable=True)
     spreadsheet_id = Column(String, nullable=True)
+    
+    # Campos para Archivos Locales
+    file_path = Column(String, nullable=True)
+    
+    # Campos para HTTP API
+    http_url = Column(String, nullable=True)
+    http_method = Column(String, default="GET")
+    http_headers = Column(Text, nullable=True) # JSON stringificado
+    
     user_id = Column(Integer, ForeignKey("users.id"))
     connection_type = Column(String, default="google_sheets")
-    file_path = Column(String, nullable=True)
     
     owner = relationship("User", back_populates="connections")
     projects = relationship("Project", foreign_keys="[Project.connection_id]", back_populates="connection")
@@ -136,3 +145,52 @@ class Process(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     source_connection = relationship("Connection")
+
+class ExecutionLog(Base):
+    """Registro detallado de ejecuciones y errores del sistema."""
+    __tablename__ = "execution_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    process_id = Column(Integer, ForeignKey("processes.id"), nullable=True) # Opcional, puede ser un log del sistema
+    batch_id = Column(String, nullable=True) # Para cuando implementemos Staging
+    event_type = Column(String, nullable=False) # e.g. 'FETCH_START', 'NORMALIZE_ERROR', 'WRITE_ERROR'
+    status = Column(String, nullable=False) # 'success', 'error', 'warning', 'info'
+    message = Column(String, nullable=False) # Mensaje legible para el usuario
+    technical_detail = Column(Text, nullable=True) # Traceback o JSON raw
+    rows_affected = Column(Integer, default=0)
+    duration_ms = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    process = relationship("Process")
+
+class StagingBatch(Base):
+    """Lote de datos en cuarentena esperando revisión antes de escribirse en la Tabla Maestra."""
+    __tablename__ = "staging_batches"
+    id = Column(Integer, primary_key=True, index=True)
+    process_id = Column(Integer, ForeignKey("processes.id"))
+    status = Column(String, default="pending") # 'pending', 'approved', 'rejected', 'expired'
+    raw_data = Column(Text, nullable=True) # JSON con los datos originales (opcional)
+    normalized_data = Column(Text, nullable=False) # JSON con el formato lista de listas interno
+    diff_result = Column(Text, nullable=False) # JSON con el resumen (filas_nuevas, filas_actualizadas, etc)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by = Column(String, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+
+    process = relationship("Process")
+
+
+class ConnectedApp(Base):
+    """
+    Representa una aplicación externa (ej. Shopify) que tiene permiso
+    para inyectar datos directamente al sistema vía webhooks/APIs.
+    """
+    __tablename__ = "connected_apps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)  # Ej: "Shopify Store 1"
+    api_key = Column(String, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_active = Column(Boolean, default=True)
+    
+    # Mapeo por defecto o proyecto asociado (opcional, para ingesta directa a la maestra)
+    target_project_id = Column(Integer, nullable=True)

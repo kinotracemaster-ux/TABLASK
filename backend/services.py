@@ -26,9 +26,22 @@ def get_sheets_service():
         return build('sheets', 'v4', credentials=creds)
     return None
 
+from .connectors import get_connector
+
+def _create_connector(connection):
+    config = {
+        "spreadsheet_id": connection.spreadsheet_id,
+        "file_path": connection.file_path,
+        "http_url": connection.http_url,
+        "http_method": connection.http_method,
+        "http_headers": connection.http_headers
+    }
+    return get_connector(connection.connection_type, config)
+
 def get_sheet_metadata(connection):
-    """Obtiene los nombres de las hojas y sus encabezados."""
+    """Obtiene los nombres de las hojas y sus encabezados usando conectores modulares."""
     if connection.connection_type == "local_file":
+        # Simular comportamiento antiguo para compatibilidad
         result = {}
         if connection.file_path.endswith('.csv'):
             df = pd.read_csv(connection.file_path, nrows=0)
@@ -40,7 +53,7 @@ def get_sheet_metadata(connection):
                 result[sheet_name] = df.columns.tolist()
         return result
 
-    # Google Sheets logic
+    # Google Sheets logic usando api existente (para metadata es más simple directo por ahora)
     service = get_sheets_service()
     if not service:
         from fastapi import HTTPException
@@ -62,29 +75,29 @@ def get_sheet_metadata(connection):
     return result
 
 def get_sheet_data(connection, range_name: str):
-    """Obtiene los datos completos de un rango o archivo local."""
-    if connection.connection_type == "local_file":
-        if connection.file_path.endswith('.csv'):
-            df = pd.read_csv(connection.file_path, dtype=str).fillna("")
-        elif connection.file_path.endswith(('.xls', '.xlsx')):
-            # The range_name usually has the sheet name
-            sheet = range_name.split('!')[0] if '!' in range_name else 0
-            # if it's "CSV Data", pandas might need sheet_name=0
-            if sheet == "CSV Data": sheet = 0
-            df = pd.read_excel(connection.file_path, sheet_name=sheet, dtype=str).fillna("")
-        
-        # Convert df to list of lists (including headers as first row)
-        data = [df.columns.tolist()] + df.values.tolist()
-        return data
-
-    service = get_sheets_service()
-    if not service:
+    """Obtiene los datos usando los conectores modulares."""
+    connector = _create_connector(connection)
+    
+    # Extraer el nombre de la hoja de range_name (ej: "Inventario!A1:Z" -> "Inventario")
+    sheet_name = range_name.split('!')[0] if '!' in range_name else range_name
+    
+    # Obtener diccionarios y convertir a lista de listas para compatibilidad
+    try:
+        dict_data = connector.fetch_data(sheet_name)
+    except Exception as e:
         from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Faltan credenciales de Google Sheets en el servidor (GOOGLE_CREDENTIALS_JSON no configurado).")
+        raise HTTPException(status_code=400, detail=f"Error en conector: {str(e)}")
+
+    if not dict_data:
+        return []
         
-    response = service.spreadsheets().values().get(
-        spreadsheetId=connection.spreadsheet_id, range=range_name).execute()
-    return response.get('values', [])
+    # Convertir dict_data (lista de diccionarios) a lista de listas
+    headers = list(dict_data[0].keys())
+    result = [headers]
+    for row in dict_data:
+        result.append([str(row.get(h, "")) for h in headers])
+        
+    return result
 
 def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
     """

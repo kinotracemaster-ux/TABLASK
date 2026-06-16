@@ -47,15 +47,32 @@ async def global_exception_handler(request: Request, exc: Exception):
     error_msg = traceback.format_exc()
     last_exception_traceback = error_msg
     print("GLOBAL EXCEPTION:", error_msg)
+    
+    # Intentar loguear a la base de datos
+    try:
+        from .routers.logs import log_event
+        db = next(get_db())
+        log_event(
+            db=db,
+            event_type="UNHANDLED_EXCEPTION",
+            status="error",
+            message=f"Error inesperado: {str(exc)}",
+            technical_detail=error_msg
+        )
+    except Exception as db_exc:
+        print("Fallo al guardar log en DB:", db_exc)
+
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal Server Error", "traceback": error_msg}
     )
 
-@app.get("/api/debug/logs")
-def get_debug_logs():
-    from fastapi.responses import PlainTextResponse
-    return PlainTextResponse(last_exception_traceback)
+from .routers import logs, staging, connections, processes, intake
+app.include_router(logs.router)
+app.include_router(staging.router)
+app.include_router(connections.router)
+app.include_router(processes.router)
+app.include_router(intake.router)
 
 # El endpoint raíz ahora servirá el frontend de React (ver al final del archivo)
 
@@ -66,53 +83,7 @@ def reset_database():
     models.Base.metadata.create_all(bind=engine)
     return {"message": "Base de datos reseteada con éxito. Actualiza la página."}
 
-# --- Connections ---
-@app.post("/api/connections/", response_model=schemas.Connection)
-def create_connection(connection: schemas.ConnectionCreate, db: Session = Depends(get_db)):
-    import re
-    # Extract spreadsheet_id from URL
-    match = re.search(r'/d/([a-zA-Z0-9-_]+)', connection.google_sheet_url)
-    if not match:
-        raise HTTPException(status_code=400, detail="URL de Google Sheets inválida")
-    
-    spreadsheet_id = match.group(1)
-    
-    db_connection = models.Connection(
-        name=connection.name, 
-        google_sheet_url=connection.google_sheet_url,
-        spreadsheet_id=spreadsheet_id
-    )
-    db.add(db_connection)
-    db.commit()
-    db.refresh(db_connection)
-    return db_connection
-
-@app.post("/api/connections/upload", response_model=schemas.Connection)
-def upload_connection(name: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
-    if not os.path.exists("uploads"):
-        os.makedirs("uploads")
-    
-    file_path = f"uploads/{file.filename}"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    db_connection = models.Connection(
-        name=name,
-        google_sheet_url=None,
-        spreadsheet_id=None,
-        user_id=1, # Mock user
-        connection_type="local_file",
-        file_path=file_path
-    )
-    db.add(db_connection)
-    db.commit()
-    db.refresh(db_connection)
-    return db_connection
-
-@app.get("/api/connections/", response_model=list[schemas.Connection])
-def read_connections(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    connections = db.query(models.Connection).offset(skip).limit(limit).all()
-    return connections
+# Las rutas de Connections han sido movidas a routers/connections.py
 
 # --- Projects ---
 @app.post("/api/projects/", response_model=schemas.Project)
@@ -128,17 +99,7 @@ from .sync_engine import process_sync
 from pydantic import BaseModel
 from typing import Dict, List, Any
 
-# --- Sheets Metadata ---
-@app.get("/api/connections/{connection_id}/metadata")
-def read_sheet_metadata(connection_id: int, db: Session = Depends(get_db)):
-    try:
-        connection = db.query(models.Connection).filter(models.Connection.id == connection_id).first()
-        if not connection:
-            raise HTTPException(status_code=404, detail="Conexión no encontrada")
-        metadata = get_sheet_metadata(connection)
-        return {"connection_id": connection_id, "sheets": metadata}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# La ruta de metadata ha sido movida a routers/connections.py
 
 # --- Sync ---
 class SyncPreviewRequest(BaseModel):
@@ -731,163 +692,7 @@ def get_master_columns_for_export(project_id: int, db: Session = Depends(get_db)
     return []
 
 
-# ═══════════════════════════════════════════════════════════════════
-# ██ PROCESOS DE IMPORTACIÓN
-# ═══════════════════════════════════════════════════════════════════
-
-@app.post("/api/processes/", response_model=schemas.Process)
-def create_process(proc: schemas.ProcessCreate, db: Session = Depends(get_db)):
-    db_proc = models.Process(
-        name=proc.name,
-        description=proc.description,
-        source_connection_id=proc.source_connection_id,
-        source_sheet_name=proc.source_sheet_name,
-        sku_column_source=proc.sku_column_source,
-        sku_column_master=proc.sku_column_master,
-        field_mappings=json.dumps(proc.field_mappings, ensure_ascii=False),
-        add_new_rows=proc.add_new_rows,
-        is_active=proc.is_active
-    )
-    db.add(db_proc)
-    db.commit()
-    db.refresh(db_proc)
-    db_proc.field_mappings = json.loads(db_proc.field_mappings)
-    return db_proc
-
-@app.get("/api/processes/", response_model=list[schemas.Process])
-def list_processes(db: Session = Depends(get_db)):
-    procs = db.query(models.Process).all()
-    for p in procs:
-        p.field_mappings = json.loads(p.field_mappings)
-    return procs
-
-@app.delete("/api/processes/{process_id}")
-def delete_process(process_id: int, db: Session = Depends(get_db)):
-    proc = db.query(models.Process).filter(models.Process.id == process_id).first()
-    if not proc:
-        raise HTTPException(status_code=404, detail="Proceso no encontrado")
-    db.delete(proc)
-    db.commit()
-    return {"message": "Proceso eliminado"}
-
-@app.put("/api/processes/{process_id}", response_model=schemas.Process)
-def update_process(process_id: int, proc: schemas.ProcessCreate, db: Session = Depends(get_db)):
-    db_proc = db.query(models.Process).filter(models.Process.id == process_id).first()
-    if not db_proc:
-        raise HTTPException(status_code=404, detail="Proceso no encontrado")
-    db_proc.name = proc.name
-    db_proc.description = proc.description
-    db_proc.source_connection_id = proc.source_connection_id
-    db_proc.source_sheet_name = proc.source_sheet_name
-    db_proc.sku_column_source = proc.sku_column_source
-    db_proc.sku_column_master = proc.sku_column_master
-    db_proc.field_mappings = json.dumps(proc.field_mappings, ensure_ascii=False)
-    db_proc.add_new_rows = proc.add_new_rows
-    db_proc.is_active = proc.is_active
-    db.commit()
-    db.refresh(db_proc)
-    db_proc.field_mappings = json.loads(db_proc.field_mappings)
-    return db_proc
-
-
-def _get_master_info(db):
-    """Obtiene el proyecto con maestra enlazada (usa el primero disponible)."""
-    project = db.query(models.Project).filter(models.Project.master_connection_id.isnot(None)).first()
-    if not project:
-        return None, None, None
-    master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
-    return project, master_conn, project.master_sheet_name
-
-
-def _run_single_process(proc, db):
-    """Ejecuta un proceso individual: importa datos desde origen a la maestra."""
-    from .services import write_sheet_data
-
-    project, master_conn, master_sheet = _get_master_info(db)
-    if not project or not master_conn:
-        return {"process": proc.name, "status": "error", "error": "No hay tabla maestra enlazada"}
-
-    field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
-
-    # Construir el request como MasterSyncRequest
-    req = schemas.MasterSyncRequest(
-        source_connection_id=proc.source_connection_id,
-        source_sheet_name=proc.source_sheet_name,
-        sku_column_source=proc.sku_column_source,
-        sku_column_master=proc.sku_column_master,
-        field_mappings=field_mappings,
-        add_new_rows=proc.add_new_rows
-    )
-
-    try:
-        result = _compute_master_sync(project, req, db)
-
-        # Escribir a Google Sheets
-        master_raw = result["master_raw"]
-        write_result = write_sheet_data(master_conn.spreadsheet_id, master_sheet, master_raw)
-
-        return {
-            "process": proc.name,
-            "status": "success",
-            "rows_updated": result["rows_updated"],
-            "rows_added": result["rows_added"],
-            "rows_unchanged": result["rows_unchanged"],
-            "total_origen": result["total_origen"],
-        }
-    except Exception as e:
-        import traceback
-        return {"process": proc.name, "status": "error", "error": f"{str(e)}\n{traceback.format_exc()}"}
-
-
-@app.post("/api/processes/{process_id}/preview")
-def preview_process(process_id: int, db: Session = Depends(get_db)):
-    """Vista previa de un proceso individual (no escribe)."""
-    proc = db.query(models.Process).filter(models.Process.id == process_id).first()
-    if not proc:
-        raise HTTPException(status_code=404, detail="Proceso no encontrado")
-
-    project, master_conn, master_sheet = _get_master_info(db)
-    if not project or not master_conn:
-        raise HTTPException(status_code=400, detail="No hay tabla maestra enlazada. Ve a Tabla Maestra y enlaza un Google Sheet primero.")
-
-    field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
-
-    req = schemas.MasterSyncRequest(
-        source_connection_id=proc.source_connection_id,
-        source_sheet_name=proc.source_sheet_name,
-        sku_column_source=proc.sku_column_source,
-        sku_column_master=proc.sku_column_master,
-        field_mappings=field_mappings,
-        add_new_rows=proc.add_new_rows
-    )
-
-    result = _compute_master_sync(project, req, db)
-
-    return {
-        "process_name": proc.name,
-        "rows_updated": result["rows_updated"],
-        "rows_added": result["rows_added"],
-        "rows_unchanged": result["rows_unchanged"],
-        "total_origen": result["total_origen"],
-        "total_maestra": result["total_maestra"],
-        "detail_updated": result["detail_updated"],
-        "detail_added": result["detail_added"],
-        "detail_unchanged": result["detail_unchanged"],
-    }
-
-
-@app.post("/api/processes/{process_id}/run")
-def run_process(process_id: int, db: Session = Depends(get_db)):
-    """Ejecuta un proceso individual (escribe a Google Sheets)."""
-    proc = db.query(models.Process).filter(models.Process.id == process_id).first()
-    if not proc:
-        raise HTTPException(status_code=404, detail="Proceso no encontrado")
-
-    result = _run_single_process(proc, db)
-    if result["status"] == "error":
-        raise HTTPException(status_code=400, detail=result.get("error", "Error desconocido"))
-
-    return result
+# Las rutas de Processes han sido movidas a routers/processes.py
 
 
 @app.post("/api/run-all")

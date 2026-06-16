@@ -7,8 +7,12 @@ export default function Connections() {
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
 
-  const [type, setType] = useState('google_sheets'); // 'google_sheets' | 'local_file'
+  const [type, setType] = useState('google_sheets'); // 'google_sheets' | 'local_file' | 'http_api'
   const [file, setFile] = useState(null);
+  
+  // HTTP state
+  const [httpMethod, setHttpMethod] = useState('GET');
+  const [httpHeaders, setHttpHeaders] = useState('{\n  "Authorization": "Bearer TOKEN"\n}');
 
   // Fetch connections on load
   useEffect(() => {
@@ -46,6 +50,27 @@ export default function Connections() {
             console.error(errData.traceback);
           }
           alert("Error al agregar conexión:\n" + errMsg);
+        }
+      } else if (type === 'http_api') {
+        if (!url) return;
+        const res = await fetch(`${API}/api/connections/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            name, 
+            connection_type: 'http_api',
+            http_url: url,
+            http_method: httpMethod,
+            http_headers: httpHeaders
+          })
+        });
+        if(res.ok) {
+          const newConn = await res.json();
+          setConnections([...connections, newConn]);
+          setUrl('');
+          setName('');
+        } else {
+          alert("Error al agregar conexión HTTP.");
         }
       } else {
         if (!file) return;
@@ -85,16 +110,25 @@ export default function Connections() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-8 overflow-hidden">
         <div className="flex border-b border-gray-200">
           <button 
+            type="button"
             className={`flex-1 py-3 font-medium text-sm transition ${type === 'google_sheets' ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
             onClick={() => setType('google_sheets')}
           >
             Google Sheets (URL)
           </button>
           <button 
+            type="button"
             className={`flex-1 py-3 font-medium text-sm transition ${type === 'local_file' ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
             onClick={() => setType('local_file')}
           >
             Subir Archivo (.csv, .xlsx)
+          </button>
+          <button 
+            type="button"
+            className={`flex-1 py-3 font-medium text-sm transition ${type === 'http_api' ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
+            onClick={() => setType('http_api')}
+          >
+            API Externa (HTTP)
           </button>
         </div>
         
@@ -110,9 +144,9 @@ export default function Connections() {
             />
           </div>
           
-          <div className="flex-[2]">
-            {type === 'google_sheets' ? (
-              <>
+          <div className="flex-[2] flex flex-col gap-3">
+            {type === 'google_sheets' && (
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">URL de Google Sheets</label>
                 <input 
                   type="url" 
@@ -121,9 +155,11 @@ export default function Connections() {
                   placeholder="https://docs.google.com/spreadsheets/d/..." 
                   className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
                 />
-              </>
-            ) : (
-              <>
+              </div>
+            )}
+            
+            {type === 'local_file' && (
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Seleccionar Archivo</label>
                 <input 
                   type="file" 
@@ -131,11 +167,44 @@ export default function Connections() {
                   onChange={e => setFile(e.target.files[0])}
                   className="w-full border border-gray-300 rounded-lg p-1.5 focus:ring-2 focus:ring-blue-500 outline-none" 
                 />
+              </div>
+            )}
+
+            {type === 'http_api' && (
+              <>
+                <div className="flex gap-2">
+                  <div className="w-24">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Método</label>
+                    <select value={httpMethod} onChange={e => setHttpMethod(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                      <option>GET</option>
+                      <option>POST</option>
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">URL Endpoint</label>
+                    <input 
+                      type="url" 
+                      value={url}
+                      onChange={e => setUrl(e.target.value)}
+                      placeholder="https://api.proveedor.com/v1/productos" 
+                      className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Headers (JSON Opcional)</label>
+                  <textarea 
+                    value={httpHeaders}
+                    onChange={e => setHttpHeaders(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg p-2 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                    rows="2"
+                  ></textarea>
+                </div>
               </>
             )}
           </div>
           
-          <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition h-[42px]">
+          <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition h-[42px] self-end">
             {type === 'google_sheets' ? 'Conectar' : 'Subir'}
           </button>
         </form>
@@ -152,7 +221,8 @@ export default function Connections() {
             </div>
             <div className="flex items-center gap-1 text-green-600 text-sm font-medium">
               <CheckCircle2 className="w-4 h-4" />
-              {conn.connection_type === 'local_file' ? 'Archivo Local' : 'Conectado'}
+              {conn.connection_type === 'local_file' ? 'Archivo Local' : 
+               conn.connection_type === 'http_api' ? 'API Externa' : 'Conectado'}
             </div>
           </div>
         ))}
