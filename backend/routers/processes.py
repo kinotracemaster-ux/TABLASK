@@ -1,65 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from ..main import _compute_master_sync
+from ..services import _get_master_info, _run_single_process
 import json
 from .. import models, schemas
 from ..database import get_db
-from ..main import _compute_master_sync
-
-def _get_master_info(db: Session):
-    project = db.query(models.Project).first()
-    if not project or not project.master_connection_id:
-        return None, None, None
-    master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
-    return project, master_conn, project.master_sheet_name
-
-def _run_single_process(proc, db: Session):
-    project, master_conn, master_sheet = _get_master_info(db)
-    if not project or not master_conn:
-        return {"status": "error", "error": "No hay tabla maestra enlazada."}
-    
-    field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
-    req = schemas.MasterSyncRequest(
-        source_connection_id=proc.source_connection_id,
-        source_sheet_name=proc.source_sheet_name,
-        sku_column_source=proc.sku_column_source,
-        sku_column_master=proc.sku_column_master,
-        field_mappings=field_mappings,
-        add_new_rows=proc.add_new_rows
-    )
-    
-    try:
-        result = _compute_master_sync(project, req, db)
-        master_raw = result["master_raw"]
-        
-        # Guardar en la maestra
-        from ..services import _create_connector
-        connector = _create_connector(master_conn)
-        
-        # Determinar el rango
-        sheet_range = f"{master_sheet}!A1:Z" if master_conn.connection_type == "google_sheets" else master_sheet
-        
-        # Conectores HTTP o locales pueden no soportar update_data igual que Sheets, pero asumimos su existencia
-        if hasattr(connector, 'update_data'):
-            connector.update_data(sheet_range, master_raw)
-        else:
-            return {"status": "error", "error": f"El conector {master_conn.connection_type} no soporta actualizaciones directas."}
-            
-        # Log event
-        from .logs import log_event
-        log_event(db, "SYNC_PROCESS", "success", f"Proceso '{proc.name}' ejecutado directamente.", proc.id, None, None, result["rows_updated"] + result["rows_added"])
-        
-        return {
-            "status": "success", 
-            "process_name": proc.name,
-            "rows_updated": result["rows_updated"],
-            "rows_added": result["rows_added"]
-        }
-    except Exception as e:
-        import traceback
-        from .logs import log_event
-        log_event(db, "SYNC_ERROR", "error", f"Error ejecutando '{proc.name}': {str(e)}", proc.id, None, traceback.format_exc())
-        return {"status": "error", "error": str(e)}
 
 router = APIRouter(
     prefix="/api/processes",

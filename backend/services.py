@@ -129,3 +129,163 @@ def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
 
     return {"rows_written": result.get("updatedRows", 0)}
 
+from .models import Project, Connection
+
+def _get_master_info(db):
+    project = db.query(Project).first()
+    if not project or not project.master_connection_id:
+        return None, None, None
+    master_conn = db.query(Connection).filter(Connection.id == project.master_connection_id).first()
+    return project, master_conn, project.master_sheet_name
+
+def _compute_master_sync(project, req, db):
+    from fastapi import HTTPException
+    src_conn = db.query(Connection).filter(Connection.id == req.source_connection_id).first()
+    if not src_conn:
+        raise HTTPException(status_code=404, detail="Conexión origen no encontrada")
+        
+    src_raw = get_sheet_data(src_conn, f"{req.source_sheet_name}!A1:Z")
+    if not src_raw or len(src_raw) < 2:
+        raise HTTPException(status_code=400, detail="La tabla origen está vacía")
+    
+    src_headers = src_raw[0]
+    
+    if req.sku_column_source not in src_headers:
+        raise HTTPException(status_code=400, detail=f"Columna '{req.sku_column_source}' no encontrada en el origen.")
+    src_sku_idx = src_headers.index(req.sku_column_source)
+    
+    master_conn = db.query(Connection).filter(Connection.id == project.master_connection_id).first()
+    master_raw = get_sheet_data(master_conn, f"{project.master_sheet_name}!A1:Z")
+    
+    if not master_raw:
+        master_headers = [req.sku_column_master] + list(set(req.field_mappings.values()))
+        master_raw = [master_headers]
+    else:
+        master_headers = master_raw[0]
+        
+    for dst_col in req.field_mappings.values():
+        if dst_col not in master_headers:
+            master_headers.append(dst_col)
+    master_raw[0] = master_headers
+    
+    if req.sku_column_master not in master_headers:
+        raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column_master}' no encontrada en la maestra")
+    master_sku_idx = master_headers.index(req.sku_column_master)
+    
+    master_by_sku = {}
+    for i, row in enumerate(master_raw[1:]):
+        sku_val = row[master_sku_idx] if master_sku_idx < len(row) else ""
+        if sku_val:
+            padded_row = row + [""] * (len(master_headers) - len(row))
+            master_by_sku[sku_val] = {"index": i + 1, "data": padded_row}
+            
+    rows_updated = 0
+    rows_added = 0
+    rows_unchanged = 0
+    detail_updated = []
+    detail_added = []
+    detail_unchanged = []
+    
+    for src_row in src_raw[1:]:
+        sku_val = src_row[src_sku_idx] if src_sku_idx < len(src_row) else ""
+        if not sku_val:
+            continue
+            
+        if sku_val in master_by_sku:
+            mr_info = master_by_sku[sku_val]
+            mr_data = mr_info["data"]
+            changed = False
+            changes_detail = {}
+            
+            for src_col, dst_col in req.field_mappings.items():
+                if src_col in src_headers:
+                    s_idx = src_headers.index(src_col)
+                    m_idx = master_headers.index(dst_col)
+                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
+                    old_val = mr_data[m_idx]
+                    if old_val != new_val:
+                        changes_detail[dst_col] = {"antes": old_val, "después": new_val}
+                        mr_data[m_idx] = new_val
+                        changed = True
+            
+            if changed:
+                master_raw[mr_info["index"]] = mr_data
+                rows_updated += 1
+                detail_updated.append({"sku": sku_val, "cambios": changes_detail})
+            else:
+                rows_unchanged += 1
+                detail_unchanged.append(sku_val)
+                
+        elif req.add_new_rows:
+            new_mr_data = [""] * len(master_headers)
+            new_mr_data[master_sku_idx] = sku_val
+            
+            new_fields = {}
+            for src_col, dst_col in req.field_mappings.items():
+                if src_col in src_headers:
+                    s_idx = src_headers.index(src_col)
+                    m_idx = master_headers.index(dst_col)
+                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
+                    new_mr_data[m_idx] = new_val
+                    new_fields[dst_col] = new_val
+                    
+            master_raw.append(new_mr_data)
+            rows_added += 1
+            detail_added.append({"sku": sku_val, "datos": new_fields})
+            
+    return {
+        "master_raw": master_raw,
+        "master_conn": master_conn,
+        "rows_updated": rows_updated,
+        "rows_added": rows_added,
+        "rows_unchanged": rows_unchanged,
+        "total_origen": len(src_raw) - 1,
+        "total_maestra": len(master_raw) - 1,
+        "detail_updated": detail_updated[:50],
+        "detail_added": detail_added[:50],
+        "detail_unchanged": detail_unchanged[:50],
+    }
+
+def _run_single_process(proc, db):
+    import json
+    from .schemas import MasterSyncRequest
+    from .routers.logs import log_event
+    import traceback
+    
+    project, master_conn, master_sheet = _get_master_info(db)
+    if not project or not master_conn:
+        return {"status": "error", "error": "No hay tabla maestra enlazada."}
+    
+    field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
+    req = MasterSyncRequest(
+        source_connection_id=proc.source_connection_id,
+        source_sheet_name=proc.source_sheet_name,
+        sku_column_source=proc.sku_column_source,
+        sku_column_master=proc.sku_column_master,
+        field_mappings=field_mappings,
+        add_new_rows=proc.add_new_rows
+    )
+    
+    try:
+        result = _compute_master_sync(project, req, db)
+        master_raw = result["master_raw"]
+        
+        connector = _create_connector(master_conn)
+        sheet_range = f"{master_sheet}!A1:Z" if master_conn.connection_type == "google_sheets" else master_sheet
+        
+        if hasattr(connector, 'update_data'):
+            connector.update_data(sheet_range, master_raw)
+        else:
+            return {"status": "error", "error": f"El conector {master_conn.connection_type} no soporta actualizaciones directas."}
+            
+        log_event(db, "SYNC_PROCESS", "success", f"Proceso '{proc.name}' ejecutado directamente.", proc.id, None, None, result["rows_updated"] + result["rows_added"])
+        
+        return {
+            "status": "success", 
+            "process_name": proc.name,
+            "rows_updated": result["rows_updated"],
+            "rows_added": result["rows_added"]
+        }
+    except Exception as e:
+        log_event(db, "SYNC_ERROR", "error", f"Error ejecutando '{proc.name}': {str(e)}", proc.id, None, traceback.format_exc())
+        return {"status": "error", "error": str(e)}
