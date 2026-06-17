@@ -13,12 +13,22 @@ router = APIRouter(
 
 @router.post("/", response_model=schemas.Connection)
 def create_connection(conn: schemas.ConnectionCreate, db: Session = Depends(get_db)):
+    spreadsheet_id = None
+    if conn.google_sheet_url and "/d/" in conn.google_sheet_url:
+        try:
+            spreadsheet_id = conn.google_sheet_url.split("/d/")[1].split("/")[0]
+        except IndexError:
+            pass
+
     db_conn = models.Connection(
         name=conn.name,
         google_sheet_url=conn.google_sheet_url,
-        spreadsheet_id=conn.spreadsheet_id,
+        spreadsheet_id=spreadsheet_id,
         connection_type=conn.connection_type,
-        file_path=conn.file_path
+        file_path=conn.file_path,
+        http_url=conn.http_url,
+        http_method=conn.http_method,
+        http_headers=conn.http_headers
     )
     db.add(db_conn)
     db.commit()
