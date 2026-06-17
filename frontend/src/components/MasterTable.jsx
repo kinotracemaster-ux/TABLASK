@@ -70,7 +70,7 @@ export default function MasterTable() {
     try {
       const res = await fetch(`${API}/api/connections/${connId}/metadata`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Error cargando hojas');
+      if (!res.ok) throw new Error(data.detail || 'Fallo cargando hojas');
       setMasterSheets(data.sheets || {});
     } catch (err) {
       alert(err.message);
@@ -94,9 +94,9 @@ export default function MasterTable() {
         loadMasterData();
       } else {
         const err = await res.json();
-        alert('Error: ' + err.detail);
+        alert(err.detail);
       }
-    } catch (err) { alert('Error: ' + err.message); }
+    } catch (err) { alert(err.message); }
     setLinking(false);
   };
 
@@ -115,7 +115,7 @@ export default function MasterTable() {
       setRunAllResult(data);
       if (res.ok) loadMasterData();
     } catch (err) {
-      setRunAllResult({ message: 'Error de conexión: ' + err.message, errors: [{ process: 'Red', error: err.message }] });
+      setRunAllResult({ message: 'Fallo de conexión: ' + err.message, errors: [{ process: 'Red', error: err.message }] });
     }
     setRunAllLoading(false);
   };
@@ -188,7 +188,7 @@ export default function MasterTable() {
             <div className="space-y-1">
               {runAllResult.errors.map((e, i) => (
                 <div key={i} className="flex items-center gap-2 text-sm text-red-700 bg-red-50 rounded p-2">
-                  <XCircle className="w-4 h-4 flex-shrink-0" /> <span className="font-medium flex-shrink-0">{e.process}:</span> <span className="truncate">{e.error}</span>
+                  <XCircle className="w-4 h-4 flex-shrink-0" /> <span className="font-medium flex-shrink-0">{e.process}:</span> <span className="break-words whitespace-normal min-w-0">{e.error}</span>
                 </div>
               ))}
             </div>

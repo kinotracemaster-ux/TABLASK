@@ -30,11 +30,11 @@ export default function StagingQueue() {
         setBatches(batches.filter(b => b.id !== batchId));
       } else {
         const err = await res.json();
-        alert(`Error: ${err.detail}`);
+        alert(err.detail);
       }
     } catch (e) {
       console.error(e);
-      alert("Error al aprobar");
+      alert("Fallo al aprobar");
     }
   };
 

@@ -130,7 +130,7 @@ export default function ActivityLogs() {
 
               <div>
                 <h4 className="text-sm font-semibold text-gray-600 mb-2 uppercase tracking-wider">Detalle Técnico</h4>
-                <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap font-mono">
+                <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs whitespace-pre-wrap break-all font-mono">
                   {selectedLog.technical_detail}
                 </pre>
               </div>

@@ -50,7 +50,7 @@ export default function Processes() {
     try {
       const res = await fetch(`${API}/api/connections/${connId}/metadata`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Error');
+      if (!res.ok) throw new Error(data.detail || 'Fallo');
       setSourceSheets(data.sheets || {});
     } catch (err) {
       alert(err.message);
@@ -89,7 +89,7 @@ export default function Processes() {
       loadAll();
     } else {
       const data = await res.json();
-      alert('Error: ' + (data.detail || JSON.stringify(data)));
+      alert(data.detail || JSON.stringify(data));
     }
   };
 
@@ -145,7 +145,7 @@ export default function Processes() {
       const data = await res.json();
       setRunAllResult(data);
     } catch (err) {
-      setRunAllResult({ message: 'Error de conexión: ' + err.message, errors: [{ process: 'Red', error: err.message }] });
+      setRunAllResult({ message: 'Fallo de conexión: ' + err.message, errors: [{ process: 'Red', error: err.message }] });
     }
     setRunAllLoading(false);
   };
@@ -217,7 +217,7 @@ export default function Processes() {
             <div className="space-y-1">
               {runAllResult.errors.map((e, i) => (
                 <div key={i} className="flex items-center gap-2 text-sm text-red-700 bg-red-50 rounded p-2">
-                  <XCircle className="w-4 h-4" /> <span className="font-medium">{e.process}:</span> {e.error}
+                  <XCircle className="w-4 h-4 flex-shrink-0" /> <span className="font-medium flex-shrink-0">{e.process}:</span> <span className="break-words whitespace-normal min-w-0">{e.error}</span>
                 </div>
               ))}
             </div>
@@ -423,7 +423,7 @@ export default function Processes() {
 
                 {st?.error && (
                   <div className="border-t border-gray-100 bg-red-50 p-4 flex items-center gap-2 text-sm text-red-700">
-                    <XCircle className="w-4 h-4" /> {st.error}
+                    <XCircle className="w-4 h-4 flex-shrink-0" /> <span className="flex-1 break-words whitespace-normal min-w-0">{st.error}</span>
                     <button onClick={() => setProcessStatus(s => ({ ...s, [proc.id]: null }))}
                       className="ml-auto text-gray-400 text-xs hover:text-gray-600">Cerrar</button>
                   </div>
