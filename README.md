@@ -39,4 +39,4 @@ La aplicación React estará disponible en http://localhost:5173.
 4. **Servicio Frontend**: Configura el *Root Directory* a `/frontend` en Railway. Railway detectará Vite y compilará la app automáticamente.
 
 ---
-*Última actualización: 16 de Junio de 2026*
+*Última actualización: 17 de Junio de 2026*

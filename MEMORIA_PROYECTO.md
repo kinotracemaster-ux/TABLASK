@@ -21,8 +21,9 @@ El sistema se divide en 4 pilares reflejados en la interfaz (React):
 4. **Distribuir (Formatos de Salida):** Configuración para enviar columnas específicas de la Tabla Maestra hacia otras hojas de cálculo destino (por ejemplo, catálogos para Shopify o listas de precios).
 
 ## 3. Hitos Logrados y Estado Actual
-* **Refactorización Global:** Se eliminó el concepto de "múltiples proyectos aislados". Ahora toda la app gira en torno a **una única Tabla Maestra global**.
-* **Flexibilidad de Columnas:** Si la Tabla Maestra está en blanco, el usuario puede teclear libremente los nombres de las columnas (ej. "SKU") en los menús desplegables (comboboxes) usando la interfaz de Procesos. El motor creará esas columnas automáticamente en Google Sheets en la primera ejecución.
+* **Arquitectura Point-to-Point (NUEVO):** Se implementó la flexibilidad total en los Procesos de Importación. Aunque existe una "Tabla Maestra" global como eje principal, **cada proceso ahora puede definir independientemente su propio Archivo (Conexión) Destino y Hoja Destino**. Esto permite sincronizar datos entre múltiples archivos externos o entre múltiples hojas de un mismo archivo maestro.
+* **Refactorización Global:** Se eliminó el concepto de "múltiples proyectos aislados". Todo el ecosistema gira en torno a tu configuración centralizada, pero con libertad de flujos punto a punto.
+* **Flexibilidad de Columnas:** Si la hoja destino está en blanco, el usuario puede teclear libremente los nombres de las columnas (ej. "SKU") en los menús desplegables (comboboxes) usando la interfaz de Procesos. El motor creará esas columnas automáticamente en Google Sheets en la primera ejecución.
 * **Soporte CSV Local:** Integrado de forma nativa en la sección de Conexiones.
 * **Manejo de Errores Visuales:** El "Preview" (Vista Previa) de los procesos muestra explícitamente cuántas filas **Se Sobreescribirán**, cuántas **Se Añadirán (Nuevos)** y cuántas quedarán **Iguales (Sin Cambio)**.
 
@@ -32,4 +33,4 @@ El sistema se divide en 4 pilares reflejados en la interfaz (React):
 * **Frontend:** React + Tailwind CSS. Mantener el diseño limpio, profesional y enfocado en la usabilidad.
 
 ---
-*Última actualización: Junio 2026*
+*Última actualización: 17 de Junio de 2026*
