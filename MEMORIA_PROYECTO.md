@@ -20,17 +20,25 @@ El sistema se divide en 4 pilares reflejados en la interfaz (React):
 3. **Tabla Maestra:** El panel central que visualiza los datos en tiempo real desde Google Sheets. Tiene el botón principal **"⚡ Correr Procesos"** que ejecuta todos los procesos de importación y luego todas las exportaciones en cadena.
 4. **Distribuir (Formatos de Salida):** Configuración para enviar columnas específicas de la Tabla Maestra hacia otras hojas de cálculo destino (por ejemplo, catálogos para Shopify o listas de precios).
 
-## 3. Hitos Logrados y Estado Actual
-* **Arquitectura Point-to-Point (NUEVO):** Se implementó la flexibilidad total en los Procesos de Importación. Aunque existe una "Tabla Maestra" global como eje principal, **cada proceso ahora puede definir independientemente su propio Archivo (Conexión) Destino y Hoja Destino**. Esto permite sincronizar datos entre múltiples archivos externos o entre múltiples hojas de un mismo archivo maestro.
-* **Refactorización Global:** Se eliminó el concepto de "múltiples proyectos aislados". Todo el ecosistema gira en torno a tu configuración centralizada, pero con libertad de flujos punto a punto.
-* **Flexibilidad de Columnas:** Si la hoja destino está en blanco, el usuario puede teclear libremente los nombres de las columnas (ej. "SKU") en los menús desplegables (comboboxes) usando la interfaz de Procesos. El motor creará esas columnas automáticamente en Google Sheets en la primera ejecución.
-* **Soporte CSV Local:** Integrado de forma nativa en la sección de Conexiones.
-* **Manejo de Errores Visuales:** El "Preview" (Vista Previa) de los procesos muestra explícitamente cuántas filas **Se Sobreescribirán**, cuántas **Se Añadirán (Nuevos)** y cuántas quedarán **Iguales (Sin Cambio)**.
+## 3. Hitos Logrados y Arquitectura Actual
+* **Motor "Acumulador Inteligente":** Cada origen externo aporta solo la información de sus columnas mapeadas a una Maestra centralizada. Los valores no mapeados se conservan intactos.
+* **El Guardián y StagingBatch (Paso Intermedio Seguros):** Ningún cambio se escribe automáticamente en la base de datos de Google Sheets sin pasar por una cuarentena temporal (`StagingBatch`). 
+   - Los batches expiran a los 30 minutos para evitar escrituras basadas en datos obsoletos de origen.
+   - Si el Guardián detecta <10% de coincidencias de SKU, bloquea preventivamente la ejecución (requiere override manual).
+* **Distribución Quirúrgica (Suscripciones):** Las hojas hijas reciben automáticamente *sólo los campos a los que están suscritas*, propagados mediante `BackgroundTasks` en la API (FastAPI) únicamente si la escritura original a la Maestra fue exitosa. Las escrituras a hijas fallidas se loggean pero no abortan el pipeline.
+* **Escritura Celda por Celda (BatchUpdate):** En vez de descargar y reescribir la matriz gigante de Google Sheets, el motor actualiza la nube mediante el API granular enviando únicamente los rangos "A2, B4..." que cambiaron (`write_sheet_data_surgical`).
 
-## 4. Reglas Estrictas de Desarrollo
-* **NUNCA** proponer migrar la data de la Tabla Maestra a PostgreSQL. Se acordó explícitamente mantener Google Sheets como la única fuente de la verdad para mantener la flexibilidad de edición manual.
-* **Cuidado con las dependencias circulares:** El backend está en FastAPI (`main.py` y `services.py`). Evitar imports circulares al modificar endpoints.
-* **Frontend:** React + Tailwind CSS. Mantener el diseño limpio, profesional y enfocado en la usabilidad.
+## 4. Fuera de Scope (Versión Actual)
+Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):
+- Suscripciones a hijas con la regla de negocio "Sobreescribir SOLO si la celda hija está vacía". Actualmente, la distribución siempre sobreescribe con el valor de la Maestra.
+- El diccionario semántico (AI/Mappings) no "aprende" automáticamente ni hace blacklist de los rechazos del usuario.
+- Escritura individual a nivel microscópico por cada celda: aunque se hace `batchUpdate` específico, se agrupa la fila completa si se añade una nueva.
+
+## 5. Reglas Estrictas de Desarrollo
+* **NUNCA** proponer migrar la data de la Tabla Maestra a PostgreSQL. Se acordó explícitamente mantener Google Sheets como la única fuente de la verdad.
+* **Protección Relacional:** Las conexiones (orígenes y destinos) no pueden borrarse si están atadas a `FieldSubscription`s o `Process`es activos.
+* **Backend FastAPI:** Manejar BackgroundTasks para propagación.
+* **Frontend React:** Manejo de estados de carga explícitos para no congelar la UI.
 
 ---
 *Última actualización: 17 de Junio de 2026*

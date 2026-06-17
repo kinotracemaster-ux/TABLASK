@@ -44,6 +44,24 @@ def delete_connection(conn_id: int, db: Session = Depends(get_db)):
     conn = db.query(models.Connection).filter(models.Connection.id == conn_id).first()
     if not conn:
         raise HTTPException(status_code=404, detail="Conexión no encontrada")
+        
+    # Validar si está en uso por una suscripción
+    sub_in_use = db.query(models.FieldSubscription).filter(models.FieldSubscription.target_connection_id == conn_id).first()
+    if sub_in_use:
+        raise HTTPException(status_code=400, detail=f"No se puede borrar: está siendo usada como destino por la suscripción '{sub_in_use.name}'")
+        
+    # Validar si está en uso por un proceso (origen o destino)
+    proc_in_use = db.query(models.Process).filter(
+        (models.Process.source_connection_id == conn_id) | 
+        (models.Process.target_connection_id == conn_id)
+    ).first()
+    if proc_in_use:
+        raise HTTPException(status_code=400, detail=f"No se puede borrar: está siendo usada por el proceso '{proc_in_use.name}'")
+        
+    # Validar si es la tabla maestra global
+    proj_in_use = db.query(models.Project).filter(models.Project.master_connection_id == conn_id).first()
+    if proj_in_use:
+        raise HTTPException(status_code=400, detail="No se puede borrar: está configurada como la Tabla Maestra principal.")
     
     if conn.connection_type == "local_file" and conn.file_path and os.path.exists(conn.file_path):
         try:

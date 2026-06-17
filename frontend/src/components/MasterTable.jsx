@@ -32,6 +32,9 @@ export default function MasterTable() {
   // Preview state (PASO 3)
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewData, setPreviewData] = useState(null);
+  
+  // Alerta de 0 Matches
+  const [lowMatchAcknowledged, setLowMatchAcknowledged] = useState(false);
 
   // Processes & Exports lists for tabs
   const [processes, setProcesses] = useState([]);
@@ -133,19 +136,20 @@ export default function MasterTable() {
     loadMasterData();
   };
 
-  // --- PASO 3: Preview → Confirm → Run ---
+  // --- PASO 3: Stage → Confirm → Run Bulk ---
   const handlePreviewAll = async () => {
     setPreviewLoading(true);
     setPreviewData(null);
     setRunAllResult(null);
+    setLowMatchAcknowledged(false);
     try {
       const activeProcesses = processes.filter(p => p.is_active);
       const previews = await Promise.all(
         activeProcesses.map(async (proc) => {
           try {
-            const res = await fetch(`${API}/api/processes/${proc.id}/preview`, { method: 'POST' });
+            const res = await fetch(`${API}/api/processes/${proc.id}/stage`, { method: 'POST' });
             const data = await res.json();
-            if (res.ok) return { name: proc.name, ...data, ok: true };
+            if (res.ok) return { name: proc.name, ...data.diff, batch_id: data.batch_id, ok: true };
             return { name: proc.name, ok: false, error: data.detail || 'Error' };
           } catch (err) {
             return { name: proc.name, ok: false, error: err.message };
@@ -153,15 +157,22 @@ export default function MasterTable() {
         })
       );
 
-      const totalUpdated = previews.filter(p => p.ok).reduce((s, p) => s + (p.rows_updated || 0), 0);
-      const totalAdded = previews.filter(p => p.ok).reduce((s, p) => s + (p.rows_added || 0), 0);
+      const totalUpdated = previews.filter(p => p.ok).reduce((s, p) => s + (p.rows_to_update || 0), 0);
+      const totalAdded = previews.filter(p => p.ok).reduce((s, p) => s + (p.rows_to_add || 0), 0);
+      const totalOrigin = previews.filter(p => p.ok).reduce((s, p) => s + (p.total_origen || 0), 0);
       const processesOk = previews.filter(p => p.ok).length;
       const errors = previews.filter(p => !p.ok);
+      const batchIds = previews.filter(p => p.ok).map(p => p.batch_id);
+      
+      const matchPercentage = totalOrigin > 0 ? (totalUpdated / totalOrigin) : 1;
 
       setPreviewData({
         previews,
         totalUpdated,
         totalAdded,
+        totalOrigin,
+        matchPercentage,
+        batchIds,
         processesOk,
         exportsCount: exports.length,
         errors
@@ -173,11 +184,17 @@ export default function MasterTable() {
   };
 
   const handleConfirmRunAll = async () => {
+    if (!previewData?.batchIds || previewData.batchIds.length === 0) return;
+    
     setPreviewData(null);
     setRunAllLoading(true);
     setRunAllResult(null);
     try {
-      const res = await fetch(`${API}/api/run-all`, { method: 'POST' });
+      const res = await fetch(`${API}/api/staging/execute-bulk`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batch_ids: previewData.batchIds })
+      });
       const data = await res.json();
       setRunAllResult(data);
       if (res.ok) { loadMasterData(); loadProcesses(); }
@@ -276,12 +293,42 @@ export default function MasterTable() {
               ))}
             </div>
           )}
+          {/* Warning de baja coincidencia */}
+          {previewData.matchPercentage < 0.1 && previewData.totalAdded > 0 && (
+            <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h4 className="text-sm font-bold text-orange-800">Advertencia: Baja Coincidencia de SKUs</h4>
+                  <p className="text-sm text-orange-700 mt-1">
+                    Menos del 10% de los productos del origen existen en la Tabla Maestra. 
+                    Se van a agregar <strong className="font-bold">{previewData.totalAdded} filas completamente nuevas</strong>, 
+                    lo cual podría indicar un formato incorrecto en la columna SKU.
+                  </p>
+                  <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-orange-300 text-orange-600 focus:ring-orange-500 w-4 h-4"
+                      checked={lowMatchAcknowledged}
+                      onChange={(e) => setLowMatchAcknowledged(e.target.checked)}
+                    />
+                    <span className="text-sm font-medium text-orange-900">
+                      Entiendo que se agregarán como productos nuevos y el formato del SKU es correcto
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button onClick={() => setPreviewData(null)}
               className="text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium">
               Cancelar
             </button>
-            <button onClick={handleConfirmRunAll} disabled={runAllLoading}
+            <button 
+              onClick={handleConfirmRunAll} 
+              disabled={runAllLoading || (previewData.matchPercentage < 0.1 && previewData.totalAdded > 0 && !lowMatchAcknowledged)}
               className="bg-green-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-green-700 text-sm disabled:opacity-50 flex items-center gap-2">
               <Zap className="w-4 h-4" />
               {runAllLoading ? 'Ejecutando...' : 'Confirmar y Ejecutar'}

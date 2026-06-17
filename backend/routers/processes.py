@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from ..services import _compute_master_sync, _get_master_info, _run_single_process
-import json
 from .. import models, schemas
 from ..database import get_db
+from datetime import datetime, timedelta
+import json
 
 router = APIRouter(
     prefix="/api/processes",
@@ -137,14 +138,18 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
             "rows_to_update": result["rows_updated"],
             "rows_to_add": result["rows_added"],
             "rows_unchanged": result["rows_unchanged"],
-            "warnings": []
+            "warnings": [],
+            "changes": result.get("changes", []),
+            "new_rows": result.get("new_rows", []),
+            "total_rows_before": result.get("total_rows_before", 0),
+            "total_origen": result.get("total_origen", 0)
         }
-        
         batch = models.StagingBatch(
             process_id=process_id,
             status="pending",
             normalized_data=json.dumps(master_raw, ensure_ascii=False),
-            diff_result=json.dumps(diff_summary, ensure_ascii=False)
+            diff_result=json.dumps(diff_summary, ensure_ascii=False),
+            expires_at=datetime.utcnow() + timedelta(minutes=30)
         )
         db.add(batch)
         db.commit()
