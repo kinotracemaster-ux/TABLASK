@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings2, Plus, Trash2, Play, Eye, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, ShieldAlert, ChevronRight } from 'lucide-react';
+import { Settings2, Plus, Trash2, Play, Eye, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, ShieldAlert, ChevronRight, Edit } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -11,6 +11,7 @@ export default function Processes() {
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [masterInfo, setMasterInfo] = useState(null);
+  const [editingId, setEditingId] = useState(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -128,8 +129,8 @@ export default function Processes() {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!masterInfo) {
-      alert("No hay tabla maestra enlazada en el sistema.");
+    if (!masterInfo && !targetConnId) {
+      alert("No hay conexión maestra. Ve al panel de Tabla Maestra y enlaza una, o configura un destino manual.");
       return;
     }
 
@@ -141,15 +142,18 @@ export default function Processes() {
       return;
     }
 
-    const res = await fetch(`${API}/api/processes/`, {
-      method: 'POST',
+    const url = editingId ? `${API}/api/processes/${editingId}` : `${API}/api/processes/`;
+    const method = editingId ? 'PUT' : 'POST';
+
+    const res = await fetch(url, {
+      method: method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name, description,
         source_connection_id: parseInt(sourceConnId),
         source_sheet_name: sourceSheet,
-        target_connection_id: masterInfo.connId,
-        target_sheet_name: masterInfo.sheetName,
+        target_connection_id: masterInfo?.connId || targetConnId,
+        target_sheet_name: masterInfo?.sheetName || targetSheet,
         sku_column_source: skuColSource,
         sku_column_master: skuColMaster,
         field_mappings: mappings
@@ -171,6 +175,28 @@ export default function Processes() {
     setSkuColSource(''); setSkuColMaster('');
     setFieldMappings([{ src: '', dst: '' }]);
     setSourceSheets({});
+    setEditingId(null);
+  };
+
+  const handleEdit = async (proc) => {
+    setName(proc.name);
+    setDescription(proc.description || '');
+    
+    // Set source connection and trigger sheets load
+    setSourceConnId(proc.source_connection_id);
+    await loadSourceSheets(proc.source_connection_id);
+    setSourceSheet(proc.source_sheet_name);
+    
+    setSkuColSource(proc.sku_column_source);
+    setSkuColMaster(proc.sku_column_master);
+    
+    // Parse mappings back to array
+    const mappedArray = Object.entries(proc.field_mappings).map(([src, dst]) => ({ src, dst }));
+    setFieldMappings(mappedArray.length > 0 ? mappedArray : [{ src: '', dst: '' }]);
+    
+    setEditingId(proc.id);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDelete = async (id) => {
@@ -247,9 +273,9 @@ export default function Processes() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowForm(!showForm)}
+          <button onClick={() => { setShowForm(!showForm); if(showForm) resetForm(); }}
             className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm">
-            <Plus className="w-4 h-4" /> Nuevo Proceso
+            <Plus className="w-4 h-4" /> {editingId ? 'Cancelar Edición' : 'Nuevo Proceso'}
           </button>
         </div>
       </div>
@@ -257,7 +283,7 @@ export default function Processes() {
       {/* Create Form */}
       {showForm && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-1 text-indigo-800">Nuevo Proceso de Actualización</h2>
+          <h2 className="text-lg font-semibold mb-4 text-indigo-800">{editingId ? 'Editar Proceso' : 'Configurar Nuevo Proceso'}</h2>
           <p className="text-sm text-gray-500 mb-5">Configura de dónde vienen los datos (origen) y a dónde van (destino).</p>
 
           <form onSubmit={handleCreate} className="space-y-5">
@@ -424,6 +450,8 @@ export default function Processes() {
                       className="flex items-center gap-1 text-sm text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-50">
                       <Eye className="w-3.5 h-3.5" /> Preview
                     </button>
+                    <button onClick={() => handleEdit(proc)}
+                      className="text-gray-400 hover:text-blue-600 p-1.5"><Edit className="w-4 h-4" /></button>
                     <button onClick={() => handleDelete(proc.id)}
                       className="text-red-400 hover:text-red-600 p-1.5"><Trash2 className="w-4 h-4" /></button>
                   </div>
