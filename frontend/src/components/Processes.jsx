@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings2, Plus, Trash2, Play, Eye, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, Zap, ShieldAlert } from 'lucide-react';
+import { Settings2, Plus, Trash2, Play, Eye, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, Zap, ShieldAlert, ChevronRight } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
