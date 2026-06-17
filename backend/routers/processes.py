@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from ..main import _compute_master_sync
-from ..services import _get_master_info, _run_single_process
+from ..services import _compute_master_sync, _get_master_info, _run_single_process
 import json
 from .. import models, schemas
 from ..database import get_db
