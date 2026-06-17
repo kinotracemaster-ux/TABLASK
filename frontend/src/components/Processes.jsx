@@ -203,10 +203,10 @@ export default function Processes() {
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <Settings2 className="w-6 h-6 text-indigo-600" />
-            Procesos de Importación
+            Procesos de Actualización
           </h1>
           <p className="text-gray-500 text-sm mt-1">
-            Cada proceso trae datos de una fuente externa hacia tu Tabla Maestra usando el SKU como llave.
+            Cada proceso trae datos de un origen y actualiza tu hoja destino usando una columna llave.
           </p>
         </div>
         <div className="flex gap-2">
@@ -220,39 +220,16 @@ export default function Processes() {
       {/* Create Form */}
       {showForm && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4 text-indigo-800">Nuevo Proceso de Importación</h2>
-          <p className="text-sm text-gray-500 mb-4">Define de dónde vienen los datos y qué columnas actualizar en tu Tabla de Destino.</p>
-          
-          {/* Destino */}
-          <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl mb-4">
-            <h3 className="text-sm font-semibold text-indigo-800 mb-3 flex items-center gap-1"><Settings2 className="w-4 h-4" /> Destino de datos</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Destino</label>
-                <select value={targetConnId} onChange={e => loadTargetSheets(e.target.value)} required
-                  className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
-                  <option value="">Seleccionar conexión destino...</option>
-                  {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.connection_type})</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Destino</label>
-                <select value={targetSheet} onChange={e => setTargetSheet(e.target.value)} required
-                  disabled={!targetConnId} className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
-                  <option value="">Seleccionar hoja destino...</option>
-                  {Object.keys(targetSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
+          <h2 className="text-lg font-semibold mb-1 text-indigo-800">Nuevo Proceso de Actualización</h2>
+          <p className="text-sm text-gray-500 mb-5">Configura de dónde vienen los datos (origen) y a dónde van (destino).</p>
 
-          <form onSubmit={handleCreate} className="space-y-4">
+          <form onSubmit={handleCreate} className="space-y-5">
             {/* Nombre */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del proceso</label>
                 <input value={name} onChange={e => setName(e.target.value)} required
-                  placeholder="Ej: Actualizar Inventario, Actualizar Precios"
+                  placeholder="Ej: Actualizar Inventario, Sync Precios"
                   className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
               </div>
               <div>
@@ -263,79 +240,114 @@ export default function Processes() {
               </div>
             </div>
 
-            {/* Fuente */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">📎 Fuente de datos (Conexión)</label>
-                <select value={sourceConnId} onChange={e => loadSourceSheets(e.target.value)} required
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm">
-                  <option value="">Seleccionar conexión...</option>
-                  {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.connection_type})</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Hoja del origen</label>
-                <select value={sourceSheet} onChange={e => setSourceSheet(e.target.value)} required
-                  disabled={!sourceConnId} className="w-full border border-gray-300 rounded-lg p-2 text-sm">
-                  <option value="">Seleccionar hoja...</option>
-                  {Object.keys(sourceSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
-                </select>
-              </div>
-            </div>
-
-            {/* Llaves */}
-            <div className="grid grid-cols-2 gap-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <div>
-                <label className="block text-sm font-medium text-amber-800 mb-1">🔑 Columna llave en ORIGEN</label>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Campo llave en Origen (SKU)</label>
-                <input value={skuColSource} onChange={e => setSkuColSource(e.target.value)} required placeholder="Ej: ID, Código, SKU" className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Campo llave en Destino (Para cruzar datos)</label>
-                <input value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required placeholder="Ej: sku, item_id" list="target-cols" className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
-                <datalist id="target-cols">
-                  {targetCols.map((c, i) => <option key={i} value={c} />)}
-                </datalist>
-              </div>
-            </div>
-
-            {/* Mapeo de campos */}
-            <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl">
-              <div className="flex justify-between items-center mb-3">
-                <label className="block text-sm font-medium text-gray-700">Columnas a Actualizar (Origen → Destino)</label>
-                <button type="button" onClick={() => setFieldMappings([...fieldMappings, { src: '', dst: '' }])}
-                  className="text-indigo-600 text-sm font-medium hover:underline">+ Añadir campo</button>
-              </div>
+            {/* ── BLOQUE ORIGEN ── */}
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
+              <h3 className="text-sm font-semibold text-blue-800 mb-3">📎 ORIGEN — ¿De dónde vienen los datos?</h3>
               
-              <datalist id="master-cols-list">
-                {masterCols.map(c => <option key={c} value={c} />)}
-              </datalist>
-              <datalist id="source-cols">{sourceCols.map(c => <option key={c} value={c} />)}</datalist>
-              <datalist id="target-cols">{targetCols.map(c => <option key={c} value={c} />)}</datalist>
-
-              {fieldMappings.map((m, i) => (
-                <div key={i} className="flex gap-3 items-center mb-2">
-                  <div className="flex-1 flex gap-2 items-center">
-                    <input value={m.src} onChange={e => {
-                      const n = [...fieldMappings]; n[i].src = e.target.value; setFieldMappings(n);
-                    }} placeholder="Nombre exacto en origen" list="source-cols" className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white" />
-                    
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
-                    
-                    <input value={m.dst} onChange={e => {
-                      const n = [...fieldMappings]; n[i].dst = e.target.value; setFieldMappings(n);
-                    }} placeholder="Nombre exacto en destino" list="target-cols" className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white" />
-                  </div>
-                  {fieldMappings.length > 1 && (
-                    <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
-                      className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                  )}
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Origen</label>
+                  <select value={sourceConnId} onChange={e => loadSourceSheets(e.target.value)} required
+                    className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar archivo origen...</option>
+                    {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.connection_type})</option>)}
+                  </select>
                 </div>
-              ))}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Origen</label>
+                  <select value={sourceSheet} onChange={e => setSourceSheet(e.target.value)} required
+                    disabled={!sourceConnId} className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar hoja...</option>
+                    {Object.keys(sourceSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-blue-800 mb-1">🔑 Columna llave en Origen (para cruzar datos)</label>
+                <select value={skuColSource} onChange={e => setSkuColSource(e.target.value)} required
+                  disabled={sourceCols.length === 0}
+                  className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white max-w-sm">
+                  <option value="">Seleccionar columna llave...</option>
+                  {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-blue-800 mb-1">Columnas a copiar del Origen</label>
+                <p className="text-xs text-blue-600 mb-2">Selecciona qué columnas del origen quieres traer.</p>
+                {fieldMappings.map((m, i) => (
+                  <div key={i} className="flex gap-2 items-center mb-2">
+                    <select value={m.src} onChange={e => {
+                      const n = [...fieldMappings]; n[i].src = e.target.value; setFieldMappings(n);
+                    }} className="flex-1 border border-blue-200 rounded-md p-1.5 text-sm bg-white">
+                      <option value="">Seleccionar columna origen...</option>
+                      {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    {fieldMappings.length > 1 && (
+                      <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
+                        className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" onClick={() => setFieldMappings([...fieldMappings, { src: '', dst: '' }])}
+                  className="text-blue-600 text-sm font-medium hover:underline mt-1">+ Añadir columna</button>
+              </div>
             </div>
 
-            <div className="flex gap-2 pt-4">
-              <button type="submit" disabled={!targetConnId || !targetSheet}
+            {/* ── BLOQUE DESTINO ── */}
+            <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl">
+              <h3 className="text-sm font-semibold text-indigo-800 mb-3">📤 DESTINO — ¿A dónde van los datos?</h3>
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Destino</label>
+                  <select value={targetConnId} onChange={e => loadTargetSheets(e.target.value)} required
+                    className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar archivo destino...</option>
+                    {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.connection_type})</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Destino</label>
+                  <select value={targetSheet} onChange={e => setTargetSheet(e.target.value)} required
+                    disabled={!targetConnId} className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar hoja destino...</option>
+                    {Object.keys(targetSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-indigo-800 mb-1">🔑 Columna llave en Destino (para cruzar datos)</label>
+                <select value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required
+                  disabled={targetCols.length === 0}
+                  className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white max-w-sm">
+                  <option value="">Seleccionar columna llave...</option>
+                  {targetCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-indigo-800 mb-1">Columnas destino a actualizar</label>
+                <p className="text-xs text-indigo-600 mb-2">Para cada columna origen (arriba), selecciona en qué columna del destino se escribirá.</p>
+                {fieldMappings.map((m, i) => (
+                  <div key={i} className="flex gap-2 items-center mb-2">
+                    <span className="text-xs text-gray-500 bg-white border rounded px-2 py-1.5 min-w-[140px] truncate">{m.src || `Columna origen ${i+1}`}</span>
+                    <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <select value={m.dst} onChange={e => {
+                      const n = [...fieldMappings]; n[i].dst = e.target.value; setFieldMappings(n);
+                    }} className="flex-1 border border-indigo-200 rounded-md p-1.5 text-sm bg-white">
+                      <option value="">Seleccionar columna destino...</option>
+                      {targetCols.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button type="submit" disabled={!targetConnId || !targetSheet || !sourceConnId || !sourceSheet}
                 className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
                 Guardar Proceso
               </button>
@@ -353,7 +365,7 @@ export default function Processes() {
         <div className="text-center py-16 text-gray-400">
           <Settings2 className="w-14 h-14 mx-auto mb-3 opacity-30" />
           <p className="text-lg font-medium mb-1">No hay procesos configurados</p>
-          <p className="text-sm mb-4">Crea un proceso para empezar a importar datos a tu Tabla Maestra.</p>
+          <p className="text-sm mb-4">Crea un proceso para empezar a actualizar tus hojas de datos.</p>
           <button onClick={() => setShowForm(true)}
             className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-medium hover:bg-indigo-700">
             <Plus className="w-4 h-4 inline mr-1" /> Crear Primer Proceso
