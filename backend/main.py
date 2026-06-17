@@ -250,12 +250,13 @@ def _run_single_process(proc, db):
         result = _compute_master_sync(project, req, db)
         master_raw = result["master_raw"]
         target_sheet_name = result["target_sheet_name"]
+        target_conn = result["master_conn"]
 
         if result["rows_updated"] > 0 or result["rows_added"] > 0:
-            write_sheet_data(master_conn.spreadsheet_id, target_sheet_name, master_raw)
+            write_sheet_data(target_conn.spreadsheet_id, target_sheet_name, master_raw)
 
         return {
-            "process": proc.name,
+            "process_name": proc.name,
             "status": "success",
             "rows_updated": result["rows_updated"],
             "rows_added": result["rows_added"],
@@ -263,7 +264,7 @@ def _run_single_process(proc, db):
         }
     except Exception as e:
         return {
-            "process": proc.name,
+            "process_name": proc.name,
             "status": "error",
             "error": str(e),
             "traceback": traceback.format_exc()
@@ -748,6 +749,8 @@ def run_all_processes_and_exports(db: Session = Depends(get_db)):
     active_processes = db.query(models.Process).filter(models.Process.is_active == True).all()
     for proc in active_processes:
         result = _run_single_process(proc, db)
+        # Normalizar clave para que el frontend siempre vea "process"
+        result["process"] = result.pop("process_name", proc.name)
         if result["status"] == "success":
             import_results.append(result)
         else:

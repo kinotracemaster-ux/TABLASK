@@ -77,8 +77,8 @@ def preview_process(process_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
 
     project, master_conn, master_sheet = _get_master_info(db)
-    if not project or not master_conn:
-        raise HTTPException(status_code=400, detail="No hay tabla maestra enlazada.")
+    if (not project or not master_conn) and not (proc.target_connection_id and proc.target_sheet_name):
+        raise HTTPException(status_code=400, detail="No hay tabla maestra enlazada y el proceso no tiene destino propio.")
 
     field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
 
@@ -114,8 +114,8 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
 
     project, master_conn, master_sheet = _get_master_info(db)
-    if not project or not master_conn:
-        raise HTTPException(status_code=400, detail="No hay tabla maestra enlazada.")
+    if (not project or not master_conn) and not (proc.target_connection_id and proc.target_sheet_name):
+        raise HTTPException(status_code=400, detail="No hay tabla maestra enlazada y el proceso no tiene destino propio.")
 
     field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
 
