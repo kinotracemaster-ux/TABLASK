@@ -242,11 +242,22 @@ export default function Processes() {
           <h2 className="text-lg font-semibold mb-4 text-indigo-800">Nuevo Proceso de Importación</h2>
           <p className="text-sm text-gray-500 mb-4">Define de dónde vienen los datos y qué columnas actualizar en tu Tabla de Destino.</p>
           
-          {masterInfo && (
+          {masterInfo ? (
             <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-lg mb-4 flex items-center gap-2">
               <span className="text-indigo-800 text-sm font-medium">Hoja de Destino:</span>
               <span className="bg-white px-2 py-1 rounded border border-indigo-100 text-sm text-gray-700">{connName(masterInfo.connId)} / {masterInfo.sheetName}</span>
               <span className="text-xs text-indigo-500 ml-2">(Se configura en "Tabla Maestra")</span>
+            </div>
+          ) : (
+            <div className="bg-red-50 border border-red-200 p-4 rounded-lg mb-4 flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-sm font-bold text-red-800">¡Tabla Maestra no configurada!</h3>
+                <p className="text-sm text-red-700 mt-1">
+                  Todos los procesos de importación envían sus datos hacia la Tabla Maestra, pero el sistema detecta que <strong>aún no has enlazado ninguna</strong>.
+                  Por favor ve a la sección "Tabla Maestra" en el menú principal y enlaza tu hoja de destino antes de continuar.
+                </p>
+              </div>
             </div>
           )}
 
@@ -335,12 +346,15 @@ export default function Processes() {
               ))}
             </div>
 
-            <div className="flex gap-2 pt-2">
-              <button type="submit" className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 text-sm">
+            <div className="flex gap-2 pt-4">
+              <button type="submit" disabled={!masterInfo}
+                className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
                 Guardar Proceso
               </button>
-              <button type="button" onClick={() => { setShowForm(false); resetForm(); }}
-                className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm">Cancelar</button>
+              <button type="button" onClick={() => setShowForm(false)}
+                className="text-gray-500 px-4 py-2 rounded-lg font-medium hover:bg-gray-100 transition">
+                Cancelar
+              </button>
             </div>
           </form>
         </div>
