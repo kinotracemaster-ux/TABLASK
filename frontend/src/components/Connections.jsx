@@ -20,9 +20,9 @@ export default function Connections() {
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) setConnections(data);
-        else console.error("Error from API:", data);
+        else console.error("Fallo from API:", data);
       })
-      .catch(err => console.error("Error fetching connections", err));
+      .catch(err => console.error("Fallo fetching connections", err));
   }, []);
 
   const handleAdd = async (e) => {
@@ -46,10 +46,9 @@ export default function Connections() {
           const errData = await res.json().catch(() => ({}));
           let errMsg = errData.detail || 'Verifique la URL o el backend';
           if (errData.traceback) {
-            errMsg += '\n\nTRACEBACK:\n' + errData.traceback.substring(0, 500);
             console.error(errData.traceback);
           }
-          alert("Error al agregar conexión:\n" + errMsg);
+          alert(errMsg);
         }
       } else if (type === 'http_api') {
         if (!url) return;
@@ -70,7 +69,7 @@ export default function Connections() {
           setUrl('');
           setName('');
         } else {
-          alert("Error al agregar conexión HTTP.");
+          alert("Fallo al agregar conexión HTTP.");
         }
       } else {
         if (!file) return;
@@ -89,7 +88,7 @@ export default function Connections() {
           setFile(null);
           setName('');
         } else {
-          alert("Error al subir archivo.");
+          alert("Fallo al subir archivo.");
         }
       }
     } catch (error) {
