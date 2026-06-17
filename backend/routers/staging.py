@@ -169,4 +169,14 @@ def execute_bulk_batches(req: BulkExecuteRequest, background_tasks: BackgroundTa
         from ..propagation import propagate_changes
         background_tasks.add_task(propagate_changes, db, project.id, all_changes, all_new_rows)
         
-    return {"message": "Ejecución finalizada", "results": results, "errors": errors}
+    return {
+        "message": "Ejecución finalizada", 
+        "results": results, 
+        "errors": errors,
+        "summary": {
+            "processes_ok": len(results),
+            "formats_ok": 0, # La distribución ocurre en background
+            "rows_updated": sum(r.get("rows_updated", 0) for r in results),
+            "rows_added": sum(r.get("rows_added", 0) for r in results)
+        }
+    }
