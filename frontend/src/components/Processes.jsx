@@ -10,6 +10,7 @@ export default function Processes() {
   const [masterCols, setMasterCols] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [masterInfo, setMasterInfo] = useState(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -33,14 +34,20 @@ export default function Processes() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [procsRes, connsRes, colsRes] = await Promise.all([
+      const [procsRes, connsRes, colsRes, projsRes] = await Promise.all([
         fetch(`${API}/api/processes/`),
         fetch(`${API}/api/connections/`),
-        fetch(`${API}/api/master-columns`)
+        fetch(`${API}/api/master-columns`),
+        fetch(`${API}/api/projects/`)
       ]);
       setProcesses(await procsRes.json());
       setConnections(await connsRes.json());
       setMasterCols(await colsRes.json());
+      
+      const projs = await projsRes.json();
+      if (projs.length > 0 && projs[0].master_sheet_name) {
+        setMasterInfo({ connId: projs[0].master_connection_id, sheetName: projs[0].master_sheet_name });
+      }
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -233,7 +240,16 @@ export default function Processes() {
       {showForm && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4 text-indigo-800">Nuevo Proceso de Importación</h2>
-          <p className="text-sm text-gray-500 mb-4">Define de dónde vienen los datos y qué columnas actualizar en la Maestra.</p>
+          <p className="text-sm text-gray-500 mb-4">Define de dónde vienen los datos y qué columnas actualizar en tu Tabla de Destino.</p>
+          
+          {masterInfo && (
+            <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-lg mb-4 flex items-center gap-2">
+              <span className="text-indigo-800 text-sm font-medium">Hoja de Destino:</span>
+              <span className="bg-white px-2 py-1 rounded border border-indigo-100 text-sm text-gray-700">{connName(masterInfo.connId)} / {masterInfo.sheetName}</span>
+              <span className="text-xs text-indigo-500 ml-2">(Se configura en "Tabla Maestra")</span>
+            </div>
+          )}
+
           <form onSubmit={handleCreate} className="space-y-4">
             {/* Nombre */}
             <div className="grid grid-cols-2 gap-4">
@@ -275,28 +291,19 @@ export default function Processes() {
             <div className="grid grid-cols-2 gap-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
               <div>
                 <label className="block text-sm font-medium text-amber-800 mb-1">🔑 Columna llave en ORIGEN</label>
-                <select value={skuColSource} onChange={e => setSkuColSource(e.target.value)} required
-                  disabled={!sourceSheet} className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                  <option value="">Seleccionar (ej: Código, SKU)...</option>
-                  {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <p className="text-xs text-amber-600 mt-1">El nombre de la columna que contiene el SKU en la fuente</p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Campo llave en Origen (SKU)</label>
+                <input value={skuColSource} onChange={e => setSkuColSource(e.target.value)} required placeholder="Ej: ID, Código, SKU" className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-amber-800 mb-1">🔑 Columna llave en MAESTRA</label>
-                <input list="master-cols-list" value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required
-                  placeholder="Escribe o selecciona (ej: SKU)"
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white" />
-                <p className="text-xs text-amber-600 mt-1">Escríbelo si la tabla maestra aún está vacía.</p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Campo llave en Destino (Para cruzar datos)</label>
+                <input value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required placeholder="Ej: sku, item_id" className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
               </div>
             </div>
 
             {/* Mapeo de campos */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Campos a importar <span className="text-gray-400">(Origen → Maestra)</span>
-                </label>
+            <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl">
+              <div className="flex justify-between items-center mb-3">
+                <label className="block text-sm font-medium text-gray-700">Columnas a Actualizar (Origen → Destino)</label>
                 <button type="button" onClick={() => setFieldMappings([...fieldMappings, { src: '', dst: '' }])}
                   className="text-indigo-600 text-sm font-medium hover:underline">+ Añadir campo</button>
               </div>
@@ -307,18 +314,22 @@ export default function Processes() {
 
               {fieldMappings.map((m, i) => (
                 <div key={i} className="flex gap-3 items-center mb-2">
-                  <select value={m.src} onChange={e => { const u = [...fieldMappings]; u[i].src = e.target.value; setFieldMappings(u); }}
-                    className="flex-1 border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                    <option value="">Campo origen...</option>
-                    {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <span className="text-gray-400">→</span>
-                  <input list="master-cols-list" value={m.dst} onChange={e => { const u = [...fieldMappings]; u[i].dst = e.target.value; setFieldMappings(u); }}
-                    placeholder="Escribe o selecciona campo maestra..."
-                    className="flex-1 border border-gray-300 rounded-lg p-2 text-sm bg-white" />
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 mb-1 block">Columna en Origen</label>
+                    <input list="source-cols-list" value={m.src} onChange={e => { const u = [...fieldMappings]; u[i].src = e.target.value; setFieldMappings(u); }}
+                      placeholder="Nombre exacto en origen"
+                      className="w-full border border-gray-300 rounded p-1.5 text-sm bg-white" />
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-400 mt-4 flex-shrink-0" />
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 mb-1 block">Campo Destino a Actualizar</label>
+                    <input list="master-cols-list" value={m.dst} onChange={e => { const u = [...fieldMappings]; u[i].dst = e.target.value; setFieldMappings(u); }}
+                      placeholder="Nombre exacto en destino"
+                      className="w-full border border-gray-300 rounded p-1.5 text-sm bg-white" />
+                  </div>
                   {fieldMappings.length > 1 && (
                     <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
-                      className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                      className="text-red-400 hover:text-red-600 mt-4"><Trash2 className="w-4 h-4" /></button>
                   )}
                 </div>
               ))}
