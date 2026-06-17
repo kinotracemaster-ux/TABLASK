@@ -192,7 +192,7 @@ class ExecutionLog(ExecutionLogBase):
 
 # Staging
 class StagingBatchBase(BaseModel):
-    process_id: int
+    process_id: Optional[int] = None
     status: str = "pending"
     diff_result: str
 
