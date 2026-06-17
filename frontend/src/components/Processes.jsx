@@ -18,6 +18,11 @@ export default function Processes() {
   const [sourceConnId, setSourceConnId] = useState('');
   const [sourceSheets, setSourceSheets] = useState({});
   const [sourceSheet, setSourceSheet] = useState('');
+  
+  const [targetConnId, setTargetConnId] = useState('');
+  const [targetSheets, setTargetSheets] = useState({});
+  const [targetSheet, setTargetSheet] = useState('');
+
   const [skuColSource, setSkuColSource] = useState('');
   const [skuColMaster, setSkuColMaster] = useState('');
   const [fieldMappings, setFieldMappings] = useState([{ src: '', dst: '' }]);
@@ -66,7 +71,29 @@ export default function Processes() {
     }
   };
 
+  const loadTargetSheets = async (connId) => {
+    setTargetConnId(connId);
+    if (!connId) return;
+    try {
+      const res = await fetch(`${API}/api/connections/${connId}/metadata`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Fallo');
+      setTargetSheets(data.sheets || {});
+    } catch (err) {
+      alert(err.message);
+      setTargetSheets({});
+    }
+  };
+
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
+  const targetCols = targetSheet && targetSheets[targetSheet] ? targetSheets[targetSheet] : (masterInfo && targetConnId == masterInfo.connId && targetSheet == masterInfo.sheetName ? masterCols : []);
+
+  useEffect(() => {
+    if (showForm && masterInfo && !targetConnId) {
+      loadTargetSheets(masterInfo.connId);
+      setTargetSheet(masterInfo.sheetName);
+    }
+  }, [showForm, masterInfo]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -85,6 +112,8 @@ export default function Processes() {
         name, description,
         source_connection_id: parseInt(sourceConnId),
         source_sheet_name: sourceSheet,
+        target_connection_id: targetConnId ? parseInt(targetConnId) : null,
+        target_sheet_name: targetSheet || null,
         sku_column_source: skuColSource,
         sku_column_master: skuColMaster,
         field_mappings: mappings
@@ -103,9 +132,12 @@ export default function Processes() {
 
   const resetForm = () => {
     setName(''); setDescription(''); setSourceConnId(''); setSourceSheet('');
+    setTargetConnId(masterInfo?.connId || ''); 
+    setTargetSheet(masterInfo?.sheetName || '');
     setSkuColSource(''); setSkuColMaster('');
     setFieldMappings([{ src: '', dst: '' }]);
     setSourceSheets({});
+    if (masterInfo) loadTargetSheets(masterInfo.connId);
   };
 
   const handleDelete = async (id) => {
@@ -242,24 +274,28 @@ export default function Processes() {
           <h2 className="text-lg font-semibold mb-4 text-indigo-800">Nuevo Proceso de Importación</h2>
           <p className="text-sm text-gray-500 mb-4">Define de dónde vienen los datos y qué columnas actualizar en tu Tabla de Destino.</p>
           
-          {masterInfo ? (
-            <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-lg mb-4 flex items-center gap-2">
-              <span className="text-indigo-800 text-sm font-medium">Hoja de Destino:</span>
-              <span className="bg-white px-2 py-1 rounded border border-indigo-100 text-sm text-gray-700">{connName(masterInfo.connId)} / {masterInfo.sheetName}</span>
-              <span className="text-xs text-indigo-500 ml-2">(Se configura en "Tabla Maestra")</span>
-            </div>
-          ) : (
-            <div className="bg-red-50 border border-red-200 p-4 rounded-lg mb-4 flex items-start gap-3">
-              <ShieldAlert className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          {/* Destino */}
+          <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl mb-4">
+            <h3 className="text-sm font-semibold text-indigo-800 mb-3 flex items-center gap-1"><Settings2 className="w-4 h-4" /> Destino de datos</h3>
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <h3 className="text-sm font-bold text-red-800">¡Tabla Maestra no configurada!</h3>
-                <p className="text-sm text-red-700 mt-1">
-                  Todos los procesos de importación envían sus datos hacia la Tabla Maestra, pero el sistema detecta que <strong>aún no has enlazado ninguna</strong>.
-                  Por favor ve a la sección "Tabla Maestra" en el menú principal y enlaza tu hoja de destino antes de continuar.
-                </p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Destino</label>
+                <select value={targetConnId} onChange={e => loadTargetSheets(e.target.value)} required
+                  className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                  <option value="">Seleccionar conexión destino...</option>
+                  {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.connection_type})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Destino</label>
+                <select value={targetSheet} onChange={e => setTargetSheet(e.target.value)} required
+                  disabled={!targetConnId} className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                  <option value="">Seleccionar hoja destino...</option>
+                  {Object.keys(targetSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                </select>
               </div>
             </div>
-          )}
+          </div>
 
           <form onSubmit={handleCreate} className="space-y-4">
             {/* Nombre */}
@@ -307,7 +343,10 @@ export default function Processes() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Campo llave en Destino (Para cruzar datos)</label>
-                <input value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required placeholder="Ej: sku, item_id" className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+                <input value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required placeholder="Ej: sku, item_id" list="target-cols" className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+                <datalist id="target-cols">
+                  {targetCols.map((c, i) => <option key={i} value={c} />)}
+                </datalist>
               </div>
             </div>
 
@@ -322,32 +361,32 @@ export default function Processes() {
               <datalist id="master-cols-list">
                 {masterCols.map(c => <option key={c} value={c} />)}
               </datalist>
+              <datalist id="source-cols">{sourceCols.map(c => <option key={c} value={c} />)}</datalist>
+              <datalist id="target-cols">{targetCols.map(c => <option key={c} value={c} />)}</datalist>
 
               {fieldMappings.map((m, i) => (
                 <div key={i} className="flex gap-3 items-center mb-2">
-                  <div className="flex-1">
-                    <label className="text-xs text-gray-500 mb-1 block">Columna en Origen</label>
-                    <input list="source-cols-list" value={m.src} onChange={e => { const u = [...fieldMappings]; u[i].src = e.target.value; setFieldMappings(u); }}
-                      placeholder="Nombre exacto en origen"
-                      className="w-full border border-gray-300 rounded p-1.5 text-sm bg-white" />
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-400 mt-4 flex-shrink-0" />
-                  <div className="flex-1">
-                    <label className="text-xs text-gray-500 mb-1 block">Campo Destino a Actualizar</label>
-                    <input list="master-cols-list" value={m.dst} onChange={e => { const u = [...fieldMappings]; u[i].dst = e.target.value; setFieldMappings(u); }}
-                      placeholder="Nombre exacto en destino"
-                      className="w-full border border-gray-300 rounded p-1.5 text-sm bg-white" />
+                  <div className="flex-1 flex gap-2 items-center">
+                    <input value={m.src} onChange={e => {
+                      const n = [...fieldMappings]; n[i].src = e.target.value; setFieldMappings(n);
+                    }} placeholder="Nombre exacto en origen" list="source-cols" className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white" />
+                    
+                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    
+                    <input value={m.dst} onChange={e => {
+                      const n = [...fieldMappings]; n[i].dst = e.target.value; setFieldMappings(n);
+                    }} placeholder="Nombre exacto en destino" list="target-cols" className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white" />
                   </div>
                   {fieldMappings.length > 1 && (
                     <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
-                      className="text-red-400 hover:text-red-600 mt-4"><Trash2 className="w-4 h-4" /></button>
+                      className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                   )}
                 </div>
               ))}
             </div>
 
             <div className="flex gap-2 pt-4">
-              <button type="submit" disabled={!masterInfo}
+              <button type="submit" disabled={!targetConnId || !targetSheet}
                 className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
                 Guardar Proceso
               </button>
@@ -384,12 +423,15 @@ export default function Processes() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-800">{proc.name}</h3>
+                      <p className="text-xs text-gray-500 mb-0.5">
+                        <span className="font-medium text-gray-600">Origen:</span> {connName(proc.source_connection_id)} / Hoja "{proc.source_sheet_name}" 
+                        <span className="mx-2">→</span> 
+                        <span className="font-medium text-indigo-600">Destino:</span> {masterInfo ? `${connName(masterInfo.connId)} / Hoja "${masterInfo.sheetName}"` : 'Tabla Maestra'}
+                      </p>
                       <p className="text-xs text-gray-500">
-                        {connName(proc.source_connection_id)} → Hoja "{proc.source_sheet_name}"
-                        <span className="ml-2 text-gray-400">|</span>
-                        <span className="ml-2">🔑 {proc.sku_column_source} → {proc.sku_column_master}</span>
-                        <span className="ml-2 text-gray-400">|</span>
-                        <span className="ml-2">{Object.keys(proc.field_mappings).length} campo(s)</span>
+                        <span className="text-gray-400">🔑 {proc.sku_column_source} → {proc.sku_column_master}</span>
+                        <span className="mx-2 text-gray-300">|</span>
+                        <span>{Object.keys(proc.field_mappings).length} campo(s) mapeados</span>
                       </p>
                     </div>
                   </div>

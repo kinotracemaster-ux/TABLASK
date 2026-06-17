@@ -133,6 +133,8 @@ class ExportFormat(ExportFormatBase):
 class MasterSyncRequest(BaseModel):
     source_connection_id: int
     source_sheet_name: str
+    target_connection_id: Optional[int] = None
+    target_sheet_name: Optional[str] = None
     sku_column_source: str
     sku_column_master: str
     field_mappings: Dict[str, str]  # {"columna_origen": "columna_maestra"}
@@ -149,9 +151,11 @@ class ProcessBase(BaseModel):
     description: Optional[str] = None
     source_connection_id: int
     source_sheet_name: str
+    target_connection_id: Optional[int] = None
+    target_sheet_name: Optional[str] = None
     sku_column_source: str
     sku_column_master: str
-    field_mappings: Dict[str, str]  # {"col_origen": "col_maestra"}
+    field_mappings: Dict[str, str]  # {"col_origen": "col_destino"}
     add_new_rows: bool = True
     is_active: bool = True
 

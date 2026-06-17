@@ -30,6 +30,16 @@ try:
 except Exception as e:
     print("Migraciones omitidas para connections (ya existen las columnas o error benigno):", e)
 
+try:
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        conn.execute(text("ALTER TABLE processes ADD COLUMN target_connection_id INTEGER"))
+        conn.execute(text("ALTER TABLE processes ADD COLUMN target_sheet_name VARCHAR"))
+        conn.commit()
+        print("Migraciones de processes aplicadas con éxito.")
+except Exception as e:
+    print("Migraciones omitidas para processes (ya existen las columnas o error benigno):", e)
+
 app = FastAPI(title="Actualizar Tablas K API")
 
 # CORS
@@ -111,9 +121,15 @@ def _compute_master_sync(project, req, db):
         raise HTTPException(status_code=400, detail=f"Columna '{req.sku_column_source}' no encontrada en el origen.")
     src_sku_idx = src_headers.index(req.sku_column_source)
 
-    # 2. Leer Maestra
-    master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
-    master_raw = get_sheet_data(master_conn, f"{project.master_sheet_name}!A1:Z")
+    # 2. Leer Maestra / Destino
+    if req.target_connection_id and req.target_sheet_name:
+        master_conn = db.query(models.Connection).filter(models.Connection.id == req.target_connection_id).first()
+        target_sheet_name = req.target_sheet_name
+    else:
+        master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
+        target_sheet_name = project.master_sheet_name
+        
+    master_raw = get_sheet_data(master_conn, f"{target_sheet_name}!A1:Z")
 
     if not master_raw:
         master_headers = [req.sku_column_master] + list(set(req.field_mappings.values()))
@@ -196,6 +212,7 @@ def _compute_master_sync(project, req, db):
     return {
         "master_raw": master_raw,
         "master_conn": master_conn,
+        "target_sheet_name": target_sheet_name,
         "rows_updated": rows_updated,
         "rows_added": rows_added,
         "rows_unchanged": rows_unchanged,
@@ -222,6 +239,8 @@ def _run_single_process(proc, db):
         req = schemas.MasterSyncRequest(
             source_connection_id=proc.source_connection_id,
             source_sheet_name=proc.source_sheet_name,
+            target_connection_id=proc.target_connection_id,
+            target_sheet_name=proc.target_sheet_name,
             sku_column_source=proc.sku_column_source,
             sku_column_master=proc.sku_column_master,
             field_mappings=field_mappings,
@@ -230,9 +249,10 @@ def _run_single_process(proc, db):
 
         result = _compute_master_sync(project, req, db)
         master_raw = result["master_raw"]
+        target_sheet_name = result["target_sheet_name"]
 
         if result["rows_updated"] > 0 or result["rows_added"] > 0:
-            write_sheet_data(master_conn.spreadsheet_id, master_sheet, master_raw)
+            write_sheet_data(master_conn.spreadsheet_id, target_sheet_name, master_raw)
 
         return {
             "process": proc.name,

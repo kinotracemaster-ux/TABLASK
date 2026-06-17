@@ -137,14 +137,20 @@ class Process(Base):
     description = Column(String, nullable=True)        # "Trae stock del proveedor X"
     source_connection_id = Column(Integer, ForeignKey("connections.id"))
     source_sheet_name = Column(String, nullable=False)  # Hoja en el origen
+    
+    # Destino explícito (Si es nulo, usa la Maestra global)
+    target_connection_id = Column(Integer, ForeignKey("connections.id"), nullable=True)
+    target_sheet_name = Column(String, nullable=True)
+
     sku_column_source = Column(String, nullable=False)  # Nombre de col SKU en origen
-    sku_column_master = Column(String, nullable=False)  # Nombre de col SKU en maestra
-    field_mappings = Column(Text, nullable=False)       # JSON: {"col_origen": "col_maestra"}
+    sku_column_master = Column(String, nullable=False)  # Nombre de col SKU en destino
+    field_mappings = Column(Text, nullable=False)       # JSON: {"col_origen": "col_destino"}
     add_new_rows = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    source_connection = relationship("Connection")
+    source_connection = relationship("Connection", foreign_keys=[source_connection_id])
+    target_connection = relationship("Connection", foreign_keys=[target_connection_id])
 
 class ExecutionLog(Base):
     """Registro detallado de ejecuciones y errores del sistema."""
