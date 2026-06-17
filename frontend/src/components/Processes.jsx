@@ -82,17 +82,57 @@ export default function Processes() {
   };
 
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
-  const targetCols = targetSheet && targetSheets[targetSheet] ? targetSheets[targetSheet] : (masterInfo && targetConnId == masterInfo.connId && targetSheet == masterInfo.sheetName ? masterCols : []);
+  const targetCols = masterCols; // Destino SIEMPRE es la maestra
 
+  // Auto-detect SKU when source sheet changes
   useEffect(() => {
-    if (showForm && masterInfo && !targetConnId) {
-      loadTargetSheets(masterInfo.connId);
-      setTargetSheet(masterInfo.sheetName);
+    if (sourceConnId && sourceSheet) {
+      autoDetectSku();
     }
-  }, [showForm, masterInfo]);
+  }, [sourceConnId, sourceSheet]);
+
+  const autoDetectSku = async () => {
+    try {
+      const res = await fetch(`${API}/api/intelligence/suggest-sku?connection_id=${sourceConnId}&sheet_name=${sourceSheet}`);
+      const data = await res.json();
+      if (res.ok && data.suggested_sku) {
+        setSkuColSource(data.suggested_sku);
+      }
+    } catch (err) { console.error("Auto-detect failed", err); }
+  };
+
+  const handleAutoMap = async () => {
+    if (sourceCols.length === 0 || targetCols.length === 0) return;
+    try {
+      const res = await fetch(`${API}/api/intelligence/auto-map`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_headers: sourceCols, target_headers: targetCols })
+      });
+      const data = await res.json();
+      if (res.ok && data.mapping) {
+        const newMappings = [];
+        for (const [src, dst] of Object.entries(data.mapping)) {
+          if (src !== skuColSource) { // no mapear la llave principal como campo extra si no queremos
+            newMappings.push({ src, dst });
+          }
+        }
+        if (newMappings.length > 0) {
+          setFieldMappings(newMappings);
+        } else {
+          alert("No se encontraron mapeos automáticos obvios.");
+        }
+      }
+    } catch (err) { console.error("Auto-map failed", err); }
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
+    if (!masterInfo) {
+      alert("No hay tabla maestra enlazada en el sistema.");
+      return;
+    }
+
     const mappings = {};
     fieldMappings.forEach(m => { if (m.src && m.dst) mappings[m.src] = m.dst; });
 
@@ -108,8 +148,8 @@ export default function Processes() {
         name, description,
         source_connection_id: parseInt(sourceConnId),
         source_sheet_name: sourceSheet,
-        target_connection_id: targetConnId ? parseInt(targetConnId) : null,
-        target_sheet_name: targetSheet || null,
+        target_connection_id: masterInfo.connId,
+        target_sheet_name: masterInfo.sheetName,
         sku_column_source: skuColSource,
         sku_column_master: skuColMaster,
         field_mappings: mappings
@@ -128,12 +168,9 @@ export default function Processes() {
 
   const resetForm = () => {
     setName(''); setDescription(''); setSourceConnId(''); setSourceSheet('');
-    setTargetConnId(masterInfo?.connId || ''); 
-    setTargetSheet(masterInfo?.sheetName || '');
     setSkuColSource(''); setSkuColMaster('');
     setFieldMappings([{ src: '', dst: '' }]);
     setSourceSheets({});
-    if (masterInfo) loadTargetSheets(masterInfo.connId);
   };
 
   const handleDelete = async (id) => {
@@ -297,25 +334,11 @@ export default function Processes() {
 
             {/* ── BLOQUE DESTINO ── */}
             <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl">
-              <h3 className="text-sm font-semibold text-indigo-800 mb-3">📤 DESTINO — ¿A dónde van los datos?</h3>
-              
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Destino</label>
-                  <select value={targetConnId} onChange={e => loadTargetSheets(e.target.value)} required
-                    className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
-                    <option value="">Seleccionar archivo destino...</option>
-                    {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.connection_type})</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Destino</label>
-                  <select value={targetSheet} onChange={e => setTargetSheet(e.target.value)} required
-                    disabled={!targetConnId} className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
-                    <option value="">Seleccionar hoja destino...</option>
-                    {Object.keys(targetSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
-                  </select>
-                </div>
+              <div className="flex justify-between items-start mb-3">
+                <h3 className="text-sm font-semibold text-indigo-800">📤 DESTINO — Tabla Maestra</h3>
+                <button type="button" onClick={handleAutoMap} className="bg-indigo-200 text-indigo-800 px-3 py-1 rounded-md text-xs font-semibold hover:bg-indigo-300">
+                  ✨ Auto-Mapear Columnas
+                </button>
               </div>
 
               <div className="mb-3">
@@ -347,7 +370,7 @@ export default function Processes() {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <button type="submit" disabled={!targetConnId || !targetSheet || !sourceConnId || !sourceSheet}
+              <button type="submit" disabled={!sourceConnId || !sourceSheet}
                 className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
                 Guardar Proceso
               </button>

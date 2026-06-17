@@ -54,6 +54,7 @@ class Project(Base):
     sync_rules = relationship("SyncRule", back_populates="project", cascade="all, delete-orphan")
     sync_logs = relationship("SyncLog", back_populates="project", cascade="all, delete-orphan")
     export_formats = relationship("ExportFormat", back_populates="project", cascade="all, delete-orphan")
+    field_subscriptions = relationship("FieldSubscription", back_populates="project", cascade="all, delete-orphan")
 
 class SourceTable(Base):
     __tablename__ = "source_tables"
@@ -108,7 +109,7 @@ class SyncLog(Base):
     project = relationship("Project", back_populates="sync_logs")
 
 class ExportFormat(Base):
-    """Plantilla de salida: define qué columnas de la Tabla Master se exportan y con qué nombre."""
+    """[DEPRECADO] Usar FieldSubscription. Plantilla de salida: define qué columnas de la Tabla Master se exportan y con qué nombre."""
     __tablename__ = "export_formats"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)              # Ej: "Página Web", "Visor", "Effi Inventario"
@@ -127,6 +128,26 @@ class ExportFormat(Base):
 
     project = relationship("Project", back_populates="export_formats")
     source_connection = relationship("Connection")
+
+
+class FieldSubscription(Base):
+    """Contrato entre la Maestra y una hoja hija para recibir actualizaciones de campos específicos."""
+    __tablename__ = "field_subscriptions"
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    target_connection_id = Column(Integer, ForeignKey("connections.id"))
+    target_sheet_name = Column(String, nullable=False)
+    sku_column_target = Column(String, nullable=False)  # Nombre de la llave en la hija
+    
+    # JSON: {"columna_maestra": "columna_hija"}
+    field_mappings = Column(Text, nullable=False)
+    
+    is_active = Column(Boolean, default=True)
+    name = Column(String, nullable=False)  # Ej: "Catálogo Shopify"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    project = relationship("Project", back_populates="field_subscriptions")
+    target_connection = relationship("Connection")
 
 
 class Process(Base):

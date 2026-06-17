@@ -129,6 +129,76 @@ def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
 
     return {"rows_written": result.get("updatedRows", 0)}
 
+def column_index_to_letter(col_idx: int) -> str:
+    """Convierte índice (0-based) a letra de columna (A, B, ..., Z, AA, AB...)"""
+    letter = ""
+    col_idx += 1
+    while col_idx > 0:
+        col_idx, remainder = divmod(col_idx - 1, 26)
+        letter = chr(65 + remainder) + letter
+    return letter
+
+def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: list, changes: list, new_rows: list, total_rows_before: int) -> dict:
+    """
+    Escribe quirúrgicamente solo las celdas que cambiaron y añade nuevas filas.
+    - changes: [{"field": "precio", "new": "120", "row_index": 1}, ...] (row_index 1 = Fila 2 en Sheet)
+    - new_rows: [{"fields": {"precio": "90", "SKU": "NEW1"}}, ...]
+    - total_rows_before: Cantidad de filas antes de añadir (para saber dónde apendizar)
+    """
+    service = get_sheets_service()
+    if not service:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Faltan credenciales de Google Sheets.")
+
+    updates = []
+    
+    # 1. Actualizaciones de celdas específicas
+    # Agrupar por fila para minimizar el número de rangos si es posible, o simplemente mapear celdas
+    for change in changes:
+        try:
+            col_idx = headers.index(change["field"])
+            col_letter = column_index_to_letter(col_idx)
+            # row_index 1 en array = Fila 2 en Google Sheets
+            sheet_row = change["row_index"] + 1 
+            range_name = f"{sheet_name}!{col_letter}{sheet_row}"
+            
+            updates.append({
+                "range": range_name,
+                "values": [[change["new"]]]
+            })
+        except ValueError:
+            continue
+
+    # 2. Añadir nuevas filas al final
+    if new_rows:
+        current_bottom_row = total_rows_before + 1 # si hay 100 filas (incluyendo header), empieza en 101
+        
+        for row_data in new_rows:
+            # Reconstruir la fila según el orden de headers
+            new_row_values = []
+            for h in headers:
+                new_row_values.append(row_data["fields"].get(h, ""))
+                
+            updates.append({
+                "range": f"{sheet_name}!A{current_bottom_row}",
+                "values": [new_row_values]
+            })
+            current_bottom_row += 1
+
+    # Ejecutar Batch Update
+    if updates:
+        body = {
+            "valueInputOption": "USER_ENTERED",
+            "data": updates
+        }
+        result = service.spreadsheets().values().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body=body
+        ).execute()
+        return {"total_updates": result.get("totalUpdatedCells", 0)}
+    
+    return {"total_updates": 0}
+
 from .models import Project, Connection
 
 def _get_master_info(db):
@@ -188,9 +258,11 @@ def _compute_master_sync(project, req, db):
     rows_updated = 0
     rows_added = 0
     rows_unchanged = 0
-    detail_updated = []
-    detail_added = []
-    detail_unchanged = []
+    
+    # Nuevo formato granular (El Guardián)
+    granular_changes = []
+    granular_new_rows = []
+    granular_unchanged_skus = []
     
     for src_row in src_raw[1:]:
         sku_val = src_row[src_sku_idx] if src_sku_idx < len(src_row) else ""
@@ -210,17 +282,22 @@ def _compute_master_sync(project, req, db):
                     new_val = src_row[s_idx] if s_idx < len(src_row) else ""
                     old_val = mr_data[m_idx]
                     if old_val != new_val:
-                        changes_detail[dst_col] = {"antes": old_val, "después": new_val}
+                        granular_changes.append({
+                            "sku": sku_val,
+                            "field": dst_col,
+                            "old": old_val,
+                            "new": new_val,
+                            "row_index": mr_info["index"]  # Para escritura quirúrgica
+                        })
                         mr_data[m_idx] = new_val
                         changed = True
             
             if changed:
                 master_raw[mr_info["index"]] = mr_data
                 rows_updated += 1
-                detail_updated.append({"sku": sku_val, "cambios": changes_detail})
             else:
                 rows_unchanged += 1
-                detail_unchanged.append(sku_val)
+                granular_unchanged_skus.append(sku_val)
                 
         elif req.add_new_rows:
             new_mr_data = [""] * len(master_headers)
@@ -237,7 +314,7 @@ def _compute_master_sync(project, req, db):
                     
             master_raw.append(new_mr_data)
             rows_added += 1
-            detail_added.append({"sku": sku_val, "datos": new_fields})
+            granular_new_rows.append({"sku": sku_val, "fields": new_fields})
             
     return {
         "master_raw": master_raw,
@@ -248,9 +325,12 @@ def _compute_master_sync(project, req, db):
         "rows_unchanged": rows_unchanged,
         "total_origen": len(src_raw) - 1,
         "total_maestra": len(master_raw) - 1,
-        "detail_updated": detail_updated[:50],
-        "detail_added": detail_added[:50],
-        "detail_unchanged": detail_unchanged[:50],
+        "detail_updated": granular_changes,
+        "detail_added": granular_new_rows,
+        "detail_unchanged": granular_unchanged_skus,
+        "changes": granular_changes,
+        "new_rows": granular_new_rows,
+        "unchanged_skus": granular_unchanged_skus
     }
 
 def _run_single_process(proc, db):
@@ -282,7 +362,15 @@ def _run_single_process(proc, db):
         target_conn = result["master_conn"]
         
         if result["rows_updated"] > 0 or result["rows_added"] > 0:
-            write_sheet_data(target_conn.spreadsheet_id, target_sheet_name, master_raw)
+            total_rows_before = len(master_raw) - len(result["new_rows"])
+            write_sheet_data_surgical(
+                target_conn.spreadsheet_id, 
+                target_sheet_name, 
+                master_raw[0], # headers
+                result["changes"],
+                result["new_rows"],
+                total_rows_before
+            )
             
         log_event(db, "SYNC_PROCESS", "success", f"Proceso '{proc.name}' ejecutado directamente.", proc.id, None, None, result["rows_updated"] + result["rows_added"])
         

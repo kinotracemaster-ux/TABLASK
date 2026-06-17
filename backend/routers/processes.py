@@ -162,8 +162,10 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
         log_event(db, "STAGE_ERROR", "error", f"Error enviando proceso a staging: {str(e)}", proc.id, None, traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+# ... other imports ...
 @router.post("/{process_id}/run")
-def run_process(process_id: int, db: Session = Depends(get_db)):
+def run_process(process_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     proc = db.query(models.Process).filter(models.Process.id == process_id).first()
     if not proc:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
@@ -171,5 +173,9 @@ def run_process(process_id: int, db: Session = Depends(get_db)):
     result = _run_single_process(proc, db)
     if result["status"] == "error":
         raise HTTPException(status_code=400, detail=result.get("error", "Error desconocido"))
+
+    # Propagación asíncrona (Pilar 4/5)
+    from ..propagation import propagate_changes
+    background_tasks.add_task(propagate_changes, db, proc.project_id, result.get("changes", []), result.get("new_rows", []))
 
     return result

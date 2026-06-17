@@ -101,186 +101,21 @@ def _get_master_info(db):
     ).first()
     return project, master_conn, project.master_sheet_name
 
-
-def _compute_master_sync(project, req, db):
-    """Lógica compartida: calcula el cruce origen→maestra sin escribir. Retorna el resultado."""
-    from .services import get_sheet_data
-
-    # 1. Leer Origen
-    src_conn = db.query(models.Connection).filter(models.Connection.id == req.source_connection_id).first()
-    if not src_conn:
-        raise HTTPException(status_code=404, detail="Conexión origen no encontrada")
-
-    src_raw = get_sheet_data(src_conn, f"{req.source_sheet_name}!A1:Z")
-    if not src_raw or len(src_raw) < 2:
-        raise HTTPException(status_code=400, detail="La tabla origen está vacía")
-
-    src_headers = src_raw[0]
-
-    if req.sku_column_source not in src_headers:
-        raise HTTPException(status_code=400, detail=f"Columna '{req.sku_column_source}' no encontrada en el origen.")
-    src_sku_idx = src_headers.index(req.sku_column_source)
-
-    # 2. Leer Maestra / Destino
-    if req.target_connection_id and req.target_sheet_name:
-        master_conn = db.query(models.Connection).filter(models.Connection.id == req.target_connection_id).first()
-        target_sheet_name = req.target_sheet_name
-    else:
-        master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
-        target_sheet_name = project.master_sheet_name
-        
-    master_raw = get_sheet_data(master_conn, f"{target_sheet_name}!A1:Z")
-
-    if not master_raw:
-        master_headers = [req.sku_column_master] + list(set(req.field_mappings.values()))
-        master_raw = [master_headers]
-    else:
-        master_headers = master_raw[0]
-
-    for dst_col in req.field_mappings.values():
-        if dst_col not in master_headers:
-            master_headers.append(dst_col)
-    master_raw[0] = master_headers
-
-    if req.sku_column_master not in master_headers:
-        raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column_master}' no encontrada en la maestra")
-    master_sku_idx = master_headers.index(req.sku_column_master)
-
-    # Indexar la maestra actual por SKU
-    master_by_sku = {}
-    for i, row in enumerate(master_raw[1:]):
-        sku_val = row[master_sku_idx] if master_sku_idx < len(row) else ""
-        if sku_val:
-            padded_row = row + [""] * (len(master_headers) - len(row))
-            master_by_sku[sku_val] = {"index": i + 1, "data": padded_row}
-
-    rows_updated = 0
-    rows_added = 0
-    rows_unchanged = 0
-    detail_updated = []
-    detail_added = []
-    detail_unchanged = []
-
-    # 3. Procesar datos del Origen y cruzar con la Maestra
-    for src_row in src_raw[1:]:
-        sku_val = src_row[src_sku_idx] if src_sku_idx < len(src_row) else ""
-        if not sku_val:
-            continue
-
-        if sku_val in master_by_sku:
-            mr_info = master_by_sku[sku_val]
-            mr_data = mr_info["data"]
-            changed = False
-            changes_detail = {}
-
-            for src_col, dst_col in req.field_mappings.items():
-                if src_col in src_headers:
-                    s_idx = src_headers.index(src_col)
-                    m_idx = master_headers.index(dst_col)
-                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
-                    old_val = mr_data[m_idx]
-                    if old_val != new_val:
-                        changes_detail[dst_col] = {"antes": old_val, "después": new_val}
-                        mr_data[m_idx] = new_val
-                        changed = True
-
-            if changed:
-                master_raw[mr_info["index"]] = mr_data
-                rows_updated += 1
-                detail_updated.append({"sku": sku_val, "cambios": changes_detail})
-            else:
-                rows_unchanged += 1
-                detail_unchanged.append(sku_val)
-
-        elif req.add_new_rows:
-            new_mr_data = [""] * len(master_headers)
-            new_mr_data[master_sku_idx] = sku_val
-
-            new_fields = {}
-            for src_col, dst_col in req.field_mappings.items():
-                if src_col in src_headers:
-                    s_idx = src_headers.index(src_col)
-                    m_idx = master_headers.index(dst_col)
-                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
-                    new_mr_data[m_idx] = new_val
-                    new_fields[dst_col] = new_val
-
-            master_raw.append(new_mr_data)
-            rows_added += 1
-            detail_added.append({"sku": sku_val, "datos": new_fields})
-
-    return {
-        "master_raw": master_raw,
-        "master_conn": master_conn,
-        "target_sheet_name": target_sheet_name,
-        "rows_updated": rows_updated,
-        "rows_added": rows_added,
-        "rows_unchanged": rows_unchanged,
-        "total_origen": len(src_raw) - 1,
-        "total_maestra": len(master_raw) - 1,
-        "detail_updated": detail_updated[:50],
-        "detail_added": detail_added[:50],
-        "detail_unchanged": detail_unchanged[:50],
-    }
-
-
-def _run_single_process(proc, db):
-    """Ejecuta un proceso individual: calcula el diff y escribe en Google Sheets."""
-    import json as _json
-    from .services import write_sheet_data
-
-    try:
-        project, master_conn, master_sheet = _get_master_info(db)
-        if not project or not master_conn:
-            return {"process": proc.name, "status": "error", "error": "No hay tabla maestra enlazada."}
-
-        field_mappings = _json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
-
-        req = schemas.MasterSyncRequest(
-            source_connection_id=proc.source_connection_id,
-            source_sheet_name=proc.source_sheet_name,
-            target_connection_id=proc.target_connection_id,
-            target_sheet_name=proc.target_sheet_name,
-            sku_column_source=proc.sku_column_source,
-            sku_column_master=proc.sku_column_master,
-            field_mappings=field_mappings,
-            add_new_rows=proc.add_new_rows
-        )
-
-        result = _compute_master_sync(project, req, db)
-        master_raw = result["master_raw"]
-        target_sheet_name = result["target_sheet_name"]
-        target_conn = result["master_conn"]
-
-        if result["rows_updated"] > 0 or result["rows_added"] > 0:
-            write_sheet_data(target_conn.spreadsheet_id, target_sheet_name, master_raw)
-
-        return {
-            "process_name": proc.name,
-            "status": "success",
-            "rows_updated": result["rows_updated"],
-            "rows_added": result["rows_added"],
-            "rows_unchanged": result["rows_unchanged"],
-        }
-    except Exception as e:
-        return {
-            "process_name": proc.name,
-            "status": "error",
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }
+from .services import _run_single_process
 
 
 # ═══════════════════════════════════════════════════════════════════
 # ██ ROUTERS (deben importarse DESPUÉS de las funciones internas)
 # ═══════════════════════════════════════════════════════════════════
 
-from .routers import logs, staging, connections, processes, intake
+from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence
 app.include_router(logs.router)
 app.include_router(staging.router)
 app.include_router(connections.router)
 app.include_router(processes.router)
 app.include_router(intake.router)
+app.include_router(subscriptions.router)
+app.include_router(intelligence.router)
 
 
 # --- Reset DB (Solo Desarrollo) ---
@@ -730,8 +565,10 @@ def get_master_columns_for_export(project_id: int, db: Session = Depends(get_db)
     return []
 
 
+from fastapi import BackgroundTasks
+
 @app.post("/api/run-all")
-def run_all_processes_and_exports(db: Session = Depends(get_db)):
+def run_all(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     ⚡ BOTÓN MAESTRO: Ejecuta todo el ciclo.
     1. Corre todos los procesos de importación activos (origen → maestra)
@@ -747,14 +584,24 @@ def run_all_processes_and_exports(db: Session = Depends(get_db)):
 
     # ── PASO 1: Importar (Procesos activos) ──
     active_processes = db.query(models.Process).filter(models.Process.is_active == True).all()
+    all_changes = []
+    all_new_rows = []
+    
     for proc in active_processes:
         result = _run_single_process(proc, db)
         # Normalizar clave para que el frontend siempre vea "process"
         result["process"] = result.pop("process_name", proc.name)
         if result["status"] == "success":
             import_results.append(result)
+            all_changes.extend(result.get("changes", []))
+            all_new_rows.extend(result.get("new_rows", []))
         else:
             errors.append(result)
+            
+    # Propagación asíncrona (Pilar 4/5)
+    if all_changes or all_new_rows:
+        from .propagation import propagate_changes
+        background_tasks.add_task(propagate_changes, db, project.id, all_changes, all_new_rows)
 
     # ── PASO 2: Distribuir (Formatos de salida) ──
     all_formats = db.query(models.ExportFormat).filter(

@@ -107,6 +107,7 @@ class SyncLog(SyncLogBase):
 # Export Formats
 from typing import Dict, Any
 
+# [DEPRECADO] Usar FieldSubscription
 class ExportFormatBase(BaseModel):
     name: str
     description: Optional[str] = None
@@ -122,6 +123,27 @@ class ExportFormatCreate(ExportFormatBase):
     pass
 
 class ExportFormat(ExportFormatBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Suscripciones de Campos (Destinos Inteligentes)
+class FieldSubscriptionBase(BaseModel):
+    project_id: int
+    target_connection_id: int
+    target_sheet_name: str
+    sku_column_target: str
+    field_mappings: Dict[str, str]  # {"columna_maestra": "columna_hija"}
+    is_active: bool = True
+    name: str
+
+class FieldSubscriptionCreate(FieldSubscriptionBase):
+    pass
+
+class FieldSubscription(FieldSubscriptionBase):
     id: int
     created_at: datetime
 
