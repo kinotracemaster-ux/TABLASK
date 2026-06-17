@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Table2, Link2, ExternalLink, Zap, CheckCircle2, XCircle } from 'lucide-react';
+import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, Send, FileDown, ShieldAlert, Play } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
 
 export default function MasterTable() {
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('datos');
 
   // Data state
   const [columns, setColumns] = useState([]);
@@ -28,17 +29,46 @@ export default function MasterTable() {
   const [runAllLoading, setRunAllLoading] = useState(false);
   const [runAllResult, setRunAllResult] = useState(null);
 
+  // Preview state (PASO 3)
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+
+  // Processes & Exports lists for tabs
+  const [processes, setProcesses] = useState([]);
+  const [exports, setExports] = useState([]);
+  const [pushStatus, setPushStatus] = useState({});
+
   useEffect(() => {
     loadConnections();
     loadMasterData();
+    loadProcesses();
+    loadExports();
   }, []);
 
   const loadConnections = async () => {
     try {
       const res = await fetch(`${API}/api/connections/`);
-      const data = await res.json();
-      setConnections(data);
+      setConnections(await res.json());
     } catch (err) { console.error(err); }
+  };
+
+  const loadProcesses = async () => {
+    try {
+      const res = await fetch(`${API}/api/processes/`);
+      setProcesses(await res.json());
+    } catch (err) { console.error(err); }
+  };
+
+  const loadExports = async () => {
+    try {
+      const res = await fetch(`${API}/api/exports/`);
+      setExports(await res.json());
+    } catch (err) { console.error(err); }
+  };
+
+  const connName = (id) => {
+    const c = connections.find(c => c.id === id);
+    return c ? c.name : `Conexión #${id}`;
   };
 
   const loadMasterData = async () => {
@@ -53,12 +83,8 @@ export default function MasterTable() {
         setActiveMasterConnId(data.master_connection_id);
         setActiveMasterSheet(data.master_sheet_name);
       } else {
-        // If 404 (no master linked), just clear data
-        setColumns([]);
-        setRows([]);
-        setTotalRows(0);
-        setActiveMasterConnId(null);
-        setActiveMasterSheet(null);
+        setColumns([]); setRows([]); setTotalRows(0);
+        setActiveMasterConnId(null); setActiveMasterSheet(null);
       }
     } catch (err) { console.error(err); }
     setLoading(false);
@@ -107,18 +133,74 @@ export default function MasterTable() {
     loadMasterData();
   };
 
-  const handleRunAll = async () => {
+  // --- PASO 3: Preview → Confirm → Run ---
+  const handlePreviewAll = async () => {
+    setPreviewLoading(true);
+    setPreviewData(null);
+    setRunAllResult(null);
+    try {
+      const activeProcesses = processes.filter(p => p.is_active);
+      const previews = await Promise.all(
+        activeProcesses.map(async (proc) => {
+          try {
+            const res = await fetch(`${API}/api/processes/${proc.id}/preview`, { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) return { name: proc.name, ...data, ok: true };
+            return { name: proc.name, ok: false, error: data.detail || 'Error' };
+          } catch (err) {
+            return { name: proc.name, ok: false, error: err.message };
+          }
+        })
+      );
+
+      const totalUpdated = previews.filter(p => p.ok).reduce((s, p) => s + (p.rows_updated || 0), 0);
+      const totalAdded = previews.filter(p => p.ok).reduce((s, p) => s + (p.rows_added || 0), 0);
+      const processesOk = previews.filter(p => p.ok).length;
+      const errors = previews.filter(p => !p.ok);
+
+      setPreviewData({
+        previews,
+        totalUpdated,
+        totalAdded,
+        processesOk,
+        exportsCount: exports.length,
+        errors
+      });
+    } catch (err) {
+      setPreviewData({ error: err.message });
+    }
+    setPreviewLoading(false);
+  };
+
+  const handleConfirmRunAll = async () => {
+    setPreviewData(null);
     setRunAllLoading(true);
     setRunAllResult(null);
     try {
       const res = await fetch(`${API}/api/run-all`, { method: 'POST' });
       const data = await res.json();
       setRunAllResult(data);
-      if (res.ok) loadMasterData();
+      if (res.ok) { loadMasterData(); loadProcesses(); }
     } catch (err) {
       setRunAllResult({ message: 'Fallo de conexión: ' + err.message, errors: [{ process: 'Red', error: err.message }] });
     }
     setRunAllLoading(false);
+  };
+
+  // Export actions
+  const handlePushExport = async (id) => {
+    setPushStatus(s => ({ ...s, [id]: { loading: true } }));
+    try {
+      const res = await fetch(`${API}/api/exports/${id}/push`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setPushStatus(s => ({ ...s, [id]: { success: data.message || 'Enviado' } }));
+      } else {
+        setPushStatus(s => ({ ...s, [id]: { error: data.detail || 'Error' } }));
+      }
+    } catch (err) {
+      setPushStatus(s => ({ ...s, [id]: { error: err.message } }));
+    }
   };
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando Tabla Maestra...</div>;
@@ -130,7 +212,7 @@ export default function MasterTable() {
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <Table2 className="w-6 h-6 text-purple-600" />
-            Tabla Maestra (Base de Datos)
+            Tabla Maestra
           </h1>
           {activeMasterConnId ? (
             <p className="text-gray-500 text-sm mt-1">
@@ -142,13 +224,13 @@ export default function MasterTable() {
         </div>
         <div className="flex gap-2 flex-wrap">
           {activeMasterConnId && (
-            <button onClick={handleRunAll} disabled={runAllLoading}
-              className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:from-green-700 hover:to-emerald-700 transition shadow-sm text-sm">
-              <Zap className={`w-4 h-4 ${runAllLoading ? 'animate-pulse' : ''}`} />
-              {runAllLoading ? 'Ejecutando todo...' : '⚡ Correr Procesos'}
+            <button onClick={handlePreviewAll} disabled={previewLoading || runAllLoading || processes.length === 0}
+              className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:from-green-700 hover:to-emerald-700 transition shadow-sm text-sm disabled:opacity-50">
+              <Zap className={`w-4 h-4 ${previewLoading ? 'animate-pulse' : ''}`} />
+              {previewLoading ? 'Calculando...' : runAllLoading ? 'Ejecutando...' : '⚡ Correr Procesos'}
             </button>
           )}
-          
+
           {!activeMasterConnId ? (
             <button onClick={() => setShowLink(!showLink)}
               className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-purple-700 transition text-sm">
@@ -162,6 +244,51 @@ export default function MasterTable() {
           )}
         </div>
       </div>
+
+      {/* Preview Confirmation (PASO 3) */}
+      {previewData && !previewData.error && (
+        <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm">
+          <h3 className="font-semibold text-indigo-800 mb-3">Vista previa de ejecución</h3>
+          <div className="grid grid-cols-4 gap-3 mb-4">
+            <div className="bg-white p-3 rounded-lg text-center border">
+              <p className="text-xs text-gray-500">Filas nuevas</p>
+              <p className="text-xl font-bold text-emerald-700">{previewData.totalAdded}</p>
+            </div>
+            <div className="bg-white p-3 rounded-lg text-center border">
+              <p className="text-xs text-gray-500">Actualizaciones</p>
+              <p className="text-xl font-bold text-blue-700">{previewData.totalUpdated}</p>
+            </div>
+            <div className="bg-white p-3 rounded-lg text-center border">
+              <p className="text-xs text-gray-500">Procesos</p>
+              <p className="text-xl font-bold text-indigo-700">{previewData.processesOk}</p>
+            </div>
+            <div className="bg-white p-3 rounded-lg text-center border">
+              <p className="text-xs text-gray-500">Salidas</p>
+              <p className="text-xl font-bold text-green-700">{previewData.exportsCount}</p>
+            </div>
+          </div>
+          {previewData.errors.length > 0 && (
+            <div className="mb-3 space-y-1">
+              {previewData.errors.map((e, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm text-red-700 bg-red-50 rounded p-2">
+                  <XCircle className="w-4 h-4 flex-shrink-0" /> <span className="font-medium">{e.name}:</span> {e.error}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={() => setPreviewData(null)}
+              className="text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium">
+              Cancelar
+            </button>
+            <button onClick={handleConfirmRunAll} disabled={runAllLoading}
+              className="bg-green-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-green-700 text-sm disabled:opacity-50 flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              {runAllLoading ? 'Ejecutando...' : 'Confirmar y Ejecutar'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Run All Result */}
       {runAllResult && (
@@ -229,49 +356,161 @@ export default function MasterTable() {
         </div>
       )}
 
-      {/* Table Viewer */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {totalRows === 0 ? (
-          <div className="p-12 text-center">
-            <Table2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <h3 className="text-lg font-medium text-gray-700">La tabla está vacía</h3>
-            <p className="text-gray-500 mt-1 text-sm">
-              {!activeMasterConnId ? 'Enlaza una tabla maestra para comenzar.' : 'El Google Sheet no tiene datos.'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
-                <tr>
-                  <th className="px-4 py-3 bg-gray-100 w-12 text-center border-r font-medium text-gray-400">#</th>
-                  {columns.map((c, i) => (
-                    <th key={i} className="px-4 py-3 whitespace-nowrap">{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.slice(0, 100).map((row, i) => (
-                  <tr key={i} className="border-b hover:bg-purple-50/30">
-                    <td className="px-4 py-2 bg-gray-50 border-r text-center text-gray-400 text-xs">{i + 1}</td>
-                    {columns.map((_, colIndex) => (
-                      <td key={colIndex} className="px-4 py-2 truncate max-w-xs" title={row[colIndex] || ''}>
-                        {row[colIndex] || <span className="text-gray-300">-</span>}
-                      </td>
+      {/* Tabs */}
+      {activeMasterConnId && (
+        <div className="flex gap-1 mb-4 border-b border-gray-200">
+          {[
+            { key: 'datos', label: 'Datos', icon: Table2 },
+            { key: 'entradas', label: 'Entradas', icon: Settings2, count: processes.length },
+            { key: 'salidas', label: 'Salidas', icon: Download, count: exports.length },
+          ].map(tab => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition -mb-px ${
+                activeTab === tab.key
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}>
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+              {tab.count !== undefined && (
+                <span className="bg-gray-100 text-gray-600 text-xs px-1.5 py-0.5 rounded-full">{tab.count}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Tab Content */}
+      {activeTab === 'datos' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          {totalRows === 0 ? (
+            <div className="p-12 text-center">
+              <Table2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <h3 className="text-lg font-medium text-gray-700">La tabla está vacía</h3>
+              <p className="text-gray-500 mt-1 text-sm">
+                {!activeMasterConnId ? 'Enlaza una tabla maestra para comenzar.' : 'El Google Sheet no tiene datos.'}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-4 py-3 bg-gray-100 w-12 text-center border-r font-medium text-gray-400">#</th>
+                    {columns.map((c, i) => (
+                      <th key={i} className="px-4 py-3 whitespace-nowrap">{c}</th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        
-        {totalRows > 100 && (
-          <div className="bg-gray-50 p-3 text-center border-t text-sm text-gray-500">
-            Mostrando las primeras 100 filas de {totalRows}. <a href="#" className="text-purple-600 hover:underline">Ver todo en Google Sheets</a>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {rows.slice(0, 100).map((row, i) => (
+                    <tr key={i} className="border-b hover:bg-purple-50/30">
+                      <td className="px-4 py-2 bg-gray-50 border-r text-center text-gray-400 text-xs">{i + 1}</td>
+                      {columns.map((_, colIndex) => (
+                        <td key={colIndex} className="px-4 py-2 truncate max-w-xs" title={row[colIndex] || ''}>
+                          {row[colIndex] || <span className="text-gray-300">-</span>}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {totalRows > 100 && (
+            <div className="bg-gray-50 p-3 text-center border-t text-sm text-gray-500">
+              Mostrando las primeras 100 filas de {totalRows}.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Entradas Tab */}
+      {activeTab === 'entradas' && (
+        <div className="space-y-3">
+          {processes.length === 0 ? (
+            <div className="bg-white rounded-xl border p-12 text-center text-gray-400">
+              <Settings2 className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="font-medium">No hay procesos configurados</p>
+              <p className="text-sm mt-1">Ve a Procesos en el menú lateral para crear uno.</p>
+            </div>
+          ) : (
+            processes.map(proc => (
+              <div key={proc.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                    <Settings2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-800">{proc.name}</h3>
+                    <p className="text-xs text-gray-500">
+                      <span className="font-medium text-gray-600">Origen:</span> {connName(proc.source_connection_id)} / "{proc.source_sheet_name}"
+                      <span className="mx-2">→</span>
+                      <span className="font-medium text-indigo-600">Destino:</span> {proc.target_connection_id ? `${connName(proc.target_connection_id)} / "${proc.target_sheet_name}"` : `Tabla Maestra / "${activeMasterSheet}"`}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      🔑 {proc.sku_column_source} → {proc.sku_column_master} • {Object.keys(proc.field_mappings || {}).length} campo(s)
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className={`text-xs px-2 py-1 rounded-full ${proc.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {proc.is_active ? 'Activo' : 'Inactivo'}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Salidas Tab */}
+      {activeTab === 'salidas' && (
+        <div className="space-y-3">
+          {exports.length === 0 ? (
+            <div className="bg-white rounded-xl border p-12 text-center text-gray-400">
+              <Download className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="font-medium">No hay formatos de salida configurados</p>
+              <p className="text-sm mt-1">Ve a Distribución en el menú lateral para crear uno.</p>
+            </div>
+          ) : (
+            exports.map(fmt => {
+              const st = pushStatus[fmt.id];
+              return (
+                <div key={fmt.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                      <Download className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-800">{fmt.name}</h3>
+                      <p className="text-xs text-gray-500">
+                        {fmt.output_type === 'push_to_sheet' ? `→ Google Sheet / "${fmt.output_sheet_name}"` : '→ Descarga CSV'}
+                        {' • '}{Object.keys(fmt.columns_mapping || {}).length} columna(s)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {fmt.output_type === 'push_to_sheet' && (
+                      <button onClick={() => handlePushExport(fmt.id)} disabled={st?.loading}
+                        className="flex items-center gap-1 text-sm text-green-700 border border-green-200 px-3 py-1.5 rounded-lg hover:bg-green-50">
+                        <Send className="w-3.5 h-3.5" /> {st?.loading ? 'Enviando...' : 'Push'}
+                      </button>
+                    )}
+                    <a href={`${API}/api/exports/${fmt.id}/download`}
+                      className="flex items-center gap-1 text-sm text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-50">
+                      <FileDown className="w-3.5 h-3.5" /> CSV
+                    </a>
+                    {st?.success && <span className="text-xs text-green-600 self-center">✓ {st.success}</span>}
+                    {st?.error && <span className="text-xs text-red-600 self-center">✕ {st.error}</span>}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 }

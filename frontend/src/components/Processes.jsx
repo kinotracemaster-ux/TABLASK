@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings2, Plus, Trash2, Play, Eye, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, Zap, ShieldAlert, ChevronRight } from 'lucide-react';
+import { Settings2, Plus, Trash2, Play, Eye, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, ShieldAlert, ChevronRight } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -29,10 +29,6 @@ export default function Processes() {
 
   // Preview/Run state per process
   const [processStatus, setProcessStatus] = useState({}); // { [id]: { loading, preview, result } }
-
-  // Run All state
-  const [runAllLoading, setRunAllLoading] = useState(false);
-  const [runAllResult, setRunAllResult] = useState(null);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -179,17 +175,21 @@ export default function Processes() {
     }
   };
 
-  const handleRunAll = async () => {
-    setRunAllLoading(true);
-    setRunAllResult(null);
+  const handleRun = async (id) => {
+    setProcessStatus(s => ({ ...s, [id]: { ...s[id], running: true } }));
     try {
-      const res = await fetch(`${API}/api/run-all`, { method: 'POST' });
+      const res = await fetch(`${API}/api/processes/${id}/run`, { method: 'POST' });
       const data = await res.json();
-      setRunAllResult(data);
+      if (res.ok) {
+        setProcessStatus(s => ({ ...s, [id]: { loading: false, runResult: data } }));
+        loadAll();
+      } else {
+        const errMsg = await extractError(res);
+        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: errMsg } }));
+      }
     } catch (err) {
-      setRunAllResult({ message: 'Fallo de conexión: ' + err.message, errors: [{ process: 'Red', error: err.message }] });
+      setProcessStatus(s => ({ ...s, [id]: { loading: false, error: err.message } }));
     }
-    setRunAllLoading(false);
   };
 
   const connName = (id) => connections.find(c => c.id === id)?.name || `Conexión ${id}`;
@@ -210,63 +210,12 @@ export default function Processes() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={handleRunAll} disabled={runAllLoading || processes.length === 0}
-            className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 transition shadow-sm text-sm">
-            <Zap className={`w-4 h-4 ${runAllLoading ? 'animate-pulse' : ''}`} />
-            {runAllLoading ? 'Ejecutando todo...' : '⚡ Correr Procesos'}
-          </button>
           <button onClick={() => setShowForm(!showForm)}
             className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm">
             <Plus className="w-4 h-4" /> Nuevo Proceso
           </button>
         </div>
       </div>
-
-      {/* Diagrama de flujo */}
-      <div className="flex items-center gap-3 bg-gradient-to-r from-blue-50 via-purple-50 to-green-50 border border-blue-100 rounded-xl p-4 mb-6 text-sm">
-        <div className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg font-medium">📎 Fuentes Externas</div>
-        <span className="text-gray-400">→</span>
-        <div className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg font-medium">⚙️ Procesos</div>
-        <span className="text-gray-400">→</span>
-        <div className="bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg font-medium">📊 Tabla Maestra</div>
-        <span className="text-gray-400">→</span>
-        <div className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-medium">📤 Hojas Destino</div>
-      </div>
-
-      {/* Run All Result */}
-      {runAllResult && (
-        <div className={`mb-6 rounded-xl border p-5 ${runAllResult.errors?.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
-          <h3 className="font-semibold text-gray-800 mb-3">{runAllResult.message}</h3>
-          <div className="grid grid-cols-4 gap-3 mb-3">
-            <div className="bg-white p-2 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Procesos OK</p>
-              <p className="text-lg font-bold text-indigo-700">{runAllResult.summary?.processes_ok || 0}</p>
-            </div>
-            <div className="bg-white p-2 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Formatos OK</p>
-              <p className="text-lg font-bold text-green-700">{runAllResult.summary?.exports_ok || 0}</p>
-            </div>
-            <div className="bg-white p-2 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Filas actualizadas</p>
-              <p className="text-lg font-bold text-blue-700">{runAllResult.summary?.total_rows_updated || 0}</p>
-            </div>
-            <div className="bg-white p-2 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Filas nuevas</p>
-              <p className="text-lg font-bold text-emerald-700">{runAllResult.summary?.total_rows_added || 0}</p>
-            </div>
-          </div>
-          {runAllResult.errors?.length > 0 && (
-            <div className="space-y-1">
-              {runAllResult.errors.map((e, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm text-red-700 bg-red-50 rounded p-2">
-                  <XCircle className="w-4 h-4 flex-shrink-0" /> <span className="font-medium flex-shrink-0">{e.process}:</span> <span className="break-words whitespace-normal min-w-0">{e.error}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <button onClick={() => setRunAllResult(null)} className="text-xs text-gray-400 mt-2 hover:text-gray-600">Cerrar</button>
-        </div>
-      )}
 
       {/* Create Form */}
       {showForm && (
@@ -440,10 +389,6 @@ export default function Processes() {
                       className="flex items-center gap-1 text-sm text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-50">
                       <Eye className="w-3.5 h-3.5" /> Preview
                     </button>
-                    <button onClick={() => handleStage(proc.id)} disabled={st?.running}
-                      className="flex items-center gap-1 text-sm text-yellow-700 border border-yellow-300 px-3 py-1.5 rounded-lg hover:bg-yellow-50 bg-yellow-50">
-                      <ShieldAlert className="w-3.5 h-3.5" /> Enviar a Staging
-                    </button>
                     <button onClick={() => handleDelete(proc.id)}
                       className="text-red-400 hover:text-red-600 p-1.5"><Trash2 className="w-4 h-4" /></button>
                   </div>
@@ -471,14 +416,29 @@ export default function Processes() {
                       </div>
                     </div>
                     {(st.preview.rows_updated > 0 || st.preview.rows_added > 0) && (
-                      <button onClick={() => handleStage(proc.id)} disabled={st.running}
-                        className="bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-yellow-700 disabled:opacity-50 flex items-center gap-2 mt-3">
-                        <ShieldAlert className="w-4 h-4" />
-                        {st.running ? 'Enviando...' : `Enviar a Staging (${st.preview.rows_updated + st.preview.rows_added} cambios)`}
-                      </button>
+                      <div className="flex items-center gap-3 mt-3">
+                        <button onClick={() => handleRun(proc.id)} disabled={st.running}
+                          className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+                          <Play className="w-4 h-4" />
+                          {st.running ? 'Ejecutando...' : `Ejecutar (${st.preview.rows_updated + st.preview.rows_added} cambios)`}
+                        </button>
+                        <button onClick={() => handleStage(proc.id)} disabled={st.running}
+                          className="text-xs text-yellow-700 hover:underline">
+                          o enviar a Staging
+                        </button>
+                      </div>
                     )}
                     <button onClick={() => setProcessStatus(s => ({ ...s, [proc.id]: null }))}
                       className="ml-2 text-gray-400 text-sm hover:text-gray-600">Cerrar</button>
+                  </div>
+                )}
+
+                {st?.runResult && (
+                  <div className="border-t border-gray-100 bg-green-50 p-4 flex items-center gap-2 text-sm text-green-800">
+                    <CheckCircle2 className="w-4 h-4" />
+                    ✅ {st.runResult.process_name}: {st.runResult.rows_updated} actualizadas, {st.runResult.rows_added} nuevas
+                    <button onClick={() => setProcessStatus(s => ({ ...s, [proc.id]: null }))}
+                      className="ml-auto text-gray-400 text-xs hover:text-gray-600">Cerrar</button>
                   </div>
                 )}
 
@@ -487,7 +447,7 @@ export default function Processes() {
                     <CheckCircle2 className="w-4 h-4" />
                     ✅ {st.result.message}
                     <button onClick={() => setProcessStatus(s => ({ ...s, [proc.id]: null }))}
-                      className="ml-auto text-yellow-600 text-xs hover:underline font-medium">Ver Cola de Staging</button>
+                      className="ml-auto text-yellow-600 text-xs hover:underline font-medium">Cerrar</button>
                   </div>
                 )}
 
