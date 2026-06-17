@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table2, Link2, ExternalLink, Zap, CheckCircle2, XCircle } from 'lucide-react';
+import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -93,8 +94,8 @@ export default function MasterTable() {
         setShowLink(false);
         loadMasterData();
       } else {
-        const err = await res.json();
-        alert(err.detail);
+        const errMsg = await extractError(res);
+        alert(errMsg);
       }
     } catch (err) { alert(err.message); }
     setLinking(false);

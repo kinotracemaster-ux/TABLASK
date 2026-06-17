@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link2, Plus, Server, CheckCircle2 } from 'lucide-react';
+import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
 export default function Connections() {
@@ -43,11 +44,7 @@ export default function Connections() {
           setUrl('');
           setName('');
         } else {
-          const errData = await res.json().catch(() => ({}));
-          let errMsg = errData.detail || 'Verifique la URL o el backend';
-          if (errData.traceback) {
-            console.error(errData.traceback);
-          }
+          const errMsg = await extractError(res, 'Verifique la URL o el backend');
           alert(errMsg);
         }
       } else if (type === 'http_api') {

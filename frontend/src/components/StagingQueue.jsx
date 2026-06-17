@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Database, CheckCircle2, XCircle, AlertTriangle, Search, Filter } from 'lucide-react';
+import { extractError } from '../utils/errors';
 
 export default function StagingQueue() {
   const [batches, setBatches] = useState([]);
@@ -29,8 +30,8 @@ export default function StagingQueue() {
       if (res.ok) {
         setBatches(batches.filter(b => b.id !== batchId));
       } else {
-        const err = await res.json();
-        alert(err.detail);
+        const errMsg = await extractError(res);
+        alert(errMsg);
       }
     } catch (e) {
       console.error(e);
