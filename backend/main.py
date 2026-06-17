@@ -558,11 +558,9 @@ def get_master_columns_for_export(project_id: int, db: Session = Depends(get_db)
         return []
 
     master_conn = db.query(models.Connection).filter(models.Connection.id == project.master_connection_id).first()
-    raw = get_sheet_data(master_conn, f"{project.master_sheet_name}!A1:Z1")
-
-    if raw and len(raw) > 0:
-        return raw[0]
-    return []
+    from .services import get_sheet_metadata
+    metadata = get_sheet_metadata(master_conn)
+    return metadata.get(project.master_sheet_name, [])
 
 
 from fastapi import BackgroundTasks
@@ -676,10 +674,9 @@ def get_master_columns(db: Session = Depends(get_db)):
     project, master_conn, master_sheet = _get_master_info(db)
     if not project or not master_conn:
         return []
-    raw = get_sheet_data(master_conn, f"{master_sheet}!A1:Z1")
-    if raw and len(raw) > 0:
-        return raw[0]
-    return []
+    from .services import get_sheet_metadata
+    metadata = get_sheet_metadata(master_conn)
+    return metadata.get(master_sheet, [])
 
 
 # --- Frontend Serving (Railway Single Deployment) ---
