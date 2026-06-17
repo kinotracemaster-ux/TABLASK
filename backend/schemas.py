@@ -40,7 +40,7 @@ class Connection(ConnectionBase):
 # Projects
 class ProjectBase(BaseModel):
     name: str
-    connection_id: int
+    connection_id: Optional[int] = None
     master_connection_id: Optional[int] = None
     master_sheet_name: Optional[str] = None
 
