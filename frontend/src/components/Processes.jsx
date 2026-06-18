@@ -24,12 +24,13 @@ export default function Processes() {
   const [targetSheets, setTargetSheets] = useState({});
   const [targetSheet, setTargetSheet] = useState('');
 
+  const [masterSheets, setMasterSheets] = useState({});
   const [skuColSource, setSkuColSource] = useState('');
   const [skuColMaster, setSkuColMaster] = useState('');
   const [fieldMappings, setFieldMappings] = useState([{ src: '', dst: '' }]);
 
   // Preview/Run state per process
-  const [processStatus, setProcessStatus] = useState({}); // { [id]: { loading, preview, result } }
+  const [processStatus, setProcessStatus] = useState({});
 
   useEffect(() => { loadAll(); }, []);
 
@@ -45,10 +46,18 @@ export default function Processes() {
       setProcesses(await procsRes.json());
       setConnections(await connsRes.json());
       setMasterCols(await colsRes.json());
-      
+
       const projs = await projsRes.json();
       if (projs.length > 0 && projs[0].master_sheet_name) {
-        setMasterInfo({ connId: projs[0].master_connection_id, sheetName: projs[0].master_sheet_name });
+        const mi = { connId: projs[0].master_connection_id, sheetName: projs[0].master_sheet_name };
+        setMasterInfo(mi);
+        // Pre-cargar hojas de la maestra para el selector de destino
+        if (mi.connId) {
+          const mRes = await fetch(`${API}/api/connections/${mi.connId}/metadata`);
+          const mData = await mRes.json();
+          setMasterSheets(mData.sheets || {});
+          setTargetSheet(mi.sheetName);
+        }
       }
     } catch (err) { console.error(err); }
     setLoading(false);
@@ -68,22 +77,9 @@ export default function Processes() {
     }
   };
 
-  const loadTargetSheets = async (connId) => {
-    setTargetConnId(connId);
-    if (!connId) return;
-    try {
-      const res = await fetch(`${API}/api/connections/${connId}/metadata`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Fallo');
-      setTargetSheets(data.sheets || {});
-    } catch (err) {
-      alert(err.message);
-      setTargetSheets({});
-    }
-  };
-
+  // targetCols = columnas de la hoja maestra seleccionada (o masterCols como fallback)
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
-  const targetCols = masterCols; // Destino SIEMPRE es la maestra
+  const targetCols = (targetSheet && masterSheets[targetSheet]) ? masterSheets[targetSheet] : masterCols;
 
   // Auto-detect SKU when source sheet changes
   useEffect(() => {
@@ -175,6 +171,7 @@ export default function Processes() {
     setSkuColSource(''); setSkuColMaster('');
     setFieldMappings([{ src: '', dst: '' }]);
     setSourceSheets({});
+    setTargetSheet(masterInfo?.sheetName || '');
     setEditingId(null);
   };
 
@@ -189,7 +186,8 @@ export default function Processes() {
     
     setSkuColSource(proc.sku_column_source);
     setSkuColMaster(proc.sku_column_master);
-    
+    if (proc.target_sheet_name) setTargetSheet(proc.target_sheet_name);
+
     // Parse mappings back to array
     const mappedArray = Object.entries(proc.field_mappings).map(([src, dst]) => ({ src, dst }));
     setFieldMappings(mappedArray.length > 0 ? mappedArray : [{ src: '', dst: '' }]);
@@ -365,6 +363,23 @@ export default function Processes() {
                 <button type="button" onClick={handleAutoMap} className="bg-indigo-200 text-indigo-800 px-3 py-1 rounded-md text-xs font-semibold hover:bg-indigo-300">
                   ✨ Auto-Mapear Columnas
                 </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Maestra</label>
+                  <div className="w-full border border-indigo-100 bg-indigo-100 rounded-lg p-2 text-sm text-indigo-700 font-medium">
+                    {connections.find(c => c.id === masterInfo?.connId)?.name || 'Tabla Maestra'}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Destino</label>
+                  <select value={targetSheet} onChange={e => { setTargetSheet(e.target.value); setSkuColMaster(''); }}
+                    className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar hoja...</option>
+                    {Object.keys(masterSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                  </select>
+                </div>
               </div>
 
               <div className="mb-3">
