@@ -490,6 +490,44 @@ export default function Processes() {
                         <p className="text-lg font-bold text-gray-600">{st.preview.rows_unchanged}</p>
                       </div>
                     </div>
+
+                    {/* Detalle de filas NUEVAS */}
+                    {st.preview.detail_added?.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-xs font-semibold text-green-700 mb-1">🆕 Códigos que se crearán ({st.preview.detail_added.length}):</p>
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-2 max-h-32 overflow-y-auto">
+                          <div className="flex flex-wrap gap-1">
+                            {st.preview.detail_added.map((r, i) => (
+                              <span key={i} className="inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded font-mono">
+                                {r.sku}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Detalle de filas ACTUALIZADAS */}
+                    {st.preview.detail_updated?.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-xs font-semibold text-blue-700 mb-1">✏️ Campos que se sobreescribirán ({st.preview.detail_updated.length} cambios en {st.preview.rows_updated} fila(s)):</p>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 max-h-32 overflow-y-auto space-y-0.5">
+                          {st.preview.detail_updated.slice(0, 50).map((c, i) => (
+                            <div key={i} className="text-xs font-mono flex gap-1 items-center">
+                              <span className="text-gray-500 w-24 truncate shrink-0">{c.sku}</span>
+                              <span className="text-blue-600 shrink-0">{c.field}:</span>
+                              <span className="text-red-500 line-through truncate max-w-[80px]">{c.old || '(vacío)'}</span>
+                              <span className="text-gray-400 shrink-0">→</span>
+                              <span className="text-green-700 truncate max-w-[80px]">{c.new}</span>
+                            </div>
+                          ))}
+                          {st.preview.detail_updated.length > 50 && (
+                            <p className="text-xs text-gray-400 mt-1">... y {st.preview.detail_updated.length - 50} cambios más</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {(st.preview.rows_updated > 0 || st.preview.rows_added > 0) && (
                       <div className="flex items-center gap-3 mt-3">
                         <button onClick={() => handleRun(proc.id)} disabled={st.running}
@@ -509,11 +547,25 @@ export default function Processes() {
                 )}
 
                 {st?.runResult && (
-                  <div className="border-t border-gray-100 bg-green-50 p-4 flex items-center gap-2 text-sm text-green-800">
-                    <CheckCircle2 className="w-4 h-4" />
-                    ✅ {st.runResult.process_name}: {st.runResult.rows_updated} actualizadas, {st.runResult.rows_added} nuevas
-                    <button onClick={() => setProcessStatus(s => ({ ...s, [proc.id]: null }))}
-                      className="ml-auto text-gray-400 text-xs hover:text-gray-600">Cerrar</button>
+                  <div className="border-t border-gray-100 bg-green-50 p-4 text-sm text-green-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span className="font-semibold">✅ {st.runResult.process_name}: {st.runResult.rows_updated} sobreescritas, {st.runResult.rows_added} creadas</span>
+                      <button onClick={() => setProcessStatus(s => ({ ...s, [proc.id]: null }))}
+                        className="ml-auto text-gray-400 text-xs hover:text-gray-600">Cerrar</button>
+                    </div>
+                    {st.runResult.new_rows?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-green-700 mb-1">🆕 Códigos creados ({st.runResult.new_rows.length}):</p>
+                        <div className="flex flex-wrap gap-1">
+                          {st.runResult.new_rows.map((r, i) => (
+                            <span key={i} className="inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded font-mono border border-green-200">
+                              {r.sku}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
