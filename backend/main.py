@@ -674,7 +674,6 @@ def run_all(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
 def _resolve_master_sku_column(db, project):
     """Determina la columna llave (SKU) de la maestra a partir de los procesos activos."""
     processes = db.query(models.Process).filter(
-        models.Process.project_id == project.id,
         models.Process.is_active == True
     ).all()
     counts = {}
