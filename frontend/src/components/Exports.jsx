@@ -22,6 +22,10 @@ export default function Exports() {
   const [skuColTarget, setSkuColTarget] = useState('');
   const [colMappings, setColMappings] = useState([{ src: '', dst: '' }]);
 
+  // Modo múltiple: aplicar el mismo mapeo a varias pestañas a la vez
+  const [multiMode, setMultiMode] = useState(false);
+  const [selectedSheets, setSelectedSheets] = useState([]);
+
   useEffect(() => { loadAll(); }, []);
 
   const loadAll = async () => {
@@ -63,7 +67,15 @@ export default function Exports() {
     }
   };
 
-  const targetCols = targetSheet && targetSheets[targetSheet] ? targetSheets[targetSheet] : [];
+  // En modo múltiple la pestaña de referencia (para columnas/llave) es la primera seleccionada
+  const refSheet = multiMode ? (selectedSheets[0] || '') : targetSheet;
+  const targetCols = refSheet && targetSheets[refSheet] ? targetSheets[refSheet] : [];
+
+  const toggleSheet = (sheet) => {
+    setSelectedSheets(prev =>
+      prev.includes(sheet) ? prev.filter(s => s !== sheet) : [...prev, sheet]
+    );
+  };
 
   const handleAutoMap = async () => {
     if (masterCols.length === 0 || targetCols.length === 0) return;
@@ -121,19 +133,40 @@ export default function Exports() {
       return;
     }
 
-    const res = await fetch(`${API}/api/subscriptions/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        project_id: projectId,
-        target_connection_id: parseInt(targetConnId),
-        target_sheet_name: targetSheet,
-        sku_column_target: skuColTarget,
-        field_mappings: mappings,
-        is_active: true,
-        name: name || "Nueva Suscripción"
-      })
-    });
+    let res;
+    if (multiMode) {
+      if (selectedSheets.length === 0) {
+        alert("Selecciona al menos una pestaña destino.");
+        return;
+      }
+      res = await fetch(`${API}/api/subscriptions/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: projectId,
+          target_connection_id: parseInt(targetConnId),
+          target_sheets: selectedSheets,
+          sku_column_target: skuColTarget,
+          field_mappings: mappings,
+          is_active: true,
+          name_prefix: name || "Suscripción"
+        })
+      });
+    } else {
+      res = await fetch(`${API}/api/subscriptions/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: projectId,
+          target_connection_id: parseInt(targetConnId),
+          target_sheet_name: targetSheet,
+          sku_column_target: skuColTarget,
+          field_mappings: mappings,
+          is_active: true,
+          name: name || "Nueva Suscripción"
+        })
+      });
+    }
 
     if (res.ok) {
       setShowForm(false);
@@ -150,6 +183,7 @@ export default function Exports() {
     setTargetConnId(''); setTargetSheet(''); setSkuColTarget('');
     setColMappings([{ src: '', dst: '' }]);
     setTargetSheets({});
+    setMultiMode(false); setSelectedSheets([]);
   };
 
   const handleDelete = async (id) => {
@@ -203,8 +237,15 @@ export default function Exports() {
             </div>
 
             <div className="bg-green-50 border border-green-200 p-4 rounded-xl">
-              <h3 className="text-sm font-semibold text-green-800 mb-3">📍 HOJA DESTINO</h3>
-              
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-green-800">📍 HOJA DESTINO</h3>
+                <label className="flex items-center gap-2 text-xs text-green-700 cursor-pointer select-none">
+                  <input type="checkbox" checked={multiMode}
+                    onChange={e => { setMultiMode(e.target.checked); setSelectedSheets([]); }} />
+                  Aplicar a varias pestañas a la vez
+                </label>
+              </div>
+
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Google Sheets</label>
@@ -214,15 +255,40 @@ export default function Exports() {
                     {connections.filter(c => c.connection_type === 'google_sheets').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Pestaña Destino</label>
-                  <select value={targetSheet} onChange={e => setTargetSheet(e.target.value)} required
-                    disabled={!targetConnId} className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
-                    <option value="">Seleccionar pestaña...</option>
-                    {Object.keys(targetSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
-                  </select>
-                </div>
+                {!multiMode && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Pestaña Destino</label>
+                    <select value={targetSheet} onChange={e => setTargetSheet(e.target.value)} required
+                      disabled={!targetConnId} className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
+                      <option value="">Seleccionar pestaña...</option>
+                      {Object.keys(targetSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
+
+              {multiMode && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Pestañas Destino ({selectedSheets.length} seleccionada{selectedSheets.length === 1 ? '' : 's'})
+                  </label>
+                  {Object.keys(targetSheets).length === 0 ? (
+                    <p className="text-xs text-gray-400">Selecciona primero una conexión.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-auto border border-green-200 rounded-lg p-3 bg-white">
+                      {Object.keys(targetSheets).map(sh => (
+                        <label key={sh} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="checkbox" checked={selectedSheets.includes(sh)} onChange={() => toggleSheet(sh)} />
+                          <span className="truncate">{sh}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-green-600 mt-1">
+                    Todas comparten el mismo mapeo y llave (la columna de referencia se toma de la 1ª seleccionada: <span className="font-semibold">{refSheet || '—'}</span>).
+                  </p>
+                </div>
+              )}
 
               <div className="mb-3">
                 <label className="block text-sm font-medium text-green-800 mb-1">🔑 Columna llave en Destino (SKU)</label>
@@ -272,9 +338,10 @@ export default function Exports() {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <button type="submit" disabled={!targetConnId || !targetSheet}
+              <button type="submit"
+                disabled={!targetConnId || (multiMode ? selectedSheets.length === 0 : !targetSheet)}
                 className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 transition disabled:opacity-50">
-                Guardar Suscripción
+                {multiMode ? `Guardar ${selectedSheets.length || ''} Suscripción(es)` : 'Guardar Suscripción'}
               </button>
               <button type="button" onClick={() => setShowForm(false)}
                 className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 transition font-medium">

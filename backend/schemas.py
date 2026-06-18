@@ -143,6 +143,16 @@ class FieldSubscriptionBase(BaseModel):
 class FieldSubscriptionCreate(FieldSubscriptionBase):
     pass
 
+class FieldSubscriptionBulkCreate(BaseModel):
+    """Crea la misma suscripción (mismo mapeo y llave) para varias hojas hijas a la vez."""
+    project_id: int
+    target_connection_id: int
+    target_sheets: List[str]              # Pestañas destino que comparten estructura
+    sku_column_target: str
+    field_mappings: Dict[str, str]
+    is_active: bool = True
+    name_prefix: str = "Suscripción"
+
 class FieldSubscription(FieldSubscriptionBase):
     id: int
     created_at: datetime
