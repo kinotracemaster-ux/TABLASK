@@ -28,6 +28,7 @@ function Sidebar() {
           <Database className="w-6 h-6" />
           Tablas K
         </h1>
+        <p className="text-xs text-gray-400 mt-1">Sincronización de datos</p>
       </div>
       <nav className="flex-1 p-3 space-y-1">
         <Link to="/" className={linkClass('/', 'hover:bg-purple-50 hover:text-purple-600')}>
