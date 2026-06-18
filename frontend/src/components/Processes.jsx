@@ -83,10 +83,7 @@ export default function Processes() {
   };
 
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
-  // Si hay destino personalizado, usar sus columnas; si no, la maestra.
-  const targetCols = (targetConnId && targetSheet && targetSheets[targetSheet])
-    ? targetSheets[targetSheet]
-    : masterCols;
+  const targetCols = masterCols; // Destino SIEMPRE es la maestra
 
   // Auto-detect SKU when source sheet changes
   useEffect(() => {
@@ -155,8 +152,8 @@ export default function Processes() {
         name, description,
         source_connection_id: parseInt(sourceConnId),
         source_sheet_name: sourceSheet,
-        target_connection_id: targetConnId ? parseInt(targetConnId) : (masterInfo?.connId || null),
-        target_sheet_name: targetSheet || masterInfo?.sheetName || null,
+        target_connection_id: masterInfo?.connId || targetConnId,
+        target_sheet_name: masterInfo?.sheetName || targetSheet,
         sku_column_source: skuColSource,
         sku_column_master: skuColMaster,
         field_mappings: mappings
@@ -178,7 +175,6 @@ export default function Processes() {
     setSkuColSource(''); setSkuColMaster('');
     setFieldMappings([{ src: '', dst: '' }]);
     setSourceSheets({});
-    setTargetConnId(''); setTargetSheet(''); setTargetSheets({});
     setEditingId(null);
   };
 
@@ -193,16 +189,7 @@ export default function Processes() {
     
     setSkuColSource(proc.sku_column_source);
     setSkuColMaster(proc.sku_column_master);
-
-    // Si el proceso tiene un destino personalizado distinto a la maestra, cargarlo
-    if (proc.target_connection_id && proc.target_connection_id !== masterInfo?.connId) {
-      setTargetConnId(proc.target_connection_id);
-      await loadTargetSheets(proc.target_connection_id);
-      setTargetSheet(proc.target_sheet_name || '');
-    } else {
-      setTargetConnId(''); setTargetSheet(''); setTargetSheets({});
-    }
-
+    
     // Parse mappings back to array
     const mappedArray = Object.entries(proc.field_mappings).map(([src, dst]) => ({ src, dst }));
     setFieldMappings(mappedArray.length > 0 ? mappedArray : [{ src: '', dst: '' }]);
@@ -374,31 +361,10 @@ export default function Processes() {
             {/* ── BLOQUE DESTINO ── */}
             <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl">
               <div className="flex justify-between items-start mb-3">
-                <h3 className="text-sm font-semibold text-indigo-800">
-                  📤 DESTINO — {targetConnId ? 'Hoja personalizada' : 'Tabla Maestra'}
-                </h3>
+                <h3 className="text-sm font-semibold text-indigo-800">📤 DESTINO — Tabla Maestra</h3>
                 <button type="button" onClick={handleAutoMap} className="bg-indigo-200 text-indigo-800 px-3 py-1 rounded-md text-xs font-semibold hover:bg-indigo-300">
                   ✨ Auto-Mapear Columnas
                 </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Destino</label>
-                  <select value={targetConnId} onChange={e => loadTargetSheets(e.target.value)}
-                    className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
-                    <option value="">📌 Tabla Maestra (por defecto)</option>
-                    {connections.filter(c => c.connection_type === 'google_sheets').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Destino</label>
-                  <select value={targetSheet} onChange={e => setTargetSheet(e.target.value)}
-                    disabled={!targetConnId} className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white disabled:bg-gray-50">
-                    <option value="">{targetConnId ? 'Seleccionar hoja...' : `Maestra "${masterInfo?.sheetName || ''}"`}</option>
-                    {Object.keys(targetSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
-                  </select>
-                </div>
               </div>
 
               <div className="mb-3">
@@ -430,7 +396,7 @@ export default function Processes() {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <button type="submit" disabled={!sourceConnId || !sourceSheet || (targetConnId && !targetSheet)}
+              <button type="submit" disabled={!sourceConnId || !sourceSheet}
                 className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
                 Guardar Proceso
               </button>
@@ -470,9 +436,7 @@ export default function Processes() {
                       <p className="text-xs text-gray-500 mb-0.5">
                         <span className="font-medium text-gray-600">Origen:</span> {connName(proc.source_connection_id)} / Hoja "{proc.source_sheet_name}" 
                         <span className="mx-2">→</span> 
-                        <span className="font-medium text-indigo-600">Destino:</span> {(proc.target_connection_id && proc.target_connection_id !== masterInfo?.connId)
-                          ? `${connName(proc.target_connection_id)} / Hoja "${proc.target_sheet_name}"`
-                          : (masterInfo ? `${connName(masterInfo.connId)} / Hoja "${masterInfo.sheetName}"` : 'Tabla Maestra')}
+                        <span className="font-medium text-indigo-600">Destino:</span> {masterInfo ? `${connName(masterInfo.connId)} / Hoja "${masterInfo.sheetName}"` : 'Tabla Maestra'}
                       </p>
                       <p className="text-xs text-gray-500">
                         <span className="text-gray-400">🔑 {proc.sku_column_source} → {proc.sku_column_master}</span>
