@@ -23,6 +23,15 @@ except Exception as e:
 try:
     with engine.connect() as conn:
         from sqlalchemy import text
+        conn.execute(text("ALTER TABLE projects ADD COLUMN master_sku_column VARCHAR"))
+        conn.commit()
+        print("Migración master_sku_column aplicada.")
+except Exception as e:
+    print("Migración master_sku_column omitida (ya existe):", e)
+
+try:
+    with engine.connect() as conn:
+        from sqlalchemy import text
         conn.execute(text("ALTER TABLE connections ADD COLUMN http_url VARCHAR"))
         conn.execute(text("ALTER TABLE connections ADD COLUMN http_method VARCHAR DEFAULT 'GET'"))
         conn.execute(text("ALTER TABLE connections ADD COLUMN http_headers TEXT"))
@@ -448,7 +457,8 @@ def get_global_master(db: Session = Depends(get_db)):
         "rows": rows,
         "total_rows": len(rows),
         "master_connection_id": project.master_connection_id,
-        "master_sheet_name": master_sheet
+        "master_sheet_name": master_sheet,
+        "master_sku_column": project.master_sku_column or ""
     }
 
 @app.post("/api/master/link")
@@ -466,6 +476,8 @@ def link_global_master(req: schemas.MasterLinkRequest, db: Session = Depends(get
 
     project.master_connection_id = req.master_connection_id
     project.master_sheet_name = req.master_sheet_name
+    if req.master_sku_column:
+        project.master_sku_column = req.master_sku_column
     db.commit()
 
     return {"message": "Tabla maestra enlazada correctamente"}
@@ -672,17 +684,17 @@ def run_all(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
 # ═══════════════════════════════════════════════════════════════════
 
 def _resolve_master_sku_column(db, project):
-    """Determina la columna llave (SKU) de la maestra a partir de los procesos activos."""
-    processes = db.query(models.Process).filter(
-        models.Process.is_active == True
-    ).all()
+    """Devuelve la columna llave (SKU) de la maestra. Usa la guardada en el proyecto si existe."""
+    if project.master_sku_column:
+        return project.master_sku_column
+    # Fallback: inferir desde los procesos activos (compatibilidad)
+    processes = db.query(models.Process).filter(models.Process.is_active == True).all()
     counts = {}
     for p in processes:
         if p.sku_column_master:
             counts[p.sku_column_master] = counts.get(p.sku_column_master, 0) + 1
     if not counts:
         return None
-    # La más frecuente entre los procesos activos
     return max(counts, key=counts.get)
 
 

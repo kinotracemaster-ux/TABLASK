@@ -43,6 +43,7 @@ class Project(Base):
     connection_id = Column(Integer, ForeignKey("connections.id"))
     master_connection_id = Column(Integer, ForeignKey("connections.id"), nullable=True)
     master_sheet_name = Column(String, nullable=True)
+    master_sku_column = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     owner = relationship("User", back_populates="projects")

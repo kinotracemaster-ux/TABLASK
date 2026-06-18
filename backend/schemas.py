@@ -175,6 +175,7 @@ class MasterSyncRequest(BaseModel):
 class MasterLinkRequest(BaseModel):
     master_connection_id: int
     master_sheet_name: str
+    master_sku_column: str = ""
 
 
 # Processes (Importación)
