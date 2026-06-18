@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, Send, FileDown, ShieldAlert, Play } from 'lucide-react';
+import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, Send, FileDown, ShieldAlert, Play, RefreshCw } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -28,6 +28,10 @@ export default function MasterTable() {
   // Run all state
   const [runAllLoading, setRunAllLoading] = useState(false);
   const [runAllResult, setRunAllResult] = useState(null);
+
+  // Reflejo (sincronización manual maestra → hijas)
+  const [reflectLoading, setReflectLoading] = useState(false);
+  const [reflectResult, setReflectResult] = useState(null);
 
   // Preview state (PASO 3)
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -220,6 +224,24 @@ export default function MasterTable() {
     }
   };
 
+  // Reflejo: propaga ediciones manuales de la maestra a las hojas hijas
+  const handleSyncReflection = async () => {
+    setReflectLoading(true);
+    setReflectResult(null);
+    try {
+      const res = await fetch(`${API}/api/master/sync-reflection`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setReflectResult({ ok: true, ...data });
+      } else {
+        setReflectResult({ ok: false, message: data.detail || 'Error al sincronizar' });
+      }
+    } catch (err) {
+      setReflectResult({ ok: false, message: 'Fallo de conexión: ' + err.message });
+    }
+    setReflectLoading(false);
+  };
+
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando Tabla Maestra...</div>;
 
   return (
@@ -248,6 +270,15 @@ export default function MasterTable() {
             </button>
           )}
 
+          {activeMasterConnId && (
+            <button onClick={handleSyncReflection} disabled={reflectLoading}
+              title="Detecta ediciones manuales en la maestra y las refleja en las hojas hijas suscritas"
+              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm disabled:opacity-50">
+              <RefreshCw className={`w-4 h-4 ${reflectLoading ? 'animate-spin' : ''}`} />
+              {reflectLoading ? 'Sincronizando...' : 'Sincronizar reflejo'}
+            </button>
+          )}
+
           {!activeMasterConnId ? (
             <button onClick={() => setShowLink(!showLink)}
               className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-purple-700 transition text-sm">
@@ -261,6 +292,24 @@ export default function MasterTable() {
           )}
         </div>
       </div>
+
+      {/* Resultado del reflejo (maestra → hijas) */}
+      {reflectResult && (
+        <div className={`mb-6 rounded-xl border p-4 flex items-start gap-3 text-sm ${
+          reflectResult.ok ? 'border-indigo-200 bg-indigo-50 text-indigo-800' : 'border-red-200 bg-red-50 text-red-700'
+        }`}>
+          {reflectResult.ok ? <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <XCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+          <div className="flex-1">
+            <p className="font-medium">{reflectResult.message}</p>
+            {reflectResult.ok && reflectResult.status === 'synced' && (
+              <p className="text-xs mt-1 opacity-80">
+                {reflectResult.changes} campo(s) modificado(s) · {reflectResult.new_rows} fila(s) nueva(s) · {reflectResult.active_subscriptions} suscripción(es) activa(s)
+              </p>
+            )}
+          </div>
+          <button onClick={() => setReflectResult(null)} className="text-xs opacity-60 hover:opacity-100 font-medium">Cerrar</button>
+        </div>
+      )}
 
       {/* Preview Confirmation (PASO 3) */}
       {previewData && !previewData.error && (

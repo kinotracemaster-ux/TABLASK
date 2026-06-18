@@ -221,3 +221,19 @@ class ConnectedApp(Base):
     
     # Mapeo por defecto o proyecto asociado (opcional, para ingesta directa a la maestra)
     target_project_id = Column(Integer, nullable=True)
+
+
+class MasterSnapshot(Base):
+    """
+    Última 'foto' conocida de la Tabla Maestra para un proyecto.
+    Permite detectar ediciones manuales hechas directamente en Google Sheets
+    y propagarlas (reflejo) a las hojas hijas suscritas.
+    """
+    __tablename__ = "master_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), unique=True, index=True)
+    sku_column = Column(String, nullable=False)        # Columna llave usada en la maestra
+    # JSON: {"SKU123": {"columna": "valor", ...}, ...}
+    snapshot_data = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow)

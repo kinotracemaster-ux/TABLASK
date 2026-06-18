@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 import os
 import shutil
+from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from . import models, schemas
@@ -662,6 +663,144 @@ def run_all(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
             "total_rows_updated": total_updated,
             "total_rows_added": total_added
         }
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ██ REFLEJO AUTOMÁTICO: detectar ediciones manuales en la Maestra
+# ██ y propagarlas a las hojas hijas suscritas (Opción A: snapshot/diff)
+# ═══════════════════════════════════════════════════════════════════
+
+def _resolve_master_sku_column(db, project):
+    """Determina la columna llave (SKU) de la maestra a partir de los procesos activos."""
+    processes = db.query(models.Process).filter(
+        models.Process.project_id == project.id,
+        models.Process.is_active == True
+    ).all()
+    counts = {}
+    for p in processes:
+        if p.sku_column_master:
+            counts[p.sku_column_master] = counts.get(p.sku_column_master, 0) + 1
+    if not counts:
+        return None
+    # La más frecuente entre los procesos activos
+    return max(counts, key=counts.get)
+
+
+def _index_master_by_sku(master_conn, master_sheet, sku_column):
+    """Lee la maestra y devuelve (headers, {sku: {columna: valor}})."""
+    raw = get_sheet_data(master_conn, f"{master_sheet}!A1:Z")
+    if not raw or len(raw) < 1:
+        return [], {}
+    headers = raw[0]
+    if sku_column not in headers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La columna llave '{sku_column}' no existe en la maestra."
+        )
+    sku_idx = headers.index(sku_column)
+    by_sku = {}
+    for row in raw[1:]:
+        sku_val = row[sku_idx] if sku_idx < len(row) else ""
+        if not sku_val:
+            continue
+        by_sku[sku_val] = {
+            headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))
+        }
+    return headers, by_sku
+
+
+@app.post("/api/master/sync-reflection")
+def sync_master_reflection(db: Session = Depends(get_db)):
+    """
+    Detecta cambios hechos manualmente en la Tabla Maestra (comparando contra la
+    última 'foto' guardada) y los propaga a las hojas hijas suscritas.
+    La primera vez solo guarda la línea base, sin propagar.
+    """
+    project, master_conn, master_sheet = _get_master_info(db)
+    if not project or not master_conn:
+        raise HTTPException(status_code=400, detail="No hay tabla maestra enlazada.")
+
+    sku_column = _resolve_master_sku_column(db, project)
+    if not sku_column:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pudo determinar la columna llave (SKU) de la maestra. "
+                   "Crea al menos un proceso activo que defina la columna SKU."
+        )
+
+    headers, current_by_sku = _index_master_by_sku(master_conn, master_sheet, sku_column)
+
+    snapshot = db.query(models.MasterSnapshot).filter(
+        models.MasterSnapshot.project_id == project.id
+    ).first()
+
+    # Primera vez: solo guardamos la línea base
+    if not snapshot:
+        snapshot = models.MasterSnapshot(
+            project_id=project.id,
+            sku_column=sku_column,
+            snapshot_data=json.dumps(current_by_sku)
+        )
+        db.add(snapshot)
+        db.commit()
+        return {
+            "status": "baseline_saved",
+            "message": "Línea base guardada. A partir de ahora se detectarán los cambios manuales.",
+            "skus_registrados": len(current_by_sku),
+            "changes": 0,
+            "new_rows": 0
+        }
+
+    previous_by_sku = json.loads(snapshot.snapshot_data) if snapshot.snapshot_data else {}
+
+    # Calcular diferencias: columnas modificadas y filas nuevas
+    changes = []
+    new_rows = []
+    for sku, fields in current_by_sku.items():
+        if sku not in previous_by_sku:
+            new_fields = {col: val for col, val in fields.items() if col != sku_column}
+            new_rows.append({"sku": sku, "fields": new_fields})
+            continue
+        prev_fields = previous_by_sku[sku]
+        for col, val in fields.items():
+            if col == sku_column:
+                continue
+            if prev_fields.get(col, "") != val:
+                changes.append({"sku": sku, "field": col, "old": prev_fields.get(col, ""), "new": val})
+
+    active_subs = db.query(models.FieldSubscription).filter(
+        models.FieldSubscription.project_id == project.id,
+        models.FieldSubscription.is_active == True
+    ).count()
+
+    propagated = False
+    if changes or new_rows:
+        try:
+            from .propagation import propagate_changes
+            propagate_changes(db, project.id, changes, new_rows)
+            propagated = True
+        except Exception as e:
+            print("Error en propagación de reflejo:", e)
+
+    # Actualizar la foto al estado actual
+    snapshot.sku_column = sku_column
+    snapshot.snapshot_data = json.dumps(current_by_sku)
+    snapshot.updated_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "status": "synced",
+        "message": (
+            f"{len(changes)} campo(s) y {len(new_rows)} fila(s) nueva(s) propagados a "
+            f"{active_subs} suscripción(es)."
+            if (changes or new_rows) else
+            "No se detectaron cambios desde la última sincronización."
+        ),
+        "changes": len(changes),
+        "new_rows": len(new_rows),
+        "active_subscriptions": active_subs,
+        "propagated": propagated
     }
 
 
