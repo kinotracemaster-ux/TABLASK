@@ -14,27 +14,30 @@ function Sidebar() {
   const [moreOpen, setMoreOpen] = useState(false);
 
   const isActive = (path) => location.pathname === path;
-  const linkClass = (path, hoverColor = 'hover:bg-indigo-50 hover:text-indigo-600') =>
+  const linkClass = (path) =>
     `flex items-center gap-2 p-2 rounded-lg text-sm font-medium transition ${
-      isActive(path) ? 'bg-indigo-50 text-indigo-600' : `text-gray-700 ${hoverColor}`
+      isActive(path)
+        ? 'bg-white/15 text-white'
+        : 'text-indigo-100 hover:bg-white/10 hover:text-white'
     }`;
 
   const moreActive = ['/staging', '/logs', '/intake'].includes(location.pathname);
 
   return (
-    <aside className="w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
-      <div className="p-4 border-b border-gray-200">
-        <h1 className="text-xl font-bold text-indigo-600 flex items-center gap-2">
+    <aside className="w-60 bg-indigo-700 flex flex-col flex-shrink-0">
+      <div className="p-4 border-b border-indigo-600">
+        <h1 className="text-xl font-bold text-white flex items-center gap-2">
           <Database className="w-6 h-6" />
           Tablas K
         </h1>
+        <p className="text-xs text-indigo-200 mt-1">Sincronización de datos</p>
       </div>
       <nav className="flex-1 p-3 space-y-1">
-        <Link to="/" className={linkClass('/', 'hover:bg-purple-50 hover:text-purple-600')}>
+        <Link to="/" className={linkClass('/')}>
           <Table2 className="w-5 h-5" /> Tabla Maestra
         </Link>
 
-        <div className="border-t border-gray-100 my-2"></div>
+        <div className="border-t border-indigo-600 my-2"></div>
 
         <Link to="/connections" className={linkClass('/connections')}>
           <Link2 className="w-5 h-5" /> Conexiones
@@ -46,11 +49,11 @@ function Sidebar() {
           <Download className="w-5 h-5" /> Distribución
         </Link>
 
-        <div className="border-t border-gray-100 my-2"></div>
+        <div className="border-t border-indigo-600 my-2"></div>
 
         <button onClick={() => setMoreOpen(!moreOpen)}
           className={`w-full flex items-center gap-2 p-2 rounded-lg text-sm font-medium transition ${
-            moreActive ? 'text-indigo-600' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            moreActive ? 'text-white bg-white/10' : 'text-indigo-200 hover:text-white hover:bg-white/10'
           }`}>
           <MoreHorizontal className="w-5 h-5" />
           Más
@@ -59,13 +62,13 @@ function Sidebar() {
 
         {moreOpen && (
           <div className="pl-4 space-y-1">
-            <Link to="/staging" className={linkClass('/staging', 'hover:bg-yellow-50 hover:text-yellow-600')}>
+            <Link to="/staging" className={linkClass('/staging')}>
               <ShieldAlert className="w-4 h-4" /> Staging
             </Link>
             <Link to="/logs" className={linkClass('/logs')}>
               <Terminal className="w-4 h-4" /> Logs
             </Link>
-            <Link to="/intake" className={linkClass('/intake', 'hover:bg-pink-50 hover:text-pink-600')}>
+            <Link to="/intake" className={linkClass('/intake')}>
               <Network className="w-4 h-4" /> Webhooks
             </Link>
           </div>
