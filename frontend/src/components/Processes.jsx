@@ -301,113 +301,113 @@ export default function Processes() {
               </div>
             </div>
 
-            {/* ── BLOQUE ORIGEN ── */}
-            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
-              <h3 className="text-sm font-semibold text-blue-800 mb-3">📎 ORIGEN — ¿De dónde vienen los datos?</h3>
-              
-              <div className="grid grid-cols-2 gap-4 mb-4">
+            {/* ── ORIGEN + DESTINO: cabeceras de conexión/hoja ── */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Origen */}
+              <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl space-y-3">
+                <h3 className="text-sm font-semibold text-blue-800">📎 ORIGEN (Hoja hija)</h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Origen</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Conexión</label>
                   <select value={sourceConnId} onChange={e => loadSourceSheets(e.target.value)} required
                     className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
-                    <option value="">Seleccionar archivo origen...</option>
-                    {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.connection_type})</option>)}
+                    <option value="">Seleccionar conexión...</option>
+                    {connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Origen</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Hoja</label>
                   <select value={sourceSheet} onChange={e => setSourceSheet(e.target.value)} required
                     disabled={!sourceConnId} className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
                     <option value="">Seleccionar hoja...</option>
                     {Object.keys(sourceSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
                   </select>
                 </div>
-              </div>
-
-              <div className="mb-3">
-                <label className="block text-sm font-medium text-blue-800 mb-1">🔑 Columna llave en Origen (para cruzar datos)</label>
-                <select value={skuColSource} onChange={e => setSkuColSource(e.target.value)} required
-                  disabled={sourceCols.length === 0}
-                  className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white max-w-sm">
-                  <option value="">Seleccionar columna llave...</option>
-                  {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-blue-800 mb-1">Columnas a copiar del Origen</label>
-                <p className="text-xs text-blue-600 mb-2">Selecciona qué columnas del origen quieres traer.</p>
-                {fieldMappings.map((m, i) => (
-                  <div key={i} className="flex gap-2 items-center mb-2">
-                    <select value={m.src} onChange={e => {
-                      const n = [...fieldMappings]; n[i].src = e.target.value; setFieldMappings(n);
-                    }} className="flex-1 border border-blue-200 rounded-md p-1.5 text-sm bg-white">
-                      <option value="">Seleccionar columna origen...</option>
-                      {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    {fieldMappings.length > 1 && (
-                      <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
-                        className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                    )}
-                  </div>
-                ))}
-                <button type="button" onClick={() => setFieldMappings([...fieldMappings, { src: '', dst: '' }])}
-                  className="text-blue-600 text-sm font-medium hover:underline mt-1">+ Añadir columna</button>
-              </div>
-            </div>
-
-            {/* ── BLOQUE DESTINO ── */}
-            <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl">
-              <div className="flex justify-between items-start mb-3">
-                <h3 className="text-sm font-semibold text-indigo-800">📤 DESTINO — Tabla Maestra</h3>
-                <button type="button" onClick={handleAutoMap} className="bg-indigo-200 text-indigo-800 px-3 py-1 rounded-md text-xs font-semibold hover:bg-indigo-300">
-                  ✨ Auto-Mapear Columnas
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Maestra</label>
-                  <div className="w-full border border-indigo-100 bg-indigo-100 rounded-lg p-2 text-sm text-indigo-700 font-medium">
-                    {connections.find(c => c.id === masterInfo?.connId)?.name || 'Tabla Maestra'}
+                  <label className="block text-xs font-medium text-blue-800 mb-1">🔑 Columna llave</label>
+                  <select value={skuColSource} onChange={e => setSkuColSource(e.target.value)} required
+                    disabled={sourceCols.length === 0}
+                    className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar llave...</option>
+                    {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Destino */}
+              <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl space-y-3">
+                <h3 className="text-sm font-semibold text-indigo-800">📤 DESTINO (Tabla Maestra)</h3>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Conexión</label>
+                  <div className="w-full border border-indigo-100 bg-indigo-100 rounded-lg p-2 text-sm text-indigo-700 font-medium truncate">
+                    {connections.find(c => c.id === masterInfo?.connId)?.name || '— sin maestra —'}
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Destino</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Hoja</label>
                   <select value={targetSheet} onChange={e => { setTargetSheet(e.target.value); setSkuColMaster(''); }}
                     className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
                     <option value="">Seleccionar hoja...</option>
                     {Object.keys(masterSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-indigo-800 mb-1">🔑 Columna llave</label>
+                  <select value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required
+                    disabled={targetCols.length === 0}
+                    className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar llave...</option>
+                    {targetCols.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* ── MAPEO DE CAMPOS (hija → maestra) ── */}
+            <div className="border border-gray-200 rounded-xl p-4 bg-white">
+              <div className="flex justify-between items-center mb-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700">Mapeo de campos</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Qué columna de la hija actualiza qué columna de la maestra</p>
+                </div>
+                <button type="button" onClick={handleAutoMap}
+                  className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-md text-xs font-semibold hover:bg-indigo-200">
+                  ✨ Auto-Mapear
+                </button>
               </div>
 
-              <div className="mb-3">
-                <label className="block text-sm font-medium text-indigo-800 mb-1">🔑 Columna llave en Destino (para cruzar datos)</label>
-                <select value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required
-                  disabled={targetCols.length === 0}
-                  className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white max-w-sm">
-                  <option value="">Seleccionar columna llave...</option>
-                  {targetCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
+              <div className="space-y-2">
+                {/* Encabezado */}
+                <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 px-1">
+                  <span className="text-xs font-medium text-blue-600 uppercase tracking-wide">Columna hija</span>
+                  <span />
+                  <span className="text-xs font-medium text-indigo-600 uppercase tracking-wide">Columna maestra</span>
+                  <span />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-indigo-800 mb-1">Columnas destino a actualizar</label>
-                <p className="text-xs text-indigo-600 mb-2">Para cada columna origen (arriba), selecciona en qué columna del destino se escribirá.</p>
                 {fieldMappings.map((m, i) => (
-                  <div key={i} className="flex gap-2 items-center mb-2">
-                    <span className="text-xs text-gray-500 bg-white border rounded px-2 py-1.5 min-w-[140px] truncate">{m.src || `Columna origen ${i+1}`}</span>
-                    <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                    <select value={m.dst} onChange={e => {
-                      const n = [...fieldMappings]; n[i].dst = e.target.value; setFieldMappings(n);
-                    }} className="flex-1 border border-indigo-200 rounded-md p-1.5 text-sm bg-white">
-                      <option value="">Seleccionar columna destino...</option>
+                  <div key={i} className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center">
+                    <select value={m.src} onChange={e => { const n = [...fieldMappings]; n[i].src = e.target.value; setFieldMappings(n); }}
+                      className="border border-blue-200 rounded-lg p-2 text-sm bg-white">
+                      <option value="">Columna hija...</option>
+                      {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <select value={m.dst} onChange={e => { const n = [...fieldMappings]; n[i].dst = e.target.value; setFieldMappings(n); }}
+                      className="border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                      <option value="">Columna maestra...</option>
                       {targetCols.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
+                    {fieldMappings.length > 1
+                      ? <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
+                          className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                      : <span className="w-4" />
+                    }
                   </div>
                 ))}
               </div>
+
+              <button type="button" onClick={() => setFieldMappings([...fieldMappings, { src: '', dst: '' }])}
+                className="text-indigo-600 text-sm font-medium hover:underline mt-3">+ Añadir campo</button>
             </div>
 
             <div className="flex gap-2 pt-2">
