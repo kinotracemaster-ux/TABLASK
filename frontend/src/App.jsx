@@ -9,35 +9,45 @@ import StagingQueue from './components/StagingQueue';
 import ConnectedApps from './components/ConnectedApps';
 import { Database, Link2, Settings2, Download, Table2, Terminal, ShieldAlert, Network, MoreHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
 
+// Detecta si estamos en un entorno de PREVIEW (no producción).
+// Railway nombra los previews como "...-pr-<n>.up.railway.app".
+const IS_PREVIEW = typeof window !== 'undefined' && /-pr-\d+\./.test(window.location.hostname);
+
 function Sidebar() {
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const isActive = (path) => location.pathname === path;
+
+  // En producción: sidebar blanco. En preview: sidebar morado (legible) para diferenciar.
   const linkClass = (path) =>
     `flex items-center gap-2 p-2 rounded-lg text-sm font-medium transition ${
       isActive(path)
-        ? 'bg-white/15 text-white'
-        : 'text-indigo-100 hover:bg-white/10 hover:text-white'
+        ? (IS_PREVIEW ? 'bg-white/15 text-white' : 'bg-indigo-50 text-indigo-600')
+        : (IS_PREVIEW ? 'text-indigo-100 hover:bg-white/10 hover:text-white' : 'text-gray-700 hover:bg-indigo-50 hover:text-indigo-600')
     }`;
 
   const moreActive = ['/staging', '/logs', '/intake'].includes(location.pathname);
 
   return (
-    <aside className="w-60 bg-indigo-700 flex flex-col flex-shrink-0">
-      <div className="p-4 border-b border-indigo-600">
-        <h1 className="text-xl font-bold text-white flex items-center gap-2">
+    <aside className={`w-60 flex flex-col flex-shrink-0 ${IS_PREVIEW ? 'bg-indigo-700' : 'bg-white border-r border-gray-200'}`}>
+      <div className={`p-4 border-b ${IS_PREVIEW ? 'border-indigo-600' : 'border-gray-200'}`}>
+        <h1 className={`text-xl font-bold flex items-center gap-2 ${IS_PREVIEW ? 'text-white' : 'text-indigo-600'}`}>
           <Database className="w-6 h-6" />
           Tablas K
         </h1>
-        <p className="text-xs text-indigo-200 mt-1">Sincronización de datos</p>
+        {IS_PREVIEW && (
+          <span className="inline-block mt-2 text-[10px] font-bold tracking-wide bg-yellow-300 text-indigo-900 px-2 py-0.5 rounded">
+            ⚡ PREVIEW
+          </span>
+        )}
       </div>
       <nav className="flex-1 p-3 space-y-1">
         <Link to="/" className={linkClass('/')}>
           <Table2 className="w-5 h-5" /> Tabla Maestra
         </Link>
 
-        <div className="border-t border-indigo-600 my-2"></div>
+        <div className={`border-t my-2 ${IS_PREVIEW ? 'border-indigo-600' : 'border-gray-100'}`}></div>
 
         <Link to="/connections" className={linkClass('/connections')}>
           <Link2 className="w-5 h-5" /> Conexiones
@@ -49,11 +59,13 @@ function Sidebar() {
           <Download className="w-5 h-5" /> Distribución
         </Link>
 
-        <div className="border-t border-indigo-600 my-2"></div>
+        <div className={`border-t my-2 ${IS_PREVIEW ? 'border-indigo-600' : 'border-gray-100'}`}></div>
 
         <button onClick={() => setMoreOpen(!moreOpen)}
           className={`w-full flex items-center gap-2 p-2 rounded-lg text-sm font-medium transition ${
-            moreActive ? 'text-white bg-white/10' : 'text-indigo-200 hover:text-white hover:bg-white/10'
+            IS_PREVIEW
+              ? (moreActive ? 'text-white bg-white/10' : 'text-indigo-200 hover:text-white hover:bg-white/10')
+              : (moreActive ? 'text-indigo-600' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50')
           }`}>
           <MoreHorizontal className="w-5 h-5" />
           Más
