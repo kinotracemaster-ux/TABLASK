@@ -375,10 +375,12 @@ def _run_single_process(proc, db):
         log_event(db, "SYNC_PROCESS", "success", f"Proceso '{proc.name}' ejecutado directamente.", proc.id, None, None, result["rows_updated"] + result["rows_added"])
         
         return {
-            "status": "success", 
+            "status": "success",
             "process_name": proc.name,
             "rows_updated": result["rows_updated"],
-            "rows_added": result["rows_added"]
+            "rows_added": result["rows_added"],
+            "changes": result.get("changes", []),
+            "new_rows": result.get("new_rows", [])
         }
     except Exception as e:
         log_event(db, "SYNC_ERROR", "error", f"Error ejecutando '{proc.name}': {str(e)}", proc.id, None, traceback.format_exc())

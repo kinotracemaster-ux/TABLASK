@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Settings2, Plus, Trash2, Play, Eye, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, ShieldAlert, ChevronRight, Edit } from 'lucide-react';
-import { extractError } from '../utils/errors';
+import { extractError, formatError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -211,8 +211,7 @@ export default function Processes() {
       if (res.ok) {
         setProcessStatus(s => ({ ...s, [id]: { loading: false, preview: data } }));
       } else {
-        const errMsg = await extractError(res);
-        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: errMsg } }));
+        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: formatError(data) } }));
       }
     } catch (err) {
       setProcessStatus(s => ({ ...s, [id]: { loading: false, error: err.message } }));
@@ -228,8 +227,7 @@ export default function Processes() {
         setProcessStatus(s => ({ ...s, [id]: { loading: false, result: data } }));
         loadAll();
       } else {
-        const errMsg = await extractError(res);
-        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: errMsg } }));
+        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: formatError(data) } }));
       }
     } catch (err) {
       setProcessStatus(s => ({ ...s, [id]: { loading: false, error: err.message } }));
@@ -245,8 +243,7 @@ export default function Processes() {
         setProcessStatus(s => ({ ...s, [id]: { loading: false, runResult: data } }));
         loadAll();
       } else {
-        const errMsg = await extractError(res);
-        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: errMsg } }));
+        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: formatError(data) } }));
       }
     } catch (err) {
       setProcessStatus(s => ({ ...s, [id]: { loading: false, error: err.message } }));
