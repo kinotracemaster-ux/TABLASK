@@ -22,13 +22,13 @@ function Sidebar() {
   const moreActive = ['/staging', '/logs', '/intake'].includes(location.pathname);
 
   return (
-    <aside className="w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
-      <div className="p-4 border-b border-gray-200">
-        <h1 className="text-xl font-bold text-indigo-600 flex items-center gap-2">
+    <aside className="w-60 bg-indigo-700 border-r border-indigo-800 flex flex-col flex-shrink-0">
+      <div className="p-4 border-b border-indigo-600">
+        <h1 className="text-xl font-bold text-white flex items-center gap-2">
           <Database className="w-6 h-6" />
           Tablas K
         </h1>
-        <p className="text-xs text-gray-400 mt-1">Sincronización de datos</p>
+        <p className="text-xs text-indigo-300 mt-1">⚡ PREVIEW — Sincronización de datos</p>
       </div>
       <nav className="flex-1 p-3 space-y-1">
         <Link to="/" className={linkClass('/', 'hover:bg-purple-50 hover:text-purple-600')}>
