@@ -484,23 +484,34 @@ def _compute_master_sync(project, req, db):
             rows_added += 1
             granular_new_rows.append({"sku": sku_val, "fields": new_fields})
             
-    # Advertencias legibles por llaves duplicadas dentro de una misma hoja.
+    # Llaves repetidas dentro de una misma hoja.
+    # - En la MAESTRA suelen ser VARIANTES legítimas (el sufijo -1/-2/-3 vive en
+    #   sistemas hijos como KYTE, no en la maestra): aviso informativo, no error.
+    # - En el ORIGEN sí es serio: para cada SKU repetido gana la última fila leída.
     dup_warnings = []
     if master_dup_keys:
-        ejemplos = "; ".join(f"'{k}' (filas {', '.join(map(str, v))})"
+        total_filas = sum(len(v) for v in master_dup_keys.values())
+        ejemplos = "; ".join(f"'{k}' ×{len(v)} (filas {', '.join(map(str, v))})"
                              for k, v in list(master_dup_keys.items())[:5])
-        dup_warnings.append(
-            f"La MAESTRA tiene {len(master_dup_keys)} llave(s) duplicada(s) en la misma hoja; "
-            f"sólo se actualizará UNA de cada grupo y las demás quedarán desincronizadas. "
-            f"Ej: {ejemplos}."
-        )
+        dup_warnings.append({
+            "level": "info",
+            "message": (
+                f"{len(master_dup_keys)} código(s) de la maestra tienen varias filas "
+                f"({total_filas} en total) — probablemente variantes del mismo producto. "
+                f"El cruce por código exacto sólo actualiza UNA fila por código. Ej: {ejemplos}."
+            ),
+        })
     if source_dup_keys:
         ejemplos = "; ".join(f"'{k}' (filas {', '.join(map(str, v))})"
                              for k, v in list(source_dup_keys.items())[:5])
-        dup_warnings.append(
-            f"El ORIGEN tiene {len(source_dup_keys)} llave(s) duplicada(s) en la misma hoja; "
-            f"para cada SKU repetido gana la ÚLTIMA fila leída. Ej: {ejemplos}."
-        )
+        dup_warnings.append({
+            "level": "warn",
+            "message": (
+                f"El ORIGEN tiene {len(source_dup_keys)} llave(s) duplicada(s) en la misma hoja; "
+                f"para cada código repetido gana la ÚLTIMA fila leída y las anteriores se pierden. "
+                f"Ej: {ejemplos}."
+            ),
+        })
 
     return {
         "master_raw": master_raw,

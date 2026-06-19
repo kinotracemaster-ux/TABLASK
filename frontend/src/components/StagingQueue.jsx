@@ -133,7 +133,7 @@ export default function StagingQueue() {
                       Advertencias detectadas
                     </h4>
                     <ul className="text-sm text-yellow-700 list-disc list-inside">
-                      {diff.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                      {diff.warnings.map((w, i) => <li key={i}>{typeof w === 'string' ? w : w.message}</li>)}
                     </ul>
                   </div>
                 )}

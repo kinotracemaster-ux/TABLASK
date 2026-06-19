@@ -460,16 +460,18 @@ export default function Processes() {
                 {/* Preview/Result Panel */}
                 {st?.preview && (
                   <div className="border-t border-gray-100 bg-gray-50 p-4">
-                    {st.preview.warnings && st.preview.warnings.length > 0 && (
-                      <div className="mb-3 bg-amber-50 border border-amber-300 rounded-lg p-3">
-                        <div className="flex items-center gap-2 text-amber-800 font-semibold text-sm mb-1">
-                          <ShieldAlert className="w-4 h-4" /> Llaves duplicadas detectadas
+                    {st.preview.warnings && st.preview.warnings.length > 0 && st.preview.warnings.map((w, i) => {
+                      const isWarn = (w.level || 'warn') === 'warn';
+                      const text = typeof w === 'string' ? w : w.message;
+                      return (
+                        <div key={i} className={`mb-3 rounded-lg p-3 border ${isWarn ? 'bg-amber-50 border-amber-300' : 'bg-blue-50 border-blue-200'}`}>
+                          <div className={`flex items-center gap-2 font-semibold text-sm mb-1 ${isWarn ? 'text-amber-800' : 'text-blue-800'}`}>
+                            <ShieldAlert className="w-4 h-4" /> {isWarn ? 'Duplicados en el origen' : 'Códigos con variantes en la maestra'}
+                          </div>
+                          <p className={`text-xs ${isWarn ? 'text-amber-700' : 'text-blue-700'}`}>{text}</p>
                         </div>
-                        <ul className="list-disc list-inside text-xs text-amber-700 space-y-1">
-                          {st.preview.warnings.map((w, i) => <li key={i}>{w}</li>)}
-                        </ul>
-                      </div>
-                    )}
+                      );
+                    })}
                     <div className="grid grid-cols-4 gap-3 mb-3">
                       <div className="bg-white p-2 rounded-lg border text-center">
                         <p className="text-xs text-gray-500">Filas de Origen</p>
