@@ -208,6 +208,97 @@ def _get_master_info(db):
     master_conn = db.query(Connection).filter(Connection.id == project.master_connection_id).first()
     return project, master_conn, project.master_sheet_name
 
+def _get_sheet_headers(connection, sheet_name):
+    """Devuelve la lista de encabezados de una hoja concreta de una conexión.
+    Lanza HTTPException si no se pudo leer la metadata (para no validar a ciegas)."""
+    from fastapi import HTTPException
+    try:
+        metadata = get_sheet_metadata(connection)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"No se pudo leer la conexión '{connection.name}': {str(e)}")
+
+    if sheet_name not in metadata:
+        hojas = ", ".join(metadata.keys()) or "(ninguna)"
+        raise HTTPException(
+            status_code=400,
+            detail=f"La hoja '{sheet_name}' no existe en la conexión '{connection.name}'. Hojas disponibles: {hojas}."
+        )
+    return metadata.get(sheet_name, [])
+
+
+def _validate_process_mapping(proc, db):
+    """Verifica concordancia EXACTA entre el mapeo del proceso y las tablas reales.
+
+    Comprueba que:
+      - La columna llave de origen existe (exacto) en la hoja origen.
+      - La columna llave de destino existe (exacto) en la tabla maestra/destino.
+      - Cada columna origen mapeada existe (exacto) en la hoja origen.
+
+    Si algo no concuerda, lanza HTTPException 400 con el detalle, para que el
+    proceso NO se cree/actualice y el usuario lo corrija primero.
+    """
+    from fastapi import HTTPException
+
+    src_conn = db.query(Connection).filter(Connection.id == proc.source_connection_id).first()
+    if not src_conn:
+        raise HTTPException(status_code=404, detail="Conexión origen no encontrada.")
+
+    # Resolver destino: explícito del proceso o la maestra global
+    if proc.target_connection_id and proc.target_sheet_name:
+        target_conn = db.query(Connection).filter(Connection.id == proc.target_connection_id).first()
+        target_sheet = proc.target_sheet_name
+    else:
+        project, master_conn, master_sheet = _get_master_info(db)
+        target_conn = master_conn
+        target_sheet = master_sheet
+
+    if not target_conn or not target_sheet:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay tabla maestra enlazada y el proceso no define un destino propio."
+        )
+
+    src_headers = _get_sheet_headers(src_conn, proc.source_sheet_name)
+    master_headers = _get_sheet_headers(target_conn, target_sheet)
+
+    problemas = []
+
+    # 1. Llave de origen
+    if proc.sku_column_source not in src_headers:
+        problemas.append(
+            f"La columna llave de ORIGEN '{proc.sku_column_source}' no existe en la hoja '{proc.source_sheet_name}'. "
+            f"Columnas disponibles: {', '.join(src_headers) or '(vacío)'}."
+        )
+
+    # 2. Llave de destino
+    if proc.sku_column_master not in master_headers:
+        problemas.append(
+            f"La columna llave de DESTINO '{proc.sku_column_master}' no existe en la tabla maestra. "
+            f"Columnas disponibles: {', '.join(master_headers) or '(vacío)'}."
+        )
+
+    # 3. Columnas de origen mapeadas
+    field_mappings = proc.field_mappings
+    if isinstance(field_mappings, str):
+        import json as _json
+        field_mappings = _json.loads(field_mappings)
+    faltantes_origen = [src for src in field_mappings.keys() if src not in src_headers]
+    if faltantes_origen:
+        problemas.append(
+            f"Estas columnas de origen mapeadas no existen en la hoja '{proc.source_sheet_name}': "
+            f"{', '.join(faltantes_origen)}. Columnas disponibles: {', '.join(src_headers) or '(vacío)'}."
+        )
+
+    if problemas:
+        raise HTTPException(
+            status_code=400,
+            detail="No se creó el proceso porque el mapeo no concuerda con las tablas. "
+                   "Corrige lo siguiente y vuelve a intentar:\n- " + "\n- ".join(problemas)
+        )
+
+
 def _compute_master_sync(project, req, db):
     from fastapi import HTTPException
     src_conn = db.query(Connection).filter(Connection.id == req.source_connection_id).first()

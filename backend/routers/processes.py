@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from ..services import _compute_master_sync, _get_master_info, _run_single_process
+from ..services import _compute_master_sync, _get_master_info, _run_single_process, _validate_process_mapping
 from .. import models, schemas
 from ..database import get_db
 from datetime import datetime, timedelta
@@ -14,6 +14,8 @@ router = APIRouter(
 
 @router.post("/", response_model=schemas.Process)
 def create_process(proc: schemas.ProcessCreate, db: Session = Depends(get_db)):
+    # Concordancia exacta de llaves/columnas con las tablas reales antes de crear.
+    _validate_process_mapping(proc, db)
     db_proc = models.Process(
         name=proc.name,
         description=proc.description,
@@ -54,6 +56,8 @@ def update_process(process_id: int, proc: schemas.ProcessCreate, db: Session = D
     db_proc = db.query(models.Process).filter(models.Process.id == process_id).first()
     if not db_proc:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    # Concordancia exacta de llaves/columnas con las tablas reales antes de actualizar.
+    _validate_process_mapping(proc, db)
     db_proc.name = proc.name
     db_proc.description = proc.description
     db_proc.source_connection_id = proc.source_connection_id
