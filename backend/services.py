@@ -28,6 +28,26 @@ def get_sheets_service():
 
 from .connectors import get_connector
 
+def _execute_with_retry(request, retries=4, base_delay=2):
+    """Ejecuta una petición de la API de Google reintentando ante 429/503
+    con backoff exponencial (2s, 4s, 8s, 16s)."""
+    import time
+    from googleapiclient.errors import HttpError
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            return request.execute()
+        except HttpError as e:
+            status = getattr(getattr(e, "resp", None), "status", None)
+            if status in (429, 503) and attempt < retries:
+                time.sleep(base_delay * (2 ** attempt))
+                last_err = e
+                continue
+            raise
+    if last_err:
+        raise last_err
+
+
 def _create_connector(connection):
     config = {
         "spreadsheet_id": connection.spreadsheet_id,
@@ -59,19 +79,29 @@ def get_sheet_metadata(connection):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Faltan credenciales de Google Sheets en el servidor (GOOGLE_CREDENTIALS_JSON no configurado).")
         
-    sheet_metadata = service.spreadsheets().get(spreadsheetId=connection.spreadsheet_id).execute()
+    sheet_metadata = _execute_with_retry(
+        service.spreadsheets().get(spreadsheetId=connection.spreadsheet_id)
+    )
     sheets = sheet_metadata.get('sheets', '')
-    
-    result = {}
-    for sheet in sheets:
-        title = sheet['properties']['title']
-        range_name = f"{title}!A1:Z1"
-        response = service.spreadsheets().values().get(
-            spreadsheetId=connection.spreadsheet_id, range=range_name).execute()
-        
-        headers = response.get('values', [[]])[0] if response.get('values') else []
-        result[title] = headers
-        
+    titles = [sheet['properties']['title'] for sheet in sheets]
+
+    result = {t: [] for t in titles}
+    if not titles:
+        return result
+
+    # Una sola llamada batchGet para TODAS las cabeceras (evita 1 lectura por hoja).
+    ranges = [f"{t}!A1:Z1" for t in titles]
+    response = _execute_with_retry(
+        service.spreadsheets().values().batchGet(
+            spreadsheetId=connection.spreadsheet_id, ranges=ranges)
+    )
+    value_ranges = response.get('valueRanges', [])
+    for i, vr in enumerate(value_ranges):
+        if i >= len(titles):
+            break
+        values = vr.get('values', [])
+        result[titles[i]] = values[0] if values else []
+
     return result
 
 def get_sheet_data(connection, range_name: str):
@@ -113,19 +143,19 @@ def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
     range_name = f"{sheet_name}!A1"
 
     # 1. Limpiar el rango actual
-    service.spreadsheets().values().clear(
+    _execute_with_retry(service.spreadsheets().values().clear(
         spreadsheetId=spreadsheet_id,
         range=f"{sheet_name}!A1:Z"
-    ).execute()
+    ))
 
     # 2. Escribir los datos nuevos
     body = {"values": data}
-    result = service.spreadsheets().values().update(
+    result = _execute_with_retry(service.spreadsheets().values().update(
         spreadsheetId=spreadsheet_id,
         range=range_name,
         valueInputOption="USER_ENTERED",
         body=body
-    ).execute()
+    ))
 
     return {"rows_written": result.get("updatedRows", 0)}
 
@@ -191,10 +221,10 @@ def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: lis
             "valueInputOption": "USER_ENTERED",
             "data": updates
         }
-        result = service.spreadsheets().values().batchUpdate(
+        result = _execute_with_retry(service.spreadsheets().values().batchUpdate(
             spreadsheetId=spreadsheet_id,
             body=body
-        ).execute()
+        ))
         return {"total_updates": result.get("totalUpdatedCells", 0)}
     
     return {"total_updates": 0}

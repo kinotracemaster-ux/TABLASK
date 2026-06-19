@@ -36,9 +36,10 @@ class GoogleSheetsConnector(BaseConnector):
         """
         service = self._get_service()
         range_name = f"{source_path}!A1:Z" # O puedes especificar un rango mayor si lo necesitas
-        
-        response = service.spreadsheets().values().get(
-            spreadsheetId=self.spreadsheet_id, range=range_name).execute()
+
+        from ..services import _execute_with_retry
+        response = _execute_with_retry(service.spreadsheets().values().get(
+            spreadsheetId=self.spreadsheet_id, range=range_name))
         
         values = response.get('values', [])
         if not values:
