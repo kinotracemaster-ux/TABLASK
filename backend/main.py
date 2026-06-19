@@ -40,6 +40,58 @@ try:
 except Exception as e:
     print("Migraciones omitidas para processes (ya existen las columnas o error benigno):", e)
 
+# ── Auto-seed: enlazar Tabla Maestra por defecto si aún no hay ninguna ──
+def seed_default_master():
+    """Si no hay maestra enlazada, crea/usa la conexión al spreadsheet por
+    defecto y la enlaza como maestra. Útil para entornos nuevos (preview de
+    Railway, base de datos fresca). Configurable por variables de entorno;
+    no sobrescribe una maestra ya elegida por el usuario."""
+    spreadsheet_id = os.getenv("DEFAULT_MASTER_SPREADSHEET_ID", "1fjpAJUk_wfAR5lcxRza7Zqn18yLqh_w_Q-FmSfgtXTM")
+    sheet_name = os.getenv("DEFAULT_MASTER_SHEET_NAME", "master")
+    if not spreadsheet_id:
+        return
+    from .database import SessionLocal
+    db = SessionLocal()
+    try:
+        project = db.query(models.Project).first()
+        if not project:
+            project = models.Project(name="Global Project")
+            db.add(project)
+            db.commit()
+            db.refresh(project)
+
+        # No pisar una maestra ya configurada.
+        if project.master_connection_id:
+            return
+
+        conn = db.query(models.Connection).filter(
+            models.Connection.spreadsheet_id == spreadsheet_id
+        ).first()
+        if not conn:
+            conn = models.Connection(
+                name="Tabla Maestra",
+                connection_type="google_sheets",
+                spreadsheet_id=spreadsheet_id,
+                google_sheet_url=f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit",
+            )
+            db.add(conn)
+            db.commit()
+            db.refresh(conn)
+
+        project.master_connection_id = conn.id
+        project.master_sheet_name = sheet_name
+        db.commit()
+        print(f"Auto-seed: maestra enlazada a spreadsheet {spreadsheet_id} / hoja '{sheet_name}'.")
+    except Exception as e:
+        print("Auto-seed de maestra omitido (error benigno):", e)
+    finally:
+        db.close()
+
+try:
+    seed_default_master()
+except Exception as e:
+    print("Auto-seed de maestra fallo al invocarse:", e)
+
 app = FastAPI(title="Actualizar Tablas K API")
 
 # CORS
