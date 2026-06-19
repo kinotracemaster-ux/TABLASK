@@ -460,6 +460,16 @@ export default function Processes() {
                 {/* Preview/Result Panel */}
                 {st?.preview && (
                   <div className="border-t border-gray-100 bg-gray-50 p-4">
+                    {st.preview.warnings && st.preview.warnings.length > 0 && (
+                      <div className="mb-3 bg-amber-50 border border-amber-300 rounded-lg p-3">
+                        <div className="flex items-center gap-2 text-amber-800 font-semibold text-sm mb-1">
+                          <ShieldAlert className="w-4 h-4" /> Llaves duplicadas detectadas
+                        </div>
+                        <ul className="list-disc list-inside text-xs text-amber-700 space-y-1">
+                          {st.preview.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                        </ul>
+                      </div>
+                    )}
                     <div className="grid grid-cols-4 gap-3 mb-3">
                       <div className="bg-white p-2 rounded-lg border text-center">
                         <p className="text-xs text-gray-500">Filas de Origen</p>

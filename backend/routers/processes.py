@@ -109,6 +109,9 @@ def preview_process(process_id: int, db: Session = Depends(get_db)):
         "detail_updated": result["detail_updated"],
         "detail_added": result["detail_added"],
         "detail_unchanged": result["detail_unchanged"],
+        "warnings": result.get("dup_warnings", []),
+        "master_dup_keys": result.get("master_dup_keys", {}),
+        "source_dup_keys": result.get("source_dup_keys", {}),
     }
 
 @router.post("/{process_id}/stage")
@@ -142,7 +145,7 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
             "rows_to_update": result["rows_updated"],
             "rows_to_add": result["rows_added"],
             "rows_unchanged": result["rows_unchanged"],
-            "warnings": [],
+            "warnings": result.get("dup_warnings", []),
             "changes": result.get("changes", []),
             "new_rows": result.get("new_rows", []),
             "total_rows_before": result.get("total_rows_before", 0),

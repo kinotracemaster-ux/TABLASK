@@ -358,6 +358,20 @@ def _validate_process_mapping(proc, db):
         )
 
 
+def _find_duplicate_keys(rows, key_idx):
+    """Devuelve {valor_llave: [num_fila_en_sheet, ...]} para llaves que se repiten
+    DENTRO de una misma hoja. num_fila es 1-based con cabecera (fila 2 = primer dato)."""
+    from collections import OrderedDict
+    seen = OrderedDict()
+    for i, row in enumerate(rows[1:]):
+        val = row[key_idx] if key_idx < len(row) else ""
+        val = (val or "").strip()
+        if not val:
+            continue
+        seen.setdefault(val, []).append(i + 2)  # +2: salta cabecera y pasa a 1-based
+    return {k: v for k, v in seen.items() if len(v) > 1}
+
+
 def _compute_master_sync(project, req, db):
     from fastapi import HTTPException
     src_conn = db.query(Connection).filter(Connection.id == req.source_connection_id).first()
@@ -398,13 +412,17 @@ def _compute_master_sync(project, req, db):
         raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column_master}' no encontrada en la maestra")
     master_sku_idx = master_headers.index(req.sku_column_master)
     
+    # Detectar llaves duplicadas DENTRO de cada hoja (no debería haberlas).
+    source_dup_keys = _find_duplicate_keys(src_raw, src_sku_idx)
+    master_dup_keys = _find_duplicate_keys(master_raw, master_sku_idx)
+
     master_by_sku = {}
     for i, row in enumerate(master_raw[1:]):
         sku_val = row[master_sku_idx] if master_sku_idx < len(row) else ""
         if sku_val:
             padded_row = row + [""] * (len(master_headers) - len(row))
             master_by_sku[sku_val] = {"index": i + 1, "data": padded_row}
-            
+
     rows_updated = 0
     rows_added = 0
     rows_unchanged = 0
@@ -466,6 +484,24 @@ def _compute_master_sync(project, req, db):
             rows_added += 1
             granular_new_rows.append({"sku": sku_val, "fields": new_fields})
             
+    # Advertencias legibles por llaves duplicadas dentro de una misma hoja.
+    dup_warnings = []
+    if master_dup_keys:
+        ejemplos = "; ".join(f"'{k}' (filas {', '.join(map(str, v))})"
+                             for k, v in list(master_dup_keys.items())[:5])
+        dup_warnings.append(
+            f"La MAESTRA tiene {len(master_dup_keys)} llave(s) duplicada(s) en la misma hoja; "
+            f"sólo se actualizará UNA de cada grupo y las demás quedarán desincronizadas. "
+            f"Ej: {ejemplos}."
+        )
+    if source_dup_keys:
+        ejemplos = "; ".join(f"'{k}' (filas {', '.join(map(str, v))})"
+                             for k, v in list(source_dup_keys.items())[:5])
+        dup_warnings.append(
+            f"El ORIGEN tiene {len(source_dup_keys)} llave(s) duplicada(s) en la misma hoja; "
+            f"para cada SKU repetido gana la ÚLTIMA fila leída. Ej: {ejemplos}."
+        )
+
     return {
         "master_raw": master_raw,
         "master_conn": master_conn,
@@ -480,7 +516,10 @@ def _compute_master_sync(project, req, db):
         "detail_unchanged": granular_unchanged_skus,
         "changes": granular_changes,
         "new_rows": granular_new_rows,
-        "unchanged_skus": granular_unchanged_skus
+        "unchanged_skus": granular_unchanged_skus,
+        "source_dup_keys": source_dup_keys,
+        "master_dup_keys": master_dup_keys,
+        "dup_warnings": dup_warnings,
     }
 
 def _run_single_process(proc, db):
