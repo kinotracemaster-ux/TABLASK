@@ -58,8 +58,48 @@ def _create_connector(connection):
     }
     return get_connector(connection.connection_type, config)
 
-def get_sheet_metadata(connection):
+# ── Cache de metadata (cabeceras/hojas). Reduce lecturas a Google (evita 429).
+#    TTL corto; sólo cachea ESTRUCTURA, nunca datos de filas (que deben ser frescos).
+import time as _time
+_METADATA_CACHE = {}
+_METADATA_TTL = int(os.getenv('METADATA_CACHE_TTL', '120'))  # segundos
+
+def _metadata_cache_key(connection):
+    if connection.connection_type == "local_file":
+        path = connection.file_path or ""
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            mtime = 0
+        return f"file:{path}:{mtime}"
+    return f"gs:{connection.spreadsheet_id}"
+
+def invalidate_metadata_cache(connection=None):
+    """Borra la cache de metadata (toda, o sólo la de una conexión).
+    Llamar tras escribir si pudo cambiar la estructura (p. ej. columnas nuevas)."""
+    if connection is None:
+        _METADATA_CACHE.clear()
+        return
+    _METADATA_CACHE.pop(_metadata_cache_key(connection), None)
+
+def invalidate_metadata_cache_by_spreadsheet(spreadsheet_id):
+    """Invalida la metadata cacheada de un spreadsheet de Google por su id."""
+    _METADATA_CACHE.pop(f"gs:{spreadsheet_id}", None)
+
+def get_sheet_metadata(connection, use_cache=True):
     """Obtiene los nombres de las hojas y sus encabezados usando conectores modulares."""
+    key = _metadata_cache_key(connection)
+    if use_cache and _METADATA_TTL > 0:
+        cached = _METADATA_CACHE.get(key)
+        if cached and (_time.time() - cached[0]) < _METADATA_TTL:
+            return cached[1]
+    result = _fetch_sheet_metadata(connection)
+    if _METADATA_TTL > 0:
+        _METADATA_CACHE[key] = (_time.time(), result)
+    return result
+
+def _fetch_sheet_metadata(connection):
+    """Lectura real de metadata (sin cache)."""
     if connection.connection_type == "local_file":
         # Simular comportamiento antiguo para compatibilidad
         result = {}
@@ -157,6 +197,8 @@ def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
         body=body
     ))
 
+    # La estructura pudo cambiar (cabeceras); invalidar cache de metadata.
+    invalidate_metadata_cache_by_spreadsheet(spreadsheet_id)
     return {"rows_written": result.get("updatedRows", 0)}
 
 def column_index_to_letter(col_idx: int) -> str:
@@ -225,8 +267,10 @@ def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: lis
             spreadsheetId=spreadsheet_id,
             body=body
         ))
+        # Si se añadieron filas nuevas pudieron añadirse columnas/cabeceras nuevas.
+        invalidate_metadata_cache_by_spreadsheet(spreadsheet_id)
         return {"total_updates": result.get("totalUpdatedCells", 0)}
-    
+
     return {"total_updates": 0}
 
 from .models import Project, Connection
