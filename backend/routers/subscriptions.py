@@ -32,6 +32,36 @@ def create_subscription(sub: schemas.FieldSubscriptionCreate, db: Session = Depe
     db_sub.field_mappings = json.loads(db_sub.field_mappings)
     return db_sub
 
+@router.post("/bulk", response_model=List[schemas.FieldSubscription])
+def create_subscriptions_bulk(payload: schemas.FieldSubscriptionBulkCreate, db: Session = Depends(get_db)):
+    """Crea una suscripción por cada hoja destino, todas con el mismo mapeo y llave."""
+    project = db.query(models.Project).filter(models.Project.id == payload.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if not payload.target_sheets:
+        raise HTTPException(status_code=400, detail="Debes seleccionar al menos una hoja destino.")
+
+    import json
+    created = []
+    for sheet_name in payload.target_sheets:
+        db_sub = models.FieldSubscription(
+            project_id=payload.project_id,
+            target_connection_id=payload.target_connection_id,
+            target_sheet_name=sheet_name,
+            sku_column_target=payload.sku_column_target,
+            field_mappings=json.dumps(payload.field_mappings),
+            is_active=payload.is_active,
+            name=f"{payload.name_prefix} · {sheet_name}"
+        )
+        db.add(db_sub)
+        created.append(db_sub)
+
+    db.commit()
+    for s in created:
+        db.refresh(s)
+        s.field_mappings = json.loads(s.field_mappings)
+    return created
+
 @router.get("/", response_model=List[schemas.FieldSubscription])
 def get_subscriptions(project_id: int, db: Session = Depends(get_db)):
     subs = db.query(models.FieldSubscription).filter(

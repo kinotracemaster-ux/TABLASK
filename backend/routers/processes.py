@@ -186,7 +186,9 @@ def run_process(process_id: int, background_tasks: BackgroundTasks, db: Session 
         raise HTTPException(status_code=400, detail=result.get("error", "Error desconocido"))
 
     # Propagación asíncrona (Pilar 4/5)
-    from ..propagation import propagate_changes
-    background_tasks.add_task(propagate_changes, db, proc.project_id, result.get("changes", []), result.get("new_rows", []))
+    project, _, _ = _get_master_info(db)
+    if project:
+        from ..propagation import propagate_changes
+        background_tasks.add_task(propagate_changes, db, project.id, result.get("changes", []), result.get("new_rows", []))
 
     return result
