@@ -228,6 +228,68 @@ def _get_sheet_headers(connection, sheet_name):
     return metadata.get(sheet_name, [])
 
 
+def _normalize_col(name):
+    """Normaliza un nombre de columna: minúsculas, sin acentos ni espacios/símbolos."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(name))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return "".join(ch for ch in s.lower() if ch.isalnum())
+
+
+def _find_similar_columns(target, headers):
+    """Busca columnas parecidas a 'target' dentro de 'headers'.
+
+    Considera: igualdad ignorando mayúsculas/acentos/símbolos, subcadena,
+    mismo grupo semántico y cercanía difusa. Devuelve nombres reales sugeridos
+    ordenados por relevancia (sin duplicados)."""
+    from .intelligent_engine import get_semantic_group
+    import difflib
+
+    t_norm = _normalize_col(target)
+    if not t_norm:
+        return []
+
+    t_group = get_semantic_group(target)
+    sugeridas = []
+
+    def _add(h):
+        if h not in sugeridas:
+            sugeridas.append(h)
+
+    # 1. Igualdad normalizada (p. ej. "Código" vs "codigo", "SKU " vs "sku")
+    for h in headers:
+        if _normalize_col(h) == t_norm:
+            _add(h)
+
+    # 2. Subcadena en cualquier sentido ("codigo" dentro de "codigo_producto")
+    for h in headers:
+        hn = _normalize_col(h)
+        if hn and (t_norm in hn or hn in t_norm):
+            _add(h)
+
+    # 3. Mismo grupo semántico ("precio" ~ "valor", "stock" ~ "cantidad")
+    if t_group:
+        for h in headers:
+            if get_semantic_group(h) == t_group:
+                _add(h)
+
+    # 4. Cercanía difusa como último recurso
+    for h in difflib.get_close_matches(target, headers, n=3, cutoff=0.7):
+        _add(h)
+
+    return sugeridas
+
+
+def _falta_columna_msg(rol, columna, hoja, headers):
+    """Construye el mensaje de una columna faltante, sugiriendo parecidas si las hay."""
+    similares = _find_similar_columns(columna, headers)
+    base = f"La columna {rol} '{columna}' no existe en {hoja}."
+    if similares:
+        base += f" ¿Quisiste decir: {', '.join(similares)}?"
+    base += f" Columnas disponibles: {', '.join(headers) or '(vacío)'}."
+    return base
+
+
 def _validate_process_mapping(proc, db):
     """Verifica concordancia EXACTA entre el mapeo del proceso y las tablas reales.
 
@@ -267,29 +329,26 @@ def _validate_process_mapping(proc, db):
 
     # 1. Llave de origen
     if proc.sku_column_source not in src_headers:
-        problemas.append(
-            f"La columna llave de ORIGEN '{proc.sku_column_source}' no existe en la hoja '{proc.source_sheet_name}'. "
-            f"Columnas disponibles: {', '.join(src_headers) or '(vacío)'}."
-        )
+        problemas.append(_falta_columna_msg(
+            "llave de ORIGEN", proc.sku_column_source,
+            f"la hoja '{proc.source_sheet_name}'", src_headers))
 
     # 2. Llave de destino
     if proc.sku_column_master not in master_headers:
-        problemas.append(
-            f"La columna llave de DESTINO '{proc.sku_column_master}' no existe en la tabla maestra. "
-            f"Columnas disponibles: {', '.join(master_headers) or '(vacío)'}."
-        )
+        problemas.append(_falta_columna_msg(
+            "llave de DESTINO", proc.sku_column_master,
+            "la tabla maestra", master_headers))
 
     # 3. Columnas de origen mapeadas
     field_mappings = proc.field_mappings
     if isinstance(field_mappings, str):
         import json as _json
         field_mappings = _json.loads(field_mappings)
-    faltantes_origen = [src for src in field_mappings.keys() if src not in src_headers]
-    if faltantes_origen:
-        problemas.append(
-            f"Estas columnas de origen mapeadas no existen en la hoja '{proc.source_sheet_name}': "
-            f"{', '.join(faltantes_origen)}. Columnas disponibles: {', '.join(src_headers) or '(vacío)'}."
-        )
+    for src in field_mappings.keys():
+        if src not in src_headers:
+            problemas.append(_falta_columna_msg(
+                "de origen mapeada", src,
+                f"la hoja '{proc.source_sheet_name}'", src_headers))
 
     if problemas:
         raise HTTPException(
