@@ -57,7 +57,7 @@ def seed_default_master():
     Railway, base de datos fresca). Configurable por variables de entorno;
     no sobrescribe una maestra ya elegida por el usuario."""
     spreadsheet_id = os.getenv("DEFAULT_MASTER_SPREADSHEET_ID", "1fjpAJUk_wfAR5lcxRza7Zqn18yLqh_w_Q-FmSfgtXTM")
-    sheet_name = os.getenv("DEFAULT_MASTER_SHEET_NAME", "master")
+    sheet_name = os.getenv("DEFAULT_MASTER_SHEET_NAME", "Master")
     if not spreadsheet_id:
         return
     from .database import SessionLocal
@@ -70,8 +70,10 @@ def seed_default_master():
             db.commit()
             db.refresh(project)
 
-        # No pisar una maestra ya configurada.
+        # Si ya hay maestra enlazada, sólo intentar corregir la mayúscula del
+        # nombre de hoja si no coincide EXACTO con una hoja real (case-insensitive).
         if project.master_connection_id:
+            _heal_master_sheet_name(db, project)
             return
 
         conn = db.query(models.Connection).filter(
@@ -89,13 +91,53 @@ def seed_default_master():
             db.refresh(conn)
 
         project.master_connection_id = conn.id
-        project.master_sheet_name = sheet_name
+        project.master_sheet_name = _resolve_real_sheet_name(conn, sheet_name)
         db.commit()
-        print(f"Auto-seed: maestra enlazada a spreadsheet {spreadsheet_id} / hoja '{sheet_name}'.")
+        print(f"Auto-seed: maestra enlazada a spreadsheet {spreadsheet_id} / hoja '{project.master_sheet_name}'.")
     except Exception as e:
         print("Auto-seed de maestra omitido (error benigno):", e)
     finally:
         db.close()
+
+
+def _resolve_real_sheet_name(connection, desired):
+    """Devuelve el nombre REAL de la hoja: exacto si existe, si no busca
+    coincidencia ignorando mayúsculas; si no encuentra, devuelve 'desired'."""
+    try:
+        from .services import get_sheet_metadata
+        sheets = get_sheet_metadata(connection)
+        if desired in sheets:
+            return desired
+        for real in sheets.keys():
+            if real.lower() == (desired or "").lower():
+                return real
+    except Exception as e:
+        print("No se pudo resolver el nombre real de la hoja maestra:", e)
+    return desired
+
+
+def _heal_master_sheet_name(db, project):
+    """Corrige la mayúscula del nombre de la hoja maestra ya enlazada si no
+    coincide exacto con ninguna hoja real (p. ej. 'master' -> 'Master')."""
+    try:
+        conn = db.query(models.Connection).filter(
+            models.Connection.id == project.master_connection_id
+        ).first()
+        if not conn:
+            return
+        from .services import get_sheet_metadata
+        sheets = get_sheet_metadata(conn)
+        current = project.master_sheet_name
+        if current in sheets:
+            return  # ya es correcto
+        for real in sheets.keys():
+            if real.lower() == (current or "").lower():
+                project.master_sheet_name = real
+                db.commit()
+                print(f"Auto-seed: corregido nombre de hoja maestra '{current}' -> '{real}'.")
+                return
+    except Exception as e:
+        print("Auto-heal de hoja maestra omitido:", e)
 
 try:
     seed_default_master()
