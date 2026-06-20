@@ -543,8 +543,10 @@ def _compute_master_sync(project, req, db):
         elif req.add_new_rows:
             new_mr_data = [""] * len(master_headers)
             new_mr_data[master_sku_idx] = sku_val
-            
-            new_fields = {}
+
+            # Incluir la columna llave en fields para que la escritura quirúrgica
+            # (que arma la fila nueva desde fields) NO deje el código vacío.
+            new_fields = {req.sku_column_master: sku_val}
             for src_col, dst_col in req.field_mappings.items():
                 if src_col in src_headers:
                     s_idx = src_headers.index(src_col)
