@@ -431,6 +431,35 @@ def _validate_process_mapping(proc, db):
         )
 
 
+def _row_media_priority(row):
+    """Prioridad de una fila según su contenido de medios: una fila con .mp4
+    gana a una con .jpg. Devuelve 2 si contiene mp4, 1 si jpg, 0 si nada."""
+    blob = " ".join(str(c) for c in row).lower()
+    if ".mp4" in blob:
+        return 2
+    if ".jpg" in blob or ".jpeg" in blob:
+        return 1
+    return 0
+
+
+def _dedup_source_rows(src_rows, key_idx):
+    """Colapsa filas del ORIGEN con la misma llave en una sola, para no crear
+    duplicados. Entre filas del mismo SKU prefiere la de mayor prioridad de
+    medios (.mp4 > .jpg); a igual prioridad, gana la última leída.
+    Conserva el orden de primera aparición de cada SKU."""
+    from collections import OrderedDict
+    chosen = OrderedDict()
+    for row in src_rows:
+        val = (row[key_idx] if key_idx < len(row) else "")
+        val = (val or "").strip()
+        if not val:
+            continue  # las filas sin llave se ignoran igual que antes
+        prev = chosen.get(val)
+        if prev is None or _row_media_priority(row) >= _row_media_priority(prev):
+            chosen[val] = row
+    return list(chosen.values())
+
+
 def _find_duplicate_keys(rows, key_idx):
     """Devuelve {valor_llave: [num_fila_en_sheet, ...]} para llaves que se repiten
     DENTRO de una misma hoja. num_fila es 1-based con cabecera (fila 2 = primer dato)."""
@@ -505,7 +534,7 @@ def _compute_master_sync(project, req, db):
     granular_new_rows = []
     granular_unchanged_skus = []
     
-    for src_row in src_raw[1:]:
+    for src_row in _dedup_source_rows(src_raw[1:], src_sku_idx):
         sku_val = src_row[src_sku_idx] if src_sku_idx < len(src_row) else ""
         if not sku_val:
             continue
