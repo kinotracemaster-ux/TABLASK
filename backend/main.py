@@ -58,6 +58,7 @@ def seed_default_master():
     no sobrescribe una maestra ya elegida por el usuario."""
     spreadsheet_id = os.getenv("DEFAULT_MASTER_SPREADSHEET_ID", "1fjpAJUk_wfAR5lcxRza7Zqn18yLqh_w_Q-FmSfgtXTM")
     sheet_name = os.getenv("DEFAULT_MASTER_SHEET_NAME", "Master")
+    sku_column = os.getenv("DEFAULT_MASTER_SKU_COLUMN", "sku")
     if not spreadsheet_id:
         return
     from .database import SessionLocal
@@ -70,10 +71,13 @@ def seed_default_master():
             db.commit()
             db.refresh(project)
 
-        # Si ya hay maestra enlazada, sólo intentar corregir la mayúscula del
-        # nombre de hoja si no coincide EXACTO con una hoja real (case-insensitive).
+        # Si ya hay maestra enlazada, corregir la mayúscula del nombre de hoja
+        # si no coincide EXACTO con una hoja real, y rellenar el SKU si falta.
         if project.master_connection_id:
             _heal_master_sheet_name(db, project)
+            if not project.master_sku_column:
+                project.master_sku_column = sku_column
+                db.commit()
             return
 
         conn = db.query(models.Connection).filter(
@@ -92,8 +96,10 @@ def seed_default_master():
 
         project.master_connection_id = conn.id
         project.master_sheet_name = _resolve_real_sheet_name(conn, sheet_name)
+        if not project.master_sku_column:
+            project.master_sku_column = sku_column
         db.commit()
-        print(f"Auto-seed: maestra enlazada a spreadsheet {spreadsheet_id} / hoja '{project.master_sheet_name}'.")
+        print(f"Auto-seed: maestra enlazada a spreadsheet {spreadsheet_id} / hoja '{project.master_sheet_name}' / sku '{project.master_sku_column}'.")
     except Exception as e:
         print("Auto-seed de maestra omitido (error benigno):", e)
     finally:
@@ -206,60 +212,6 @@ def _get_master_info(db):
     return project, master_conn, project.master_sheet_name
 
 from .services import _run_single_process
-
-
-# ═══════════════════════════════════════════════════════════════════
-# ██ SEED: maestra enlazada por defecto (útil en previews con DB vacía)
-# ═══════════════════════════════════════════════════════════════════
-
-DEFAULT_MASTER_SPREADSHEET_ID = "1fjpAJUk_wfAR5lcxRza7Zqn18yLqh_w_Q-FmSfgtXTM"
-DEFAULT_MASTER_SHEET_NAME = "Maestra"
-DEFAULT_MASTER_SKU_COLUMN = "sku"
-
-def _seed_default_master():
-    """Si no hay ninguna maestra enlazada, crea la conexión y el enlace por defecto."""
-    db = next(get_db())
-    try:
-        existing = db.query(models.Project).filter(
-            models.Project.master_connection_id.isnot(None)
-        ).first()
-        if existing:
-            return  # Ya hay una maestra enlazada, no tocar nada
-
-        # Buscar (o crear) la conexión al sheet maestro por defecto
-        conn = db.query(models.Connection).filter(
-            models.Connection.spreadsheet_id == DEFAULT_MASTER_SPREADSHEET_ID
-        ).first()
-        if not conn:
-            conn = models.Connection(
-                name="MAESTRA KINO",
-                google_sheet_url=f"https://docs.google.com/spreadsheets/d/{DEFAULT_MASTER_SPREADSHEET_ID}/edit",
-                spreadsheet_id=DEFAULT_MASTER_SPREADSHEET_ID,
-                connection_type="google_sheets"
-            )
-            db.add(conn)
-            db.commit()
-            db.refresh(conn)
-
-        # Buscar (o crear) el proyecto y enlazar la maestra
-        project = db.query(models.Project).first()
-        if not project:
-            project = models.Project(name="Global Project")
-            db.add(project)
-            db.commit()
-            db.refresh(project)
-
-        project.master_connection_id = conn.id
-        project.master_sheet_name = DEFAULT_MASTER_SHEET_NAME
-        project.master_sku_column = DEFAULT_MASTER_SKU_COLUMN
-        db.commit()
-        print(f"Seed: maestra por defecto enlazada (conn {conn.id}, hoja '{DEFAULT_MASTER_SHEET_NAME}', sku '{DEFAULT_MASTER_SKU_COLUMN}').")
-    except Exception as e:
-        print("Seed de maestra omitido (error benigno):", e)
-    finally:
-        db.close()
-
-_seed_default_master()
 
 
 # ═══════════════════════════════════════════════════════════════════
