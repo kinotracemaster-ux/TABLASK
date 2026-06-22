@@ -172,16 +172,25 @@ def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: lis
         except ValueError:
             continue
 
-    # 2. Añadir nuevas filas al final usando append (no tiene límite de grilla)
+    # 2. Añadir nuevas filas al final usando append.
     if new_rows:
         append_values = []
         for row_data in new_rows:
             new_row_values = [row_data["fields"].get(h, "") for h in headers]
             append_values.append(new_row_values)
 
+        # Acotamos el rango-tabla a los datos reales (A1 : última_col última_fila).
+        # Si solo se pasa "A1", Google busca la última fila con CUALQUIER contenido
+        # en toda la hoja y pega ahí; si hay datos/formato residual muy abajo, las
+        # filas nuevas se "desbordan" dejando un hueco gigante. Acotando el rango,
+        # append escribe justo después de la última fila de datos real.
+        last_col = column_index_to_letter(max(len(headers) - 1, 0))
+        last_row = max(total_rows_before, 1)
+        table_range = f"{sheet_name}!A1:{last_col}{last_row}"
+
         service.spreadsheets().values().append(
             spreadsheetId=spreadsheet_id,
-            range=f"{sheet_name}!A1",
+            range=table_range,
             # RAW: preserva los SKU exactos también en filas nuevas (si no, Sheets
             # los deforma y la próxima sync los duplica).
             valueInputOption="RAW",
