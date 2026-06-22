@@ -1,17 +1,29 @@
 import json
 from typing import List, Dict, Any
-from sqlalchemy.orm import Session
 from .models import FieldSubscription, Connection
 from .services import get_sheet_data, write_sheet_data_surgical
+from .database import SessionLocal
 
-def propagate_changes(db: Session, project_id: int, changes: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]):
+def propagate_changes(project_id: int, changes: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]):
     """
     Función para ejecutarse en background (BackgroundTasks).
     Revisa si algún campo cambiado o nueva fila afecta a alguna suscripción activa,
     y propaga los cambios a las hojas hijas.
+
+    IMPORTANTE: abre su propia sesión de DB. La sesión del request que originó
+    la tarea ya está cerrada cuando esto corre, por lo que no debe reutilizarse.
     """
     if not changes and not new_rows:
         return
+
+    db = SessionLocal()
+    try:
+        _propagate_changes(db, project_id, changes, new_rows)
+    finally:
+        db.close()
+
+
+def _propagate_changes(db, project_id: int, changes: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]):
 
     # Extraer qué campos (columnas de la maestra) fueron modificados
     modified_fields = set()

@@ -167,7 +167,7 @@ def execute_bulk_batches(req: BulkExecuteRequest, background_tasks: BackgroundTa
     # Propagar a hijas
     if all_changes or all_new_rows:
         from ..propagation import propagate_changes
-        background_tasks.add_task(propagate_changes, db, project.id, all_changes, all_new_rows)
+        background_tasks.add_task(propagate_changes, project.id, all_changes, all_new_rows)
         
     return {
         "message": "Ejecución finalizada", 

@@ -26,3 +26,8 @@ backend/uploads/
 
 # SQLite local (Railway usará PostgreSQL)
 backend/tablask.db
+
+# Archivos temporales / backups locales
+temp_backup/
+temp_sheet.csv
+*.tmp
