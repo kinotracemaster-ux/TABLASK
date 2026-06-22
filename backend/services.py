@@ -262,17 +262,40 @@ def _compute_master_sync(project, req, db):
     rows_updated = 0
     rows_added = 0
     rows_unchanged = 0
-    
+    rows_skipped = 0  # filas de origen descartadas por SKU vacío o inválido
+
     # Nuevo formato granular (El Guardián)
     granular_changes = []
     granular_new_rows = []
     granular_unchanged_skus = []
-    
+    skipped_skus = []
+
     for src_row in src_raw[1:]:
         sku_val = (src_row[src_sku_idx] if src_sku_idx < len(src_row) else "").strip()
         if not sku_val:
             continue
-            
+
+        # Guard anti-basura: las filas-encabezado del proveedor (ej. "RELOJES 3D")
+        # repiten el mismo texto en varias columnas (sku = name = categoría = marca).
+        # Si el SKU coincide con el valor de 2+ columnas mapeadas de la misma fila,
+        # casi seguro NO es un producto, sino una fila divisoria. Se descarta para
+        # no crear "productos" basura ni duplicados.
+        sku_norm = sku_val.lower()
+        repeated_in_other_cols = 0
+        for src_col in req.field_mappings.keys():
+            if src_col not in src_headers:
+                continue
+            ci = src_headers.index(src_col)
+            if ci == src_sku_idx:
+                continue
+            other_val = (src_row[ci] if ci < len(src_row) else "").strip().lower()
+            if other_val and other_val == sku_norm:
+                repeated_in_other_cols += 1
+        if repeated_in_other_cols >= 2:
+            rows_skipped += 1
+            skipped_skus.append(sku_val)
+            continue
+
         if sku_val in master_by_sku:
             mr_info = master_by_sku[sku_val]
             mr_data = mr_info["data"]
@@ -327,6 +350,8 @@ def _compute_master_sync(project, req, db):
         "rows_updated": rows_updated,
         "rows_added": rows_added,
         "rows_unchanged": rows_unchanged,
+        "rows_skipped": rows_skipped,
+        "skipped_skus": skipped_skus,
         "total_origen": len(src_raw) - 1,
         "total_maestra": len(master_raw) - 1,
         "detail_updated": granular_changes,
