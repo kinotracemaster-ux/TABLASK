@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, Send, FileDown, ShieldAlert, Play } from 'lucide-react';
+import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, Send, FileDown, ShieldAlert, Play, RefreshCw } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -19,15 +19,22 @@ export default function MasterTable() {
   const [masterConnId, setMasterConnId] = useState('');
   const [masterSheets, setMasterSheets] = useState({});
   const [masterSheet, setMasterSheet] = useState('');
+  const [masterSheetColumns, setMasterSheetColumns] = useState([]);
+  const [masterSkuColumn, setMasterSkuColumn] = useState('');
   const [linking, setLinking] = useState(false);
 
   // Active master info
   const [activeMasterConnId, setActiveMasterConnId] = useState(null);
   const [activeMasterSheet, setActiveMasterSheet] = useState(null);
+  const [activeMasterSkuColumn, setActiveMasterSkuColumn] = useState('');
 
   // Run all state
   const [runAllLoading, setRunAllLoading] = useState(false);
   const [runAllResult, setRunAllResult] = useState(null);
+
+  // Reflejo (sincronización manual maestra → hijas)
+  const [reflectLoading, setReflectLoading] = useState(false);
+  const [reflectResult, setReflectResult] = useState(null);
 
   // Preview state (PASO 3)
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -85,6 +92,7 @@ export default function MasterTable() {
         setTotalRows(data.total_rows || 0);
         setActiveMasterConnId(data.master_connection_id);
         setActiveMasterSheet(data.master_sheet_name);
+        setActiveMasterSkuColumn(data.master_sku_column || '');
       } else {
         setColumns([]); setRows([]); setTotalRows(0);
         setActiveMasterConnId(null); setActiveMasterSheet(null);
@@ -96,6 +104,9 @@ export default function MasterTable() {
   // --- Link Master ---
   const loadMasterSheets = async (connId) => {
     setMasterConnId(connId);
+    setMasterSheet('');
+    setMasterSheetColumns([]);
+    setMasterSkuColumn('');
     if (!connId) return;
     try {
       const res = await fetch(`${API}/api/connections/${connId}/metadata`);
@@ -108,6 +119,16 @@ export default function MasterTable() {
     }
   };
 
+  const handleSelectMasterSheet = (sheetName) => {
+    setMasterSheet(sheetName);
+    setMasterSkuColumn('');
+    if (sheetName && masterSheets[sheetName]) {
+      setMasterSheetColumns(masterSheets[sheetName]);
+    } else {
+      setMasterSheetColumns([]);
+    }
+  };
+
   const handleLink = async () => {
     setLinking(true);
     try {
@@ -116,7 +137,8 @@ export default function MasterTable() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           master_connection_id: parseInt(masterConnId),
-          master_sheet_name: masterSheet
+          master_sheet_name: masterSheet,
+          master_sku_column: masterSkuColumn
         })
       });
       if (res.ok) {
@@ -220,6 +242,24 @@ export default function MasterTable() {
     }
   };
 
+  // Reflejo: propaga ediciones manuales de la maestra a las hojas hijas
+  const handleSyncReflection = async () => {
+    setReflectLoading(true);
+    setReflectResult(null);
+    try {
+      const res = await fetch(`${API}/api/master/sync-reflection`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setReflectResult({ ok: true, ...data });
+      } else {
+        setReflectResult({ ok: false, message: data.detail || 'Error al sincronizar' });
+      }
+    } catch (err) {
+      setReflectResult({ ok: false, message: 'Fallo de conexión: ' + err.message });
+    }
+    setReflectLoading(false);
+  };
+
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando Tabla Maestra...</div>;
 
   return (
@@ -234,6 +274,7 @@ export default function MasterTable() {
           {activeMasterConnId ? (
             <p className="text-gray-500 text-sm mt-1">
               Enlazada a Google Sheet • Hoja "{activeMasterSheet}" • {totalRows} filas
+              {activeMasterSkuColumn && <span className="ml-2 text-indigo-500 font-medium">🔑 {activeMasterSkuColumn}</span>}
             </p>
           ) : (
             <p className="text-gray-500 text-sm mt-1">Ninguna tabla maestra enlazada</p>
@@ -245,6 +286,15 @@ export default function MasterTable() {
               className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:from-green-700 hover:to-emerald-700 transition shadow-sm text-sm disabled:opacity-50">
               <Zap className={`w-4 h-4 ${previewLoading ? 'animate-pulse' : ''}`} />
               {previewLoading ? 'Calculando...' : runAllLoading ? 'Ejecutando...' : '⚡ Correr Procesos'}
+            </button>
+          )}
+
+          {activeMasterConnId && (
+            <button onClick={handleSyncReflection} disabled={reflectLoading}
+              title="Detecta ediciones manuales en la maestra y las refleja en las hojas hijas suscritas"
+              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm disabled:opacity-50">
+              <RefreshCw className={`w-4 h-4 ${reflectLoading ? 'animate-spin' : ''}`} />
+              {reflectLoading ? 'Sincronizando...' : 'Sincronizar reflejo'}
             </button>
           )}
 
@@ -261,6 +311,24 @@ export default function MasterTable() {
           )}
         </div>
       </div>
+
+      {/* Resultado del reflejo (maestra → hijas) */}
+      {reflectResult && (
+        <div className={`mb-6 rounded-xl border p-4 flex items-start gap-3 text-sm ${
+          reflectResult.ok ? 'border-indigo-200 bg-indigo-50 text-indigo-800' : 'border-red-200 bg-red-50 text-red-700'
+        }`}>
+          {reflectResult.ok ? <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <XCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+          <div className="flex-1">
+            <p className="font-medium">{reflectResult.message}</p>
+            {reflectResult.ok && reflectResult.status === 'synced' && (
+              <p className="text-xs mt-1 opacity-80">
+                {reflectResult.changes} campo(s) modificado(s) · {reflectResult.new_rows} fila(s) nueva(s) · {reflectResult.active_subscriptions} suscripción(es) activa(s)
+              </p>
+            )}
+          </div>
+          <button onClick={() => setReflectResult(null)} className="text-xs opacity-60 hover:opacity-100 font-medium">Cerrar</button>
+        </div>
+      )}
 
       {/* Preview Confirmation (PASO 3) */}
       {previewData && !previewData.error && (
@@ -377,8 +445,8 @@ export default function MasterTable() {
         <div className="bg-purple-50 border border-purple-200 rounded-xl p-5 mb-6">
           <h3 className="font-semibold text-purple-800 mb-3">Enlazar Tabla Maestra</h3>
           <p className="text-sm text-purple-600 mb-4">Esta tabla será la base de datos central. Aquí se guardará todo.</p>
-          <div className="flex gap-4 items-end">
-            <div className="flex-1">
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Conexión a Google Sheets</label>
               <select value={masterConnId} onChange={e => loadMasterSheets(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg p-2 text-sm">
@@ -386,15 +454,25 @@ export default function MasterTable() {
                 {connections.filter(c => c.connection_type === 'google_sheets').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div className="flex-1">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Hoja (Pestaña)</label>
-              <select value={masterSheet} onChange={e => setMasterSheet(e.target.value)}
+              <select value={masterSheet} onChange={e => handleSelectMasterSheet(e.target.value)}
                 disabled={!masterConnId} className="w-full border border-gray-300 rounded-lg p-2 text-sm">
                 <option value="">Seleccionar hoja...</option>
                 {Object.keys(masterSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
               </select>
             </div>
-            <button onClick={handleLink} disabled={linking || !masterConnId || !masterSheet}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">🔑 Columna llave (SKU)</label>
+              <select value={masterSkuColumn} onChange={e => setMasterSkuColumn(e.target.value)}
+                disabled={!masterSheet} className="w-full border border-gray-300 rounded-lg p-2 text-sm">
+                <option value="">Seleccionar columna llave...</option>
+                {masterSheetColumns.map(col => <option key={col} value={col}>{col}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleLink} disabled={linking || !masterConnId || !masterSheet || !masterSkuColumn}
               className="bg-purple-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 text-sm">
               {linking ? 'Enlazando...' : 'Enlazar'}
             </button>

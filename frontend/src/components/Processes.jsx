@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Settings2, Plus, Trash2, Play, Eye, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, ShieldAlert, ChevronRight, Edit } from 'lucide-react';
-import { extractError } from '../utils/errors';
+import { extractError, formatError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -24,12 +24,13 @@ export default function Processes() {
   const [targetSheets, setTargetSheets] = useState({});
   const [targetSheet, setTargetSheet] = useState('');
 
+  const [masterSheets, setMasterSheets] = useState({});
   const [skuColSource, setSkuColSource] = useState('');
   const [skuColMaster, setSkuColMaster] = useState('');
   const [fieldMappings, setFieldMappings] = useState([{ src: '', dst: '' }]);
 
   // Preview/Run state per process
-  const [processStatus, setProcessStatus] = useState({}); // { [id]: { loading, preview, result } }
+  const [processStatus, setProcessStatus] = useState({});
 
   useEffect(() => { loadAll(); }, []);
 
@@ -45,10 +46,18 @@ export default function Processes() {
       setProcesses(await procsRes.json());
       setConnections(await connsRes.json());
       setMasterCols(await colsRes.json());
-      
+
       const projs = await projsRes.json();
       if (projs.length > 0 && projs[0].master_sheet_name) {
-        setMasterInfo({ connId: projs[0].master_connection_id, sheetName: projs[0].master_sheet_name });
+        const mi = { connId: projs[0].master_connection_id, sheetName: projs[0].master_sheet_name };
+        setMasterInfo(mi);
+        // Pre-cargar hojas de la maestra para el selector de destino
+        if (mi.connId) {
+          const mRes = await fetch(`${API}/api/connections/${mi.connId}/metadata`);
+          const mData = await mRes.json();
+          setMasterSheets(mData.sheets || {});
+          setTargetSheet(mi.sheetName);
+        }
       }
     } catch (err) { console.error(err); }
     setLoading(false);
@@ -68,22 +77,9 @@ export default function Processes() {
     }
   };
 
-  const loadTargetSheets = async (connId) => {
-    setTargetConnId(connId);
-    if (!connId) return;
-    try {
-      const res = await fetch(`${API}/api/connections/${connId}/metadata`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Fallo');
-      setTargetSheets(data.sheets || {});
-    } catch (err) {
-      alert(err.message);
-      setTargetSheets({});
-    }
-  };
-
+  // targetCols = columnas de la hoja maestra seleccionada (o masterCols como fallback)
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
-  const targetCols = masterCols; // Destino SIEMPRE es la maestra
+  const targetCols = (targetSheet && masterSheets[targetSheet]) ? masterSheets[targetSheet] : masterCols;
 
   // Auto-detect SKU when source sheet changes
   useEffect(() => {
@@ -152,8 +148,8 @@ export default function Processes() {
         name, description,
         source_connection_id: parseInt(sourceConnId),
         source_sheet_name: sourceSheet,
-        target_connection_id: masterInfo?.connId || targetConnId,
-        target_sheet_name: masterInfo?.sheetName || targetSheet,
+        target_connection_id: masterInfo?.connId || (targetConnId ? parseInt(targetConnId) : null),
+        target_sheet_name: targetSheet || masterInfo?.sheetName,
         sku_column_source: skuColSource,
         sku_column_master: skuColMaster,
         field_mappings: mappings
@@ -175,6 +171,7 @@ export default function Processes() {
     setSkuColSource(''); setSkuColMaster('');
     setFieldMappings([{ src: '', dst: '' }]);
     setSourceSheets({});
+    setTargetSheet(masterInfo?.sheetName || '');
     setEditingId(null);
   };
 
@@ -189,7 +186,8 @@ export default function Processes() {
     
     setSkuColSource(proc.sku_column_source);
     setSkuColMaster(proc.sku_column_master);
-    
+    if (proc.target_sheet_name) setTargetSheet(proc.target_sheet_name);
+
     // Parse mappings back to array
     const mappedArray = Object.entries(proc.field_mappings).map(([src, dst]) => ({ src, dst }));
     setFieldMappings(mappedArray.length > 0 ? mappedArray : [{ src: '', dst: '' }]);
@@ -213,8 +211,7 @@ export default function Processes() {
       if (res.ok) {
         setProcessStatus(s => ({ ...s, [id]: { loading: false, preview: data } }));
       } else {
-        const errMsg = await extractError(res);
-        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: errMsg } }));
+        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: formatError(data) } }));
       }
     } catch (err) {
       setProcessStatus(s => ({ ...s, [id]: { loading: false, error: err.message } }));
@@ -230,8 +227,7 @@ export default function Processes() {
         setProcessStatus(s => ({ ...s, [id]: { loading: false, result: data } }));
         loadAll();
       } else {
-        const errMsg = await extractError(res);
-        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: errMsg } }));
+        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: formatError(data) } }));
       }
     } catch (err) {
       setProcessStatus(s => ({ ...s, [id]: { loading: false, error: err.message } }));
@@ -247,8 +243,7 @@ export default function Processes() {
         setProcessStatus(s => ({ ...s, [id]: { loading: false, runResult: data } }));
         loadAll();
       } else {
-        const errMsg = await extractError(res);
-        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: errMsg } }));
+        setProcessStatus(s => ({ ...s, [id]: { loading: false, error: formatError(data) } }));
       }
     } catch (err) {
       setProcessStatus(s => ({ ...s, [id]: { loading: false, error: err.message } }));
@@ -303,96 +298,113 @@ export default function Processes() {
               </div>
             </div>
 
-            {/* ── BLOQUE ORIGEN ── */}
-            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
-              <h3 className="text-sm font-semibold text-blue-800 mb-3">📎 ORIGEN — ¿De dónde vienen los datos?</h3>
-              
-              <div className="grid grid-cols-2 gap-4 mb-4">
+            {/* ── ORIGEN + DESTINO: cabeceras de conexión/hoja ── */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Origen */}
+              <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl space-y-3">
+                <h3 className="text-sm font-semibold text-blue-800">📎 ORIGEN (Hoja hija)</h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Origen</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Conexión</label>
                   <select value={sourceConnId} onChange={e => loadSourceSheets(e.target.value)} required
                     className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
-                    <option value="">Seleccionar archivo origen...</option>
-                    {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.connection_type})</option>)}
+                    <option value="">Seleccionar conexión...</option>
+                    {connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja Origen</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Hoja</label>
                   <select value={sourceSheet} onChange={e => setSourceSheet(e.target.value)} required
                     disabled={!sourceConnId} className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
                     <option value="">Seleccionar hoja...</option>
                     {Object.keys(sourceSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-blue-800 mb-1">🔑 Columna llave</label>
+                  <select value={skuColSource} onChange={e => setSkuColSource(e.target.value)} required
+                    disabled={sourceCols.length === 0}
+                    className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar llave...</option>
+                    {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
               </div>
 
-              <div className="mb-3">
-                <label className="block text-sm font-medium text-blue-800 mb-1">🔑 Columna llave en Origen (para cruzar datos)</label>
-                <select value={skuColSource} onChange={e => setSkuColSource(e.target.value)} required
-                  disabled={sourceCols.length === 0}
-                  className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white max-w-sm">
-                  <option value="">Seleccionar columna llave...</option>
-                  {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-blue-800 mb-1">Columnas a copiar del Origen</label>
-                <p className="text-xs text-blue-600 mb-2">Selecciona qué columnas del origen quieres traer.</p>
-                {fieldMappings.map((m, i) => (
-                  <div key={i} className="flex gap-2 items-center mb-2">
-                    <select value={m.src} onChange={e => {
-                      const n = [...fieldMappings]; n[i].src = e.target.value; setFieldMappings(n);
-                    }} className="flex-1 border border-blue-200 rounded-md p-1.5 text-sm bg-white">
-                      <option value="">Seleccionar columna origen...</option>
-                      {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    {fieldMappings.length > 1 && (
-                      <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
-                        className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                    )}
+              {/* Destino */}
+              <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl space-y-3">
+                <h3 className="text-sm font-semibold text-indigo-800">📤 DESTINO (Tabla Maestra)</h3>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Conexión</label>
+                  <div className="w-full border border-indigo-100 bg-indigo-100 rounded-lg p-2 text-sm text-indigo-700 font-medium truncate">
+                    {connections.find(c => c.id === masterInfo?.connId)?.name || '— sin maestra —'}
                   </div>
-                ))}
-                <button type="button" onClick={() => setFieldMappings([...fieldMappings, { src: '', dst: '' }])}
-                  className="text-blue-600 text-sm font-medium hover:underline mt-1">+ Añadir columna</button>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Hoja</label>
+                  <select value={targetSheet} onChange={e => { setTargetSheet(e.target.value); setSkuColMaster(''); }}
+                    className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar hoja...</option>
+                    {Object.keys(masterSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-indigo-800 mb-1">🔑 Columna llave</label>
+                  <select value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required
+                    disabled={targetCols.length === 0}
+                    className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Seleccionar llave...</option>
+                    {targetCols.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* ── BLOQUE DESTINO ── */}
-            <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl">
-              <div className="flex justify-between items-start mb-3">
-                <h3 className="text-sm font-semibold text-indigo-800">📤 DESTINO — Tabla Maestra</h3>
-                <button type="button" onClick={handleAutoMap} className="bg-indigo-200 text-indigo-800 px-3 py-1 rounded-md text-xs font-semibold hover:bg-indigo-300">
-                  ✨ Auto-Mapear Columnas
+            {/* ── MAPEO DE CAMPOS (hija → maestra) ── */}
+            <div className="border border-gray-200 rounded-xl p-4 bg-white">
+              <div className="flex justify-between items-center mb-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700">Mapeo de campos</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Qué columna de la hija actualiza qué columna de la maestra</p>
+                </div>
+                <button type="button" onClick={handleAutoMap}
+                  className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-md text-xs font-semibold hover:bg-indigo-200">
+                  ✨ Auto-Mapear
                 </button>
               </div>
 
-              <div className="mb-3">
-                <label className="block text-sm font-medium text-indigo-800 mb-1">🔑 Columna llave en Destino (para cruzar datos)</label>
-                <select value={skuColMaster} onChange={e => setSkuColMaster(e.target.value)} required
-                  disabled={targetCols.length === 0}
-                  className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white max-w-sm">
-                  <option value="">Seleccionar columna llave...</option>
-                  {targetCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
+              <div className="space-y-2">
+                {/* Encabezado */}
+                <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 px-1">
+                  <span className="text-xs font-medium text-blue-600 uppercase tracking-wide">Columna hija</span>
+                  <span />
+                  <span className="text-xs font-medium text-indigo-600 uppercase tracking-wide">Columna maestra</span>
+                  <span />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-indigo-800 mb-1">Columnas destino a actualizar</label>
-                <p className="text-xs text-indigo-600 mb-2">Para cada columna origen (arriba), selecciona en qué columna del destino se escribirá.</p>
                 {fieldMappings.map((m, i) => (
-                  <div key={i} className="flex gap-2 items-center mb-2">
-                    <span className="text-xs text-gray-500 bg-white border rounded px-2 py-1.5 min-w-[140px] truncate">{m.src || `Columna origen ${i+1}`}</span>
-                    <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                    <select value={m.dst} onChange={e => {
-                      const n = [...fieldMappings]; n[i].dst = e.target.value; setFieldMappings(n);
-                    }} className="flex-1 border border-indigo-200 rounded-md p-1.5 text-sm bg-white">
-                      <option value="">Seleccionar columna destino...</option>
+                  <div key={i} className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center">
+                    <select value={m.src} onChange={e => { const n = [...fieldMappings]; n[i].src = e.target.value; setFieldMappings(n); }}
+                      className="border border-blue-200 rounded-lg p-2 text-sm bg-white">
+                      <option value="">Columna hija...</option>
+                      {sourceCols.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <select value={m.dst} onChange={e => { const n = [...fieldMappings]; n[i].dst = e.target.value; setFieldMappings(n); }}
+                      className="border border-indigo-200 rounded-lg p-2 text-sm bg-white">
+                      <option value="">Columna maestra...</option>
                       {targetCols.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
+                    {fieldMappings.length > 1
+                      ? <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
+                          className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                      : <span className="w-4" />
+                    }
                   </div>
                 ))}
               </div>
+
+              <button type="button" onClick={() => setFieldMappings([...fieldMappings, { src: '', dst: '' }])}
+                className="text-indigo-600 text-sm font-medium hover:underline mt-3">+ Añadir campo</button>
             </div>
 
             <div className="flex gap-2 pt-2">
@@ -478,6 +490,44 @@ export default function Processes() {
                         <p className="text-lg font-bold text-gray-600">{st.preview.rows_unchanged}</p>
                       </div>
                     </div>
+
+                    {/* Detalle de filas NUEVAS */}
+                    {st.preview.detail_added?.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-xs font-semibold text-green-700 mb-1">🆕 Códigos que se crearán ({st.preview.detail_added.length}):</p>
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-2 max-h-32 overflow-y-auto">
+                          <div className="flex flex-wrap gap-1">
+                            {st.preview.detail_added.map((r, i) => (
+                              <span key={i} className="inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded font-mono">
+                                {r.sku}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Detalle de filas ACTUALIZADAS */}
+                    {st.preview.detail_updated?.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-xs font-semibold text-blue-700 mb-1">✏️ Campos que se sobreescribirán ({st.preview.detail_updated.length} cambios en {st.preview.rows_updated} fila(s)):</p>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 max-h-32 overflow-y-auto space-y-0.5">
+                          {st.preview.detail_updated.slice(0, 50).map((c, i) => (
+                            <div key={i} className="text-xs font-mono flex gap-1 items-center">
+                              <span className="text-gray-500 w-24 truncate shrink-0">{c.sku}</span>
+                              <span className="text-blue-600 shrink-0">{c.field}:</span>
+                              <span className="text-red-500 line-through truncate max-w-[80px]">{c.old || '(vacío)'}</span>
+                              <span className="text-gray-400 shrink-0">→</span>
+                              <span className="text-green-700 truncate max-w-[80px]">{c.new}</span>
+                            </div>
+                          ))}
+                          {st.preview.detail_updated.length > 50 && (
+                            <p className="text-xs text-gray-400 mt-1">... y {st.preview.detail_updated.length - 50} cambios más</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {(st.preview.rows_updated > 0 || st.preview.rows_added > 0) && (
                       <div className="flex items-center gap-3 mt-3">
                         <button onClick={() => handleRun(proc.id)} disabled={st.running}
@@ -497,11 +547,25 @@ export default function Processes() {
                 )}
 
                 {st?.runResult && (
-                  <div className="border-t border-gray-100 bg-green-50 p-4 flex items-center gap-2 text-sm text-green-800">
-                    <CheckCircle2 className="w-4 h-4" />
-                    ✅ {st.runResult.process_name}: {st.runResult.rows_updated} actualizadas, {st.runResult.rows_added} nuevas
-                    <button onClick={() => setProcessStatus(s => ({ ...s, [proc.id]: null }))}
-                      className="ml-auto text-gray-400 text-xs hover:text-gray-600">Cerrar</button>
+                  <div className="border-t border-gray-100 bg-green-50 p-4 text-sm text-green-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span className="font-semibold">✅ {st.runResult.process_name}: {st.runResult.rows_updated} sobreescritas, {st.runResult.rows_added} creadas</span>
+                      <button onClick={() => setProcessStatus(s => ({ ...s, [proc.id]: null }))}
+                        className="ml-auto text-gray-400 text-xs hover:text-gray-600">Cerrar</button>
+                    </div>
+                    {st.runResult.new_rows?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-green-700 mb-1">🆕 Códigos creados ({st.runResult.new_rows.length}):</p>
+                        <div className="flex flex-wrap gap-1">
+                          {st.runResult.new_rows.map((r, i) => (
+                            <span key={i} className="inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded font-mono border border-green-200">
+                              {r.sku}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

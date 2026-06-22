@@ -172,21 +172,22 @@ def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: lis
         except ValueError:
             continue
 
-    # 2. Añadir nuevas filas al final
+    # 2. Añadir nuevas filas al final usando append (no tiene límite de grilla)
     if new_rows:
-        current_bottom_row = total_rows_before + 1 # si hay 100 filas (incluyendo header), empieza en 101
-        
+        append_values = []
         for row_data in new_rows:
-            # Reconstruir la fila según el orden de headers
-            new_row_values = []
-            for h in headers:
-                new_row_values.append(row_data["fields"].get(h, ""))
-                
-            updates.append({
-                "range": f"{sheet_name}!A{current_bottom_row}",
-                "values": [new_row_values]
-            })
-            current_bottom_row += 1
+            new_row_values = [row_data["fields"].get(h, "") for h in headers]
+            append_values.append(new_row_values)
+
+        service.spreadsheets().values().append(
+            spreadsheetId=spreadsheet_id,
+            range=f"{sheet_name}!A1",
+            # RAW: preserva los SKU exactos también en filas nuevas (si no, Sheets
+            # los deforma y la próxima sync los duplica).
+            valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body={"values": append_values}
+        ).execute()
 
     # Ejecutar Batch Update
     if updates:
@@ -408,8 +409,8 @@ def _run_single_process(proc, db):
             "process_name": proc.name,
             "rows_updated": result["rows_updated"],
             "rows_added": result["rows_added"],
-            "changes": result["changes"],
-            "new_rows": result["new_rows"]
+            "changes": result.get("changes", []),
+            "new_rows": result.get("new_rows", [])
         }
     except Exception as e:
         log_event(db, "SYNC_ERROR", "error", f"Error ejecutando '{proc.name}': {str(e)}", proc.id, None, traceback.format_exc())
