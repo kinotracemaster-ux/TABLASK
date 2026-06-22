@@ -41,4 +41,23 @@ Se discutieron y se marcaron explícitamente como "fuera de scope" (no implement
 * **Frontend React:** Manejo de estados de carga explícitos para no congelar la UI.
 
 ---
-*Última actualización: 17 de Junio de 2026*
+
+## 6. Flujo de Trabajo de Git (REGLA PERMANENTE)
+Este proyecto se maneja con **solo dos ramas**. Cualquier sesión de IA o desarrollo manual DEBE respetar esto:
+
+* **`main`** → Rama estable y desplegable. Railway publica desde aquí. **NUNCA se edita ni se commitea directo en `main`.** Solo recibe fusiones (merge) ya probadas.
+* **`pruebas`** → Única rama de trabajo. TODO el desarrollo, los commits y los `push` van aquí.
+
+### Ciclo de trabajo
+1. Se edita en la carpeta local (o en la sesión web).
+2. `git push origin pruebas` → sube los cambios a `pruebas` (jamás a `main`).
+3. El usuario **prueba** la app (local y/o deploy de pruebas).
+4. **Solo cuando el USUARIO lo pida explícitamente**, se fusiona `pruebas` → `main` (vía Pull Request o merge). La IA NO debe fusionar a `main` por iniciativa propia.
+
+### Reglas de oro
+* Antes de empezar a trabajar: `git pull origin pruebas`.
+* No crear ramas nuevas de "feature" sueltas: todo vive en `pruebas`.
+* No guardar tokens/credenciales dentro del repo ni en la URL del remoto (usar `gh auth login` o SSH).
+
+---
+*Última actualización: 22 de Junio de 2026*
