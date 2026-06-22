@@ -119,11 +119,14 @@ def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
     ).execute()
 
     # 2. Escribir los datos nuevos
+    # RAW (no USER_ENTERED): evita que Sheets reformatee los SKU (notación
+    # científica, fechas, ceros a la izquierda), lo que rompía la coincidencia
+    # de SKU y causaba productos duplicados en cada sincronización.
     body = {"values": data}
     result = service.spreadsheets().values().update(
         spreadsheetId=spreadsheet_id,
         range=range_name,
-        valueInputOption="USER_ENTERED",
+        valueInputOption="RAW",
         body=body
     ).execute()
 
@@ -188,7 +191,8 @@ def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: lis
     # Ejecutar Batch Update
     if updates:
         body = {
-            "valueInputOption": "USER_ENTERED",
+            # RAW: preserva los SKU exactos (ver nota en write_sheet_data).
+            "valueInputOption": "RAW",
             "data": updates
         }
         result = service.spreadsheets().values().batchUpdate(
@@ -250,7 +254,7 @@ def _compute_master_sync(project, req, db):
     
     master_by_sku = {}
     for i, row in enumerate(master_raw[1:]):
-        sku_val = row[master_sku_idx] if master_sku_idx < len(row) else ""
+        sku_val = (row[master_sku_idx] if master_sku_idx < len(row) else "").strip()
         if sku_val:
             padded_row = row + [""] * (len(master_headers) - len(row))
             master_by_sku[sku_val] = {"index": i + 1, "data": padded_row}
@@ -265,7 +269,7 @@ def _compute_master_sync(project, req, db):
     granular_unchanged_skus = []
     
     for src_row in src_raw[1:]:
-        sku_val = src_row[src_sku_idx] if src_sku_idx < len(src_row) else ""
+        sku_val = (src_row[src_sku_idx] if src_sku_idx < len(src_row) else "").strip()
         if not sku_val:
             continue
             
