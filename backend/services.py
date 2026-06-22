@@ -65,7 +65,7 @@ def get_sheet_metadata(connection):
     result = {}
     for sheet in sheets:
         title = sheet['properties']['title']
-        range_name = f"{title}!A1:Z1"
+        range_name = f"{title}!A1:ZZZ1"
         response = service.spreadsheets().values().get(
             spreadsheetId=connection.spreadsheet_id, range=range_name).execute()
         
@@ -112,10 +112,10 @@ def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
 
     range_name = f"{sheet_name}!A1"
 
-    # 1. Limpiar el rango actual
+    # 1. Limpiar el rango actual (A:ZZZ para no dejar columnas viejas sin borrar)
     service.spreadsheets().values().clear(
         spreadsheetId=spreadsheet_id,
-        range=f"{sheet_name}!A1:Z"
+        range=f"{sheet_name}!A:ZZZ"
     ).execute()
 
     # 2. Escribir los datos nuevos
@@ -375,10 +375,12 @@ def _run_single_process(proc, db):
         log_event(db, "SYNC_PROCESS", "success", f"Proceso '{proc.name}' ejecutado directamente.", proc.id, None, None, result["rows_updated"] + result["rows_added"])
         
         return {
-            "status": "success", 
+            "status": "success",
             "process_name": proc.name,
             "rows_updated": result["rows_updated"],
-            "rows_added": result["rows_added"]
+            "rows_added": result["rows_added"],
+            "changes": result["changes"],
+            "new_rows": result["new_rows"]
         }
     except Exception as e:
         log_event(db, "SYNC_ERROR", "error", f"Error ejecutando '{proc.name}': {str(e)}", proc.id, None, traceback.format_exc())

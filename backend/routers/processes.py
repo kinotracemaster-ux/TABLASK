@@ -180,6 +180,6 @@ def run_process(process_id: int, background_tasks: BackgroundTasks, db: Session 
 
     # Propagación asíncrona (Pilar 4/5)
     from ..propagation import propagate_changes
-    background_tasks.add_task(propagate_changes, db, proc.project_id, result.get("changes", []), result.get("new_rows", []))
+    background_tasks.add_task(propagate_changes, proc.project_id, result.get("changes", []), result.get("new_rows", []))
 
     return result

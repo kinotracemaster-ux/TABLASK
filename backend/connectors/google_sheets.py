@@ -35,7 +35,9 @@ class GoogleSheetsConnector(BaseConnector):
         source_path es el nombre de la hoja (sheet_name).
         """
         service = self._get_service()
-        range_name = f"{source_path}!A1:Z" # O puedes especificar un rango mayor si lo necesitas
+        # A:ZZZ evita el tope de 26 columnas (la maestra crece dinámicamente)
+        # y no acota el número de filas.
+        range_name = f"{source_path}!A:ZZZ"
         
         response = service.spreadsheets().values().get(
             spreadsheetId=self.spreadsheet_id, range=range_name).execute()

@@ -79,10 +79,13 @@ async def global_exception_handler(request: Request, exc: Exception):
     except Exception as db_exc:
         print("Fallo al guardar log en DB:", db_exc)
 
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal Server Error", "traceback": error_msg}
-    )
+    # No exponer el traceback al cliente en producción (fuga de información interna).
+    # Solo se devuelve si DEBUG está activo explícitamente.
+    content = {"detail": "Internal Server Error"}
+    if os.getenv("DEBUG", "").lower() in ("1", "true", "yes"):
+        content["traceback"] = error_msg
+
+    return JSONResponse(status_code=500, content=content)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -121,6 +124,13 @@ app.include_router(intelligence.router)
 # --- Reset DB (Solo Desarrollo) ---
 @app.post("/api/debug/reset-db")
 def reset_database():
+    # Endpoint destructivo: borra TODA la base de datos. Solo disponible si
+    # ALLOW_DB_RESET está habilitado explícitamente (nunca en producción).
+    if os.getenv("ALLOW_DB_RESET", "").lower() not in ("1", "true", "yes"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operación deshabilitada. Configura ALLOW_DB_RESET=true para habilitarla."
+        )
     models.Base.metadata.drop_all(bind=engine)
     models.Base.metadata.create_all(bind=engine)
     return {"message": "Base de datos reseteada con éxito. Actualiza la página."}
@@ -599,7 +609,7 @@ def run_all(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # Propagación asíncrona (Pilar 4/5)
     if all_changes or all_new_rows:
         from .propagation import propagate_changes
-        background_tasks.add_task(propagate_changes, db, project.id, all_changes, all_new_rows)
+        background_tasks.add_task(propagate_changes, project.id, all_changes, all_new_rows)
 
     # ── PASO 2: Distribuir (Formatos de salida) ──
     all_formats = db.query(models.ExportFormat).filter(
