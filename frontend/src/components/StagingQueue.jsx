@@ -167,22 +167,14 @@ export default function StagingQueue() {
                   </div>
                 </div>
                 
-                <div className="p-6 bg-gray-50 grid grid-cols-5 gap-4">
+                <div className="p-6 bg-gray-50 grid grid-cols-3 gap-4">
                   <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
                     <span className="block text-2xl font-bold text-blue-600">{diff.rows_to_update || 0}</span>
                     <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Se rellenan</span>
                   </div>
                   <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
-                    <span className="block text-2xl font-bold text-green-600">{diff.rows_to_add || 0}</span>
-                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Creados (a mano)</span>
-                  </div>
-                  <div className={`p-4 rounded-lg border text-center ${(diff.rows_new_candidate || 0) > 0 ? 'bg-sky-50 border-sky-300' : 'bg-white border-gray-200'}`}>
-                    <span className={`block text-2xl font-bold ${(diff.rows_new_candidate || 0) > 0 ? 'text-sky-600' : 'text-gray-400'}`}>{diff.rows_new_candidate || 0}</span>
-                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">No aparecen</span>
-                  </div>
-                  <div className={`p-4 rounded-lg border text-center ${(diff.rows_suspect || 0) > 0 ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200'}`}>
-                    <span className={`block text-2xl font-bold ${(diff.rows_suspect || 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{diff.rows_suspect || 0}</span>
-                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Se parecen</span>
+                    <span className="block text-2xl font-bold text-gray-500">{diff.rows_ignored || 0}</span>
+                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">No coinciden</span>
                   </div>
                   <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
                     <span className="block text-2xl font-bold text-gray-400">{diff.rows_unchanged || 0}</span>

@@ -408,10 +408,7 @@ def _compute_master_sync(project, req, db):
     # Nuevo formato granular (El Guardián)
     granular_changes = []
     granular_unchanged_skus = []
-    granular_suspects = []        # 'se parecen': no cruzan exacto pero parecidos a un SKU existente
-    granular_new_candidates = []  # 'no aparecen': no cruzan ni se parecen a nada
-    rows_suspect = 0
-    rows_new_candidate = 0
+    rows_ignored = 0  # filas del origen cuyo SKU no existe en la Maestra: se ignoran
     skipped_skus = []
 
     for src_row in src_raw[1:]:
@@ -471,55 +468,34 @@ def _compute_master_sync(project, req, db):
                 granular_unchanged_skus.append(sku_val)
                 
         else:
-            # No cruzó exacto. REGLA: nunca se crea automáticamente; solo se MARCA
-            # para revisión manual en el microsistema (Staging). Dos grupos:
-            #   - 'se parecen'  (granular_suspects): parecido a un SKU existente
-            #   - 'no aparecen' (granular_new_candidates): sin parecido a nada
-            new_fields = {}
-            for src_col, dst_col in req.field_mappings.items():
-                if src_col in src_headers:
-                    s_idx = src_headers.index(src_col)
-                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
-                    new_fields[dst_col] = new_val
-
-            similar = find_similar_sku(sku_val, master_norm_index, master_len_buckets)
-            if similar:
-                suggested, reason, score = similar
-                rows_suspect += 1
-                granular_suspects.append({
-                    "sku": sku_val,
-                    "suggested_sku": suggested,
-                    "reason": reason,
-                    "similarity": score,
-                    "fields": new_fields
-                })
-            else:
-                rows_new_candidate += 1
-                granular_new_candidates.append({"sku": sku_val, "fields": new_fields})
+            # No cruzó exacto. SIMPLE: no se hace nada (ni crear, ni marcar).
+            # Solo se cuenta para informar cuántos quedaron fuera.
+            rows_ignored += 1
 
     return {
         "master_raw": master_raw,
         "master_conn": master_conn,
         "target_sheet_name": target_sheet_name,
         "rows_updated": rows_updated,
-        "rows_added": rows_added,  # 0: nada se crea automáticamente (solo vía microsistema)
+        "rows_added": 0,             # SIMPLE: nunca se crea nada
         "rows_unchanged": rows_unchanged,
         "rows_skipped": rows_skipped,
-        "rows_suspect": rows_suspect,                 # 'se parecen'
-        "rows_new_candidate": rows_new_candidate,     # 'no aparecen'
+        "rows_ignored": rows_ignored,  # SKU del origen que no existe en la Maestra
         "skipped_skus": skipped_skus,
         "total_origen": len(src_raw) - 1,
         "total_maestra": len(master_raw) - 1,
         "detail_updated": granular_changes,
         "detail_unchanged": granular_unchanged_skus,
-        "detail_suspect": granular_suspects,
-        "detail_new_candidate": granular_new_candidates,
         "changes": granular_changes,
-        # No se auto-crea nada: las filas nuevas salen del microsistema (resolve).
-        "new_rows": [],
+        "new_rows": [],              # nada que crear
         "unchanged_skus": granular_unchanged_skus,
-        "suspects": granular_suspects,
-        "new_candidates": granular_new_candidates
+        # Compatibilidad con UI/staging (sin uso ahora): nada marcado ni creado.
+        "rows_suspect": 0,
+        "rows_new_candidate": 0,
+        "detail_suspect": [],
+        "detail_new_candidate": [],
+        "suspects": [],
+        "new_candidates": []
     }
 
 def _run_single_process(proc, db):

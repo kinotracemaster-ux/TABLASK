@@ -100,14 +100,11 @@ def preview_process(process_id: int, db: Session = Depends(get_db)):
         "rows_updated": result["rows_updated"],
         "rows_added": result["rows_added"],
         "rows_unchanged": result["rows_unchanged"],
-        "rows_suspect": result.get("rows_suspect", 0),
-        "rows_new_candidate": result.get("rows_new_candidate", 0),
+        "rows_ignored": result.get("rows_ignored", 0),
         "total_origen": result["total_origen"],
         "total_maestra": result["total_maestra"],
         "detail_updated": result["detail_updated"],
         "detail_unchanged": result["detail_unchanged"],
-        "detail_suspect": result.get("detail_suspect", []),
-        "detail_new_candidate": result.get("detail_new_candidate", []),
     }
 
 @router.post("/{process_id}/stage")
@@ -141,13 +138,10 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
             "rows_to_update": result["rows_updated"],
             "rows_to_add": result["rows_added"],
             "rows_unchanged": result["rows_unchanged"],
-            "rows_suspect": result.get("rows_suspect", 0),
-            "rows_new_candidate": result.get("rows_new_candidate", 0),
+            "rows_ignored": result.get("rows_ignored", 0),
             "warnings": [],
             "changes": result.get("changes", []),
             "new_rows": result.get("new_rows", []),
-            "suspects": result.get("suspects", []),
-            "new_candidates": result.get("new_candidates", []),
             "total_rows_before": result.get("total_rows_before", 0),
             "total_origen": result.get("total_origen", 0)
         }

@@ -28,16 +28,11 @@ El sistema se divide en 4 pilares reflejados en la interfaz (React):
 * **Distribución Quirúrgica (Suscripciones):** Las hojas hijas reciben automáticamente *sólo los campos a los que están suscritas*, propagados mediante `BackgroundTasks` en la API (FastAPI) únicamente si la escritura original a la Maestra fue exitosa. Las escrituras a hijas fallidas se loggean pero no abortan el pipeline.
 * **Escritura Celda por Celda (BatchUpdate):** En vez de descargar y reescribir la matriz gigante de Google Sheets, el motor actualiza la nube mediante el API granular enviando únicamente los rangos "A2, B4..." que cambiaron (`write_sheet_data_surgical`).
 * **Cuota de Google Sheets (429):** Sheets limita ~60 lecturas/min por usuario. Para no reventar: (1) **retry con backoff** exponencial ante 429/5xx en todas las llamadas, respetando `Retry-After` (`backend/sheets_retry.py::execute_with_retry`, usado en `services.py` y el conector); (2) **caché corta de lecturas** en `services.get_sheet_data` por `(spreadsheet_id, sheet_name)` con TTL `SHEETS_READ_CACHE_TTL` (45s por defecto), que colapsa relecturas de la misma hoja (ej. la Maestra al sincronizar varios procesos). La caché se **invalida** al escribir esa hoja (`invalidate_read_cache`). Solo aplica a Google Sheets (local/HTTP no tienen cuota).
-* **Clasificación del sync (REGLA central): solo rellenar, marcar el resto.** En `_compute_master_sync` (`services.py`):
-  - **Coincidencia exacta** → se **rellena** (actualiza) la fila de la Maestra. Único caso automático que escribe.
-  - **No cruza exacto** → NUNCA se crea solo; se **marca** en uno de dos grupos para revisión manual en el microsistema:
-    - **`suspects` ("se parecen")**: se parece a un SKU existente vía `find_similar_sku` — `formato` (`1203.0`/`01203`/mayúsculas), `variante` (`1203-1` con base `1203`) o `similar` (fuzzy ≥0.86 **solo de mismo largo**; no compara largos distintos porque en códigos cortos `7-59`/`7-159`, `708-1`/`1708-1` son otro producto y daban falsos positivos).
-    - **`new_candidates` ("no aparecen")**: no se parece a nada.
-  `rows_added` siempre 0 y `new_rows` vacío en el sync: las altas solo ocurren por el microsistema. El valor real del SKU nunca se altera.
-* **Microsistema de resolución (Staging):** En la Cola de Aprobación, "Se parecen" y "No aparecen" son tablas interactivas (checkbox por fila + seleccionar todo). `POST /api/staging/{batch_id}/resolve` aplica sobre el lote persistido según `action`:
-  - **`cross`** (solo "se parecen"): los datos del código pasan a **actualizar la fila del SKU sugerido** (genera `change`, nunca pisa el SKU destino).
-  - **`create`** (ambos grupos): el código se **da de alta como producto nuevo** (fila nueva a `master_raw` y `new_rows`).
-  El código sale de su grupo y se recalculan contadores. No escribe a Sheets aún; deja el lote listo para Aprobar/Ejecutar. **Nota infra:** `StagingQueue.jsx` usa la base `API` (`VITE_API_URL`) en todos sus `fetch`; con rutas relativas la pantalla fallaba cuando el backend está en otro host.
+* **Clasificación del sync (REGLA central, versión SIMPLE): solo rellenar coincidencias exactas.** En `_compute_master_sync` (`services.py`):
+  - **Coincidencia exacta de SKU** → se **rellena** (actualiza) la fila de la Maestra. Único caso que escribe.
+  - **No cruza exacto** → no se hace NADA (ni crear, ni marcar). Solo se cuenta en `rows_ignored` para informar cuántos quedaron fuera.
+  `rows_added` y `new_rows` siempre vacíos. El valor real del SKU nunca se altera.
+* **Microsistema de resolución (DORMIDO):** El endpoint `POST /api/staging/{batch_id}/resolve` (`cross`/`create`) y las tablas interactivas "Se parecen"/"No aparecen" siguen en el código (`staging.py`, `StagingQueue.jsx`), pero por la regla simple el motor ya no genera `suspects`/`new_candidates`, así que no aparecen. Igual está la detección fuzzy (`find_similar_sku`, sin uso) por si se reactiva. **Nota infra:** `StagingQueue.jsx` usa la base `API` (`VITE_API_URL`) en todos sus `fetch`; con rutas relativas la pantalla fallaba cuando el backend está en otro host.
 
 ## 4. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):
