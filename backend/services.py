@@ -381,7 +381,9 @@ def _compute_master_sync(project, req, db):
     granular_new_rows = []
     granular_unchanged_skus = []
     granular_suspects = []   # no cruzaron pero se parecen a un SKU existente: revisar a mano
+    granular_variants = []   # variantes ('1203-1'): se crean heredando del padre + se marcan
     rows_suspect = 0
+    rows_variant = 0
     skipped_skus = []
 
     for src_row in src_raw[1:]:
@@ -448,11 +450,30 @@ def _compute_master_sync(project, req, db):
                     new_val = src_row[s_idx] if s_idx < len(src_row) else ""
                     new_fields[dst_col] = new_val
 
-            # ¿Se parece a un SKU que YA existe en la maestra? Entonces casi seguro
-            # es un typo o variante no explícita del mismo producto: NO se crea fila
-            # nueva (evitar duplicados); se marca para revisión manual.
+            # ¿Se parece a un SKU que YA existe en la maestra?
             similar = find_similar_sku(sku_val, master_norm_index, master_len_buckets, master_prefix_index)
+
+            if similar and similar[1] == "variante":
+                # VARIANTE (ej. '1203-1' y existe '1203'): SÍ se crea, pero
+                # heredando todos los datos del código padre; encima se aplican
+                # los campos que trae el origen. Se marca para revisión.
+                suggested, reason, score = similar
+                parent_row = master_by_sku[suggested]["data"]
+                full_fields = {h: (parent_row[hi] if hi < len(parent_row) else "")
+                               for hi, h in enumerate(master_headers)}
+                full_fields[master_headers[master_sku_idx]] = sku_val  # su propio código
+                for dst_col, new_val in new_fields.items():            # datos del origen encima
+                    full_fields[dst_col] = new_val
+
+                new_mr_data = [full_fields.get(h, "") for h in master_headers]
+                master_raw.append(new_mr_data)
+                rows_variant += 1
+                granular_variants.append({"sku": sku_val, "fields": full_fields,
+                                          "variant_of": suggested, "similarity": score})
+                continue
+
             if similar:
+                # FORMATO o SIMILAR (typo): NO se crea (evitar duplicados); se marca.
                 suggested, reason, score = similar
                 rows_suspect += 1
                 granular_suspects.append({
@@ -484,6 +505,7 @@ def _compute_master_sync(project, req, db):
         "rows_unchanged": rows_unchanged,
         "rows_skipped": rows_skipped,
         "rows_suspect": rows_suspect,
+        "rows_variant": rows_variant,
         "skipped_skus": skipped_skus,
         "total_origen": len(src_raw) - 1,
         "total_maestra": len(master_raw) - 1,
@@ -491,10 +513,13 @@ def _compute_master_sync(project, req, db):
         "detail_added": granular_new_rows,
         "detail_unchanged": granular_unchanged_skus,
         "detail_suspect": granular_suspects,
+        "detail_variant": granular_variants,
         "changes": granular_changes,
-        "new_rows": granular_new_rows,
+        # new_rows = nuevos legítimos + variantes (ambos se escriben en Sheets)
+        "new_rows": granular_new_rows + granular_variants,
         "unchanged_skus": granular_unchanged_skus,
-        "suspects": granular_suspects
+        "suspects": granular_suspects,
+        "variants": granular_variants
     }
 
 def _run_single_process(proc, db):
