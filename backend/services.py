@@ -1,7 +1,100 @@
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 import os
+import re
+import difflib
 import pandas as pd
+
+
+def normalize_sku_for_match(s: str) -> str:
+    """Forma normalizada de un SKU/codigo SOLO para comparar (no para escribir).
+    Unifica las diferencias más comunes que rompen el cruce exacto:
+    - mayúsculas/minúsculas y espacios
+    - decimales de Sheets: '1203.0' -> '1203'
+    - ceros a la izquierda en numéricos: '01203' -> '1203'
+    El valor real que se escribe en Sheets NUNCA se altera; esto es solo
+    para detectar posibles typos/variantes del mismo producto.
+    """
+    s = (s or "").strip().lower()
+    if not s:
+        return ""
+    # '1203.0' / '1203.00' -> '1203'
+    if re.fullmatch(r"\d+\.0+", s):
+        s = s.split(".")[0]
+    # ceros a la izquierda en numéricos puros: '01203' -> '1203'
+    if s.isdigit():
+        s = s.lstrip("0") or "0"
+    return s
+
+
+def sku_prefix_key(norm: str) -> str:
+    """Clave de bloque por prefijo (primeros 3 chars normalizados) para agrupar
+    candidatos a 'variante' (ej. '1203', '1203-1', '1203-3' caen en el mismo
+    bloque). Sirve para no comparar contra toda la maestra."""
+    return norm[:3]
+
+
+def find_similar_sku(sku_val: str, master_norm_index: dict, master_len_buckets: dict,
+                     master_prefix_index: dict, threshold: float = 0.86):
+    """Busca un SKU de la maestra parecido a `sku_val` (que NO cruzó exacto).
+    Devuelve (sku_maestra_sugerido, motivo, similitud) o None.
+
+    Estrategia en pasos para no ser O(N*M):
+    1. Match normalizado exacto (dict): cubre diferencias de formato (.0, ceros,
+       mayúsculas, espacios) — motivo 'formato', confianza máxima.
+    2. Fuzzy acotado (por longitud ±1 y por prefijo) usando SequenceMatcher:
+       cubre typos y variantes no explícitas (ej. '1203-1' vs '1203') —
+       motivo 'similar'.
+    """
+    norm = normalize_sku_for_match(sku_val)
+    if not norm:
+        return None
+
+    # Paso 1: mismo SKU salvo formato.
+    exact = master_norm_index.get(norm)
+    if exact is not None and exact != sku_val:
+        return (exact, "formato", 1.0)
+
+    # Paso 1b: variante con sufijo. El origen trae 'base-1' / 'base_2' / 'base/3'
+    # y la maestra tiene la 'base' sola → casi seguro es una variante no explícita
+    # del mismo producto. Lookup directo por la base (barato y preciso).
+    m = re.match(r"^(.+?)[-_/.\s].*$", norm)
+    if m:
+        base_hit = master_norm_index.get(m.group(1))
+        if base_hit is not None and base_hit != sku_val:
+            return (base_hit, "variante", 1.0)
+
+    # Paso 2: fuzzy. Candidatos = mismo largo (±1) + mismo prefijo (variantes
+    # con sufijo tipo '-1' que cambian la longitud). Se deduplican.
+    seen = set()
+    candidates = []
+    for L in (len(norm) - 1, len(norm), len(norm) + 1):
+        for cand in master_len_buckets.get(L, ()):
+            if cand[1] not in seen:
+                seen.add(cand[1]); candidates.append(cand)
+    for cand in master_prefix_index.get(sku_prefix_key(norm), ()):
+        if cand[1] not in seen:
+            seen.add(cand[1]); candidates.append(cand)
+    if not candidates:
+        return None
+
+    best_sku = None
+    best_ratio = 0.0
+    sm = difflib.SequenceMatcher()
+    sm.set_seq2(norm)
+    for cand_norm, cand_original in candidates:
+        sm.set_seq1(cand_norm)
+        # quick_ratio es barato y acota antes del ratio real
+        if sm.quick_ratio() < threshold:
+            continue
+        r = sm.ratio()
+        if r > best_ratio:
+            best_ratio = r
+            best_sku = cand_original
+
+    if best_sku is not None and best_sku != sku_val and best_ratio >= threshold:
+        return (best_sku, "similar", round(best_ratio, 3))
+    return None
 
 # Configuración de credenciales (Service Account)
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
@@ -263,11 +356,20 @@ def _compute_master_sync(project, req, db):
     master_sku_idx = master_headers.index(req.sku_column_master)
     
     master_by_sku = {}
+    # Índices para detectar SKUs "parecidos" (no cruzan exacto pero probable typo/variante).
+    master_norm_index = {}       # normalizado -> SKU original de la maestra
+    master_len_buckets = {}      # longitud_normalizada -> [(normalizado, original), ...]
+    master_prefix_index = {}     # prefijo(3) -> [(normalizado, original), ...]
     for i, row in enumerate(master_raw[1:]):
         sku_val = (row[master_sku_idx] if master_sku_idx < len(row) else "").strip()
         if sku_val:
             padded_row = row + [""] * (len(master_headers) - len(row))
             master_by_sku[sku_val] = {"index": i + 1, "data": padded_row}
+            norm = normalize_sku_for_match(sku_val)
+            if norm:
+                master_norm_index.setdefault(norm, sku_val)
+                master_len_buckets.setdefault(len(norm), []).append((norm, sku_val))
+                master_prefix_index.setdefault(sku_prefix_key(norm), []).append((norm, sku_val))
             
     rows_updated = 0
     rows_added = 0
@@ -278,6 +380,8 @@ def _compute_master_sync(project, req, db):
     granular_changes = []
     granular_new_rows = []
     granular_unchanged_skus = []
+    granular_suspects = []   # no cruzaron pero se parecen a un SKU existente: revisar a mano
+    rows_suspect = 0
     skipped_skus = []
 
     for src_row in src_raw[1:]:
@@ -337,18 +441,36 @@ def _compute_master_sync(project, req, db):
                 granular_unchanged_skus.append(sku_val)
                 
         elif req.add_new_rows:
-            new_mr_data = [""] * len(master_headers)
-            new_mr_data[master_sku_idx] = sku_val
-            
             new_fields = {}
             for src_col, dst_col in req.field_mappings.items():
                 if src_col in src_headers:
                     s_idx = src_headers.index(src_col)
-                    m_idx = master_headers.index(dst_col)
                     new_val = src_row[s_idx] if s_idx < len(src_row) else ""
-                    new_mr_data[m_idx] = new_val
                     new_fields[dst_col] = new_val
-                    
+
+            # ¿Se parece a un SKU que YA existe en la maestra? Entonces casi seguro
+            # es un typo o variante no explícita del mismo producto: NO se crea fila
+            # nueva (evitar duplicados); se marca para revisión manual.
+            similar = find_similar_sku(sku_val, master_norm_index, master_len_buckets, master_prefix_index)
+            if similar:
+                suggested, reason, score = similar
+                rows_suspect += 1
+                granular_suspects.append({
+                    "sku": sku_val,
+                    "suggested_sku": suggested,
+                    "reason": reason,
+                    "similarity": score,
+                    "fields": new_fields
+                })
+                continue
+
+            # No se parece a nada existente: es un producto nuevo legítimo.
+            new_mr_data = [""] * len(master_headers)
+            new_mr_data[master_sku_idx] = sku_val
+            for dst_col, new_val in new_fields.items():
+                m_idx = master_headers.index(dst_col)
+                new_mr_data[m_idx] = new_val
+
             master_raw.append(new_mr_data)
             rows_added += 1
             granular_new_rows.append({"sku": sku_val, "fields": new_fields})
@@ -361,15 +483,18 @@ def _compute_master_sync(project, req, db):
         "rows_added": rows_added,
         "rows_unchanged": rows_unchanged,
         "rows_skipped": rows_skipped,
+        "rows_suspect": rows_suspect,
         "skipped_skus": skipped_skus,
         "total_origen": len(src_raw) - 1,
         "total_maestra": len(master_raw) - 1,
         "detail_updated": granular_changes,
         "detail_added": granular_new_rows,
         "detail_unchanged": granular_unchanged_skus,
+        "detail_suspect": granular_suspects,
         "changes": granular_changes,
         "new_rows": granular_new_rows,
-        "unchanged_skus": granular_unchanged_skus
+        "unchanged_skus": granular_unchanged_skus,
+        "suspects": granular_suspects
     }
 
 def _run_single_process(proc, db):

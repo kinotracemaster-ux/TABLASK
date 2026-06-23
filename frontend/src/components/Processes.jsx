@@ -472,7 +472,7 @@ export default function Processes() {
                 {/* Preview/Result Panel */}
                 {st?.preview && (
                   <div className="border-t border-gray-100 bg-gray-50 p-4">
-                    <div className="grid grid-cols-4 gap-3 mb-3">
+                    <div className="grid grid-cols-5 gap-3 mb-3">
                       <div className="bg-white p-2 rounded-lg border text-center">
                         <p className="text-xs text-gray-500">Filas de Origen</p>
                         <p className="text-lg font-bold text-gray-800">{st.preview.total_origen}</p>
@@ -485,11 +485,35 @@ export default function Processes() {
                         <p className="text-[10px] font-bold text-green-600 uppercase">Se Añadirán (Nuevos)</p>
                         <p className="text-lg font-bold text-green-700">{st.preview.rows_added}</p>
                       </div>
+                      <div className={`p-2 rounded-lg border text-center ${(st.preview.rows_suspect || 0) > 0 ? 'bg-amber-50 border-amber-300' : 'bg-gray-50'}`}>
+                        <p className="text-[10px] font-bold text-amber-600 uppercase">No Cruzaron</p>
+                        <p className={`text-lg font-bold ${(st.preview.rows_suspect || 0) > 0 ? 'text-amber-700' : 'text-gray-400'}`}>{st.preview.rows_suspect || 0}</p>
+                      </div>
                       <div className="bg-gray-50 p-2 rounded-lg border text-center">
                         <p className="text-[10px] font-bold text-gray-500 uppercase">Iguales (Sin Cambio)</p>
                         <p className="text-lg font-bold text-gray-600">{st.preview.rows_unchanged}</p>
                       </div>
                     </div>
+
+                    {/* Detalle de códigos que NO cruzaron (posibles typos/variantes) */}
+                    {st.preview.detail_suspect?.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-xs font-semibold text-amber-700 mb-1">⚠️ No cruzaron — posibles typos o variantes ({st.preview.detail_suspect.length}). NO se crean para evitar duplicados:</p>
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 max-h-32 overflow-y-auto space-y-0.5">
+                          {st.preview.detail_suspect.slice(0, 100).map((s, i) => (
+                            <div key={i} className="text-xs font-mono flex gap-2 items-center">
+                              <span className="text-gray-800 w-28 truncate shrink-0">{s.sku}</span>
+                              <span className="text-amber-500 shrink-0">≈</span>
+                              <span className="text-amber-700 font-semibold w-28 truncate shrink-0">{s.suggested_sku}</span>
+                              <span className="text-amber-500 text-[10px]">{s.reason}</span>
+                            </div>
+                          ))}
+                          {st.preview.detail_suspect.length > 100 && (
+                            <p className="text-xs text-amber-400 mt-1">... y {st.preview.detail_suspect.length - 100} más</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Detalle de filas NUEVAS */}
                     {st.preview.detail_added?.length > 0 && (

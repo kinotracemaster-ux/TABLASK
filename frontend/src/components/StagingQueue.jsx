@@ -111,7 +111,7 @@ export default function StagingQueue() {
                   </div>
                 </div>
                 
-                <div className="p-6 bg-gray-50 grid grid-cols-3 gap-6">
+                <div className="p-6 bg-gray-50 grid grid-cols-4 gap-6">
                   <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
                     <span className="block text-2xl font-bold text-blue-600">{diff.rows_to_update || 0}</span>
                     <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Actualizaciones</span>
@@ -120,12 +120,56 @@ export default function StagingQueue() {
                     <span className="block text-2xl font-bold text-green-600">{diff.rows_to_add || 0}</span>
                     <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Nuevos</span>
                   </div>
+                  <div className={`p-4 rounded-lg border text-center ${(diff.rows_suspect || 0) > 0 ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200'}`}>
+                    <span className={`block text-2xl font-bold ${(diff.rows_suspect || 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{diff.rows_suspect || 0}</span>
+                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">No cruzaron</span>
+                  </div>
                   <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
                     <span className="block text-2xl font-bold text-gray-400">{diff.rows_unchanged || 0}</span>
                     <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Sin cambios</span>
                   </div>
                 </div>
-                
+
+                {diff.suspects && diff.suspects.length > 0 && (
+                  <div className="p-4 bg-amber-50 border-t border-amber-200">
+                    <h4 className="text-sm font-bold text-amber-800 flex items-center gap-2 mb-1">
+                      <AlertTriangle className="w-4 h-4" />
+                      No cruzaron — posibles typos o variantes ({diff.suspects.length})
+                    </h4>
+                    <p className="text-xs text-amber-700 mb-3">
+                      Estos códigos se parecen a un SKU que ya existe en la Maestra, así que NO se crearon como nuevos para evitar duplicados. Revísalos: corrige el código en el origen o, si de verdad es un producto distinto, créalo a mano.
+                    </p>
+                    <div className="max-h-64 overflow-y-auto rounded-lg border border-amber-200 bg-white">
+                      <table className="w-full text-sm">
+                        <thead className="bg-amber-100 text-amber-900 sticky top-0">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-semibold">Código del origen</th>
+                            <th className="text-left px-3 py-2 font-semibold">SKU parecido en Maestra</th>
+                            <th className="text-left px-3 py-2 font-semibold">Motivo</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {diff.suspects.map((s, i) => (
+                            <tr key={i} className="border-t border-amber-100">
+                              <td className="px-3 py-2 font-mono text-gray-800">{s.sku}</td>
+                              <td className="px-3 py-2 font-mono text-amber-700 font-semibold">{s.suggested_sku}</td>
+                              <td className="px-3 py-2">
+                                <span className="inline-block px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs">
+                                  {s.reason === 'formato'
+                                    ? 'Formato (.0 / ceros / mayúsculas)'
+                                    : s.reason === 'variante'
+                                    ? 'Variante (sufijo -1 / -2)'
+                                    : `Similar${s.similarity ? ` (${Math.round(s.similarity * 100)}%)` : ''}`}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
                 {diff.warnings && diff.warnings.length > 0 && (
                   <div className="p-4 bg-yellow-50 border-t border-yellow-100">
                     <h4 className="text-sm font-bold text-yellow-800 flex items-center gap-2 mb-2">
