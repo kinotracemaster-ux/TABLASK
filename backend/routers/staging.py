@@ -183,9 +183,9 @@ def execute_bulk_batches(req: BulkExecuteRequest, background_tasks: BackgroundTa
 
 
 class ResolveItem(BaseModel):
-    sku: str            # el código del origen que NO cruzó
-    action: str = "cross"  # por ahora solo "cross" (cruzar con un SKU existente)
-    target_sku: str     # con qué SKU de la Maestra cruzarlo
+    sku: str                  # el código del origen que NO cruzó
+    action: str = "cross"     # "cross" (cruzar con un SKU existente) | "create" (forzar nuevo)
+    target_sku: str = ""      # con qué SKU de la Maestra cruzarlo (solo para "cross")
 
 
 class ResolveRequest(BaseModel):
@@ -194,11 +194,12 @@ class ResolveRequest(BaseModel):
 
 @router.post("/{batch_id}/resolve")
 def resolve_suspects(batch_id: int, req: ResolveRequest, db: Session = Depends(get_db)):
-    """Microsistema 'No cruzaron': aplica decisiones de cruce sobre un lote
-    pendiente. Por cada código que no cruzó y que el usuario manda a cruzar,
-    sus datos pasan a actualizar la fila del SKU elegido en la Maestra (se
-    convierte en una actualización) y deja de contar como 'no cruzó'.
-    No escribe a Sheets todavía: solo deja el lote listo para aprobar/ejecutar.
+    """Microsistema 'No cruzaron': aplica decisiones sobre un lote pendiente.
+    - action 'cross': los datos del código pasan a actualizar la fila del SKU
+      elegido en la Maestra (se vuelve una actualización).
+    - action 'create': el código se fuerza como producto nuevo (fila nueva).
+    En ambos casos el código deja de contar como 'no cruzó'. No escribe a Sheets
+    todavía: solo deja el lote listo para aprobar/ejecutar.
     """
     batch = db.query(models.StagingBatch).filter(models.StagingBatch.id == batch_id).first()
     if not batch:
@@ -231,51 +232,65 @@ def resolve_suspects(batch_id: int, req: ResolveRequest, db: Session = Depends(g
     suspects = diff.get("suspects", [])
     suspects_by_sku = {s["sku"]: s for s in suspects}
     changes = diff.get("changes", [])
+    new_rows = diff.get("new_rows", [])
 
-    applied, not_found, no_suspect = [], [], []
+    applied, created, not_found, no_suspect = [], [], [], []
 
     for r in req.resolutions:
-        if r.action != "cross":
-            continue
         susp = suspects_by_sku.get(r.sku)
         if not susp:
             no_suspect.append(r.sku)
             continue
-        ti = idx_by_sku.get(r.target_sku)
-        if ti is None:
-            not_found.append(r.sku)
+
+        if r.action == "create":
+            # Forzar como producto nuevo: fila nueva con su código + datos del origen.
+            fields = {k: v for k, v in susp.get("fields", {}).items() if k in headers}
+            fields[sku_col_master] = r.sku  # asegurar el SKU en la fila nueva
+            new_mr_data = [fields.get(h, "") for h in headers]
+            master_raw.append(new_mr_data)
+            new_rows.append({"sku": r.sku, "fields": fields})
+            created.append(r.sku)
+            applied.append(r.sku)
             continue
 
-        row = master_raw[ti]
-        if len(row) < len(headers):
-            row = row + [""] * (len(headers) - len(row))
-
-        for dst_col, val in susp.get("fields", {}).items():
-            if dst_col not in headers:
+        if r.action == "cross":
+            ti = idx_by_sku.get(r.target_sku)
+            if ti is None:
+                not_found.append(r.sku)
                 continue
-            if dst_col == sku_col_master:
-                continue  # NUNCA pisar el SKU del destino con el código del origen
-            ci = headers.index(dst_col)
-            old = row[ci]
-            if old != val:
-                changes.append({
-                    "sku": r.target_sku,
-                    "field": dst_col,
-                    "old": old,
-                    "new": val,
-                    "row_index": ti
-                })
-                row[ci] = val
 
-        master_raw[ti] = row
-        applied.append(r.sku)
+            row = master_raw[ti]
+            if len(row) < len(headers):
+                row = row + [""] * (len(headers) - len(row))
 
-    # Quitar de 'no cruzaron' los que ya se cruzaron y recalcular contadores.
+            for dst_col, val in susp.get("fields", {}).items():
+                if dst_col not in headers:
+                    continue
+                if dst_col == sku_col_master:
+                    continue  # NUNCA pisar el SKU del destino con el código del origen
+                ci = headers.index(dst_col)
+                old = row[ci]
+                if old != val:
+                    changes.append({
+                        "sku": r.target_sku,
+                        "field": dst_col,
+                        "old": old,
+                        "new": val,
+                        "row_index": ti
+                    })
+                    row[ci] = val
+
+            master_raw[ti] = row
+            applied.append(r.sku)
+
+    # Quitar de 'no cruzaron' los resueltos y recalcular contadores.
     remaining = [s for s in suspects if s["sku"] not in applied]
     diff["suspects"] = remaining
     diff["rows_suspect"] = len(remaining)
     diff["changes"] = changes
     diff["rows_to_update"] = len({c["row_index"] for c in changes})
+    diff["new_rows"] = new_rows
+    diff["rows_to_add"] = diff.get("rows_to_add", 0) + len(created)
 
     batch.normalized_data = json.dumps(master_raw, ensure_ascii=False)
     batch.diff_result = json.dumps(diff, ensure_ascii=False)
@@ -283,12 +298,13 @@ def resolve_suspects(batch_id: int, req: ResolveRequest, db: Session = Depends(g
 
     from .logs import log_event
     log_event(db, "RESOLVE", "info",
-              f"Batch {batch_id}: {len(applied)} código(s) cruzados manualmente.",
+              f"Batch {batch_id}: {len(applied) - len(created)} cruzados, {len(created)} creados como nuevos.",
               batch.process_id, str(batch_id), None, len(applied))
 
     return {
-        "message": f"{len(applied)} código(s) cruzados.",
+        "message": f"{len(applied) - len(created)} cruzados, {len(created)} creados.",
         "applied": applied,
+        "created": created,
         "not_found": not_found,
         "no_suspect": no_suspect,
         "diff": diff

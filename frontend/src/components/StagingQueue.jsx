@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Database, CheckCircle2, XCircle, AlertTriangle, Search, Filter, Link2 } from 'lucide-react';
+import { Database, CheckCircle2, XCircle, AlertTriangle, Search, Filter, Link2, PlusCircle } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 export default function StagingQueue() {
@@ -27,10 +27,12 @@ export default function StagingQueue() {
   const selectedCount = (batch, suspects) =>
     suspects.filter(s => selected[keyFor(batch.id, s.sku)]).length;
 
-  const handleResolve = async (batch, suspects) => {
+  const handleResolve = async (batch, suspects, action) => {
     const resolutions = suspects
       .filter(s => selected[keyFor(batch.id, s.sku)])
-      .map(s => ({ sku: s.sku, action: 'cross', target_sku: s.suggested_sku }));
+      .map(s => action === 'create'
+        ? { sku: s.sku, action: 'create' }
+        : { sku: s.sku, action: 'cross', target_sku: s.suggested_sku });
     if (resolutions.length === 0) return;
     setResolving(prev => ({ ...prev, [batch.id]: true }));
     try {
@@ -227,17 +229,27 @@ export default function StagingQueue() {
                         <AlertTriangle className="w-4 h-4" />
                         No cruzaron — revisa y cruza ({suspects.length})
                       </h4>
-                      <button
-                        onClick={() => handleResolve(batch, suspects)}
-                        disabled={nSel === 0 || busy}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-                      >
-                        <Link2 className="w-3.5 h-3.5" />
-                        {busy ? 'Cruzando...' : `Cruzar seleccionados (${nSel})`}
-                      </button>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          onClick={() => handleResolve(batch, suspects, 'create')}
+                          disabled={nSel === 0 || busy}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
+                          {busy ? '...' : `Crear como nuevos (${nSel})`}
+                        </button>
+                        <button
+                          onClick={() => handleResolve(batch, suspects, 'cross')}
+                          disabled={nSel === 0 || busy}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Link2 className="w-3.5 h-3.5" />
+                          {busy ? '...' : `Cruzar con sugerido (${nSel})`}
+                        </button>
+                      </div>
                     </div>
                     <p className="text-xs text-amber-700 mb-3">
-                      Marca los que SÍ son el mismo producto: al cruzarlos, sus datos pasan a actualizar la fila del SKU sugerido (deja de contar como "no cruzó"). Los que no marques quedan sin tocar.
+                      Marca los códigos y decide: <b>Cruzar con sugerido</b> (mismo producto → sus datos actualizan la fila del SKU sugerido) o <b>Crear como nuevos</b> (sí es un producto distinto → entra como fila nueva). Los que no marques quedan sin tocar.
                     </p>
                     <div className="max-h-64 overflow-y-auto rounded-lg border border-amber-200 bg-white">
                       <table className="w-full text-sm">
