@@ -42,22 +42,34 @@ Se discutieron y se marcaron explícitamente como "fuera de scope" (no implement
 
 ---
 
-## 6. Flujo de Trabajo de Git (REGLA PERMANENTE)
-Este proyecto se maneja con **solo dos ramas**. Cualquier sesión de IA o desarrollo manual DEBE respetar esto:
+## 6. Flujo de Trabajo de Git (PREMISA NO NEGOCIABLE)
 
-* **`main`** → Rama estable y desplegable. Railway publica desde aquí. **NUNCA se edita ni se commitea directo en `main`.** Solo recibe fusiones (merge) ya probadas.
-* **`pruebas`** → Única rama de trabajo. TODO el desarrollo, los commits y los `push` van aquí.
+> ⛔ **PREMISA NO NEGOCIABLE:** En este proyecto **SIEMPRE y SOLO se maneja UNA rama de trabajo: `pruebas`**.
+> **NO se crean otras ramas. NUNCA. Por ninguna razón.** Ni ramas de "feature", ni ramas
+> automáticas tipo `claude/*` generadas por el entorno web. Si una sesión arranca en otra
+> rama, lo PRIMERO que se hace es moverse a `pruebas` y trabajar ahí.
+
+Este proyecto se maneja con **solo dos ramas en total** (una de trabajo + una estable). Cualquier sesión de IA o desarrollo manual DEBE respetar esto:
+
+* **`pruebas`** → **ÚNICA** rama de trabajo. TODO el desarrollo, los commits y los `push` van aquí. **Es la única rama que se edita.**
+* **`main`** → Rama estable y desplegable. Railway publica desde aquí. **NUNCA se edita ni se commitea directo en `main`.** Solo recibe fusiones (merge) ya probadas, y solo cuando el usuario lo pida.
+
+### Obligación al iniciar CUALQUIER sesión (IA o manual)
+1. `git fetch origin`
+2. `git checkout pruebas` (si no existe local: `git checkout -b pruebas origin/pruebas`).
+3. `git pull origin pruebas` → empezar siempre desde lo último.
+4. Si el entorno te puso en una rama `claude/*` u otra cualquiera: **cámbiate a `pruebas` antes de tocar nada.** No commitees en la rama autogenerada.
 
 ### Ciclo de trabajo
-1. Se edita en la carpeta local (o en la sesión web).
-2. `git push origin pruebas` → sube los cambios a `pruebas` (jamás a `main`).
+1. Se edita en la carpeta local (o en la sesión web), **siempre sobre `pruebas`**.
+2. `git push origin pruebas` → sube los cambios a `pruebas` (jamás a `main`, jamás a otra rama).
 3. El usuario **prueba** la app (local y/o deploy de pruebas).
 4. **Solo cuando el USUARIO lo pida explícitamente**, se fusiona `pruebas` → `main` (vía Pull Request o merge). La IA NO debe fusionar a `main` por iniciativa propia.
 
 ### Reglas de oro
-* Antes de empezar a trabajar: `git pull origin pruebas`.
-* No crear ramas nuevas de "feature" sueltas: todo vive en `pruebas`.
+* **PROHIBIDO crear ramas nuevas** (feature, fix, experimentales, `claude/*`, etc.). Todo vive en `pruebas`.
+* Antes de empezar a trabajar: `git checkout pruebas && git pull origin pruebas`.
 * No guardar tokens/credenciales dentro del repo ni en la URL del remoto (usar `gh auth login` o SSH).
 
 ---
-*Última actualización: 22 de Junio de 2026*
+*Última actualización: 23 de Junio de 2026*
