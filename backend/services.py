@@ -27,24 +27,19 @@ def normalize_sku_for_match(s: str) -> str:
     return s
 
 
-def sku_prefix_key(norm: str) -> str:
-    """Clave de bloque por prefijo (primeros 3 chars normalizados) para agrupar
-    candidatos a 'variante' (ej. '1203', '1203-1', '1203-3' caen en el mismo
-    bloque). Sirve para no comparar contra toda la maestra."""
-    return norm[:3]
-
-
 def find_similar_sku(sku_val: str, master_norm_index: dict, master_len_buckets: dict,
-                     master_prefix_index: dict, threshold: float = 0.86):
+                     threshold: float = 0.86):
     """Busca un SKU de la maestra parecido a `sku_val` (que NO cruzó exacto).
     Devuelve (sku_maestra_sugerido, motivo, similitud) o None.
 
     Estrategia en pasos para no ser O(N*M):
     1. Match normalizado exacto (dict): cubre diferencias de formato (.0, ceros,
        mayúsculas, espacios) — motivo 'formato', confianza máxima.
-    2. Fuzzy acotado (por longitud ±1 y por prefijo) usando SequenceMatcher:
-       cubre typos y variantes no explícitas (ej. '1203-1' vs '1203') —
-       motivo 'similar'.
+    2. Fuzzy SOLO de mismo largo (sustitución/transposición) usando
+       SequenceMatcher: cubre typos reales (ej. '12O3' vs '1203'). NO se hace
+       fuzzy de largo distinto porque en códigos cortos (ej. '7-59' vs '7-159',
+       '708-1' vs '1708-1') una inserción/borrado casi siempre es OTRO producto:
+       puntúa alto pero es un falso positivo.
     """
     norm = normalize_sku_for_match(sku_val)
     if not norm:
@@ -64,17 +59,8 @@ def find_similar_sku(sku_val: str, master_norm_index: dict, master_len_buckets: 
         if base_hit is not None and base_hit != sku_val:
             return (base_hit, "variante", 1.0)
 
-    # Paso 2: fuzzy. Candidatos = mismo largo (±1) + mismo prefijo (variantes
-    # con sufijo tipo '-1' que cambian la longitud). Se deduplican.
-    seen = set()
-    candidates = []
-    for L in (len(norm) - 1, len(norm), len(norm) + 1):
-        for cand in master_len_buckets.get(L, ()):
-            if cand[1] not in seen:
-                seen.add(cand[1]); candidates.append(cand)
-    for cand in master_prefix_index.get(sku_prefix_key(norm), ()):
-        if cand[1] not in seen:
-            seen.add(cand[1]); candidates.append(cand)
+    # Paso 2: fuzzy SOLO de mismo largo (typos por sustitución/transposición).
+    candidates = master_len_buckets.get(len(norm), ())
     if not candidates:
         return None
 
@@ -359,7 +345,6 @@ def _compute_master_sync(project, req, db):
     # Índices para detectar SKUs "parecidos" (no cruzan exacto pero probable typo/variante).
     master_norm_index = {}       # normalizado -> SKU original de la maestra
     master_len_buckets = {}      # longitud_normalizada -> [(normalizado, original), ...]
-    master_prefix_index = {}     # prefijo(3) -> [(normalizado, original), ...]
     for i, row in enumerate(master_raw[1:]):
         sku_val = (row[master_sku_idx] if master_sku_idx < len(row) else "").strip()
         if sku_val:
@@ -369,7 +354,6 @@ def _compute_master_sync(project, req, db):
             if norm:
                 master_norm_index.setdefault(norm, sku_val)
                 master_len_buckets.setdefault(len(norm), []).append((norm, sku_val))
-                master_prefix_index.setdefault(sku_prefix_key(norm), []).append((norm, sku_val))
             
     rows_updated = 0
     rows_added = 0
@@ -451,7 +435,7 @@ def _compute_master_sync(project, req, db):
                     new_fields[dst_col] = new_val
 
             # ¿Se parece a un SKU que YA existe en la maestra?
-            similar = find_similar_sku(sku_val, master_norm_index, master_len_buckets, master_prefix_index)
+            similar = find_similar_sku(sku_val, master_norm_index, master_len_buckets)
 
             if similar and similar[1] == "variante":
                 # VARIANTE (ej. '1203-1' y existe '1203'): SÍ se crea, pero
