@@ -2,8 +2,41 @@ from googleapiclient.discovery import build
 from google.oauth2 import service_account
 import os
 import re
+import time
 import difflib
 import pandas as pd
+from .sheets_retry import execute_with_retry
+
+
+# --- Caché corta de lecturas de Sheets (para no pegar el límite de 60 lecturas/min) ---
+# Clave: (spreadsheet_id, sheet_name) -> (timestamp, datos). TTL corto: colapsa
+# relecturas de la misma hoja dentro de un mismo ciclo (ej. la Maestra al
+# sincronizar varios procesos). Se invalida al escribir esa hoja.
+_READ_CACHE = {}
+_READ_CACHE_TTL = float(os.getenv("SHEETS_READ_CACHE_TTL", "45"))
+
+
+def _cache_get(spreadsheet_id, sheet_name):
+    entry = _READ_CACHE.get((spreadsheet_id, sheet_name))
+    if entry and (time.time() - entry[0]) < _READ_CACHE_TTL:
+        # copia defensiva para que quien la use no mute la versión cacheada
+        return [list(row) for row in entry[1]]
+    return None
+
+
+def _cache_put(spreadsheet_id, sheet_name, data):
+    _READ_CACHE[(spreadsheet_id, sheet_name)] = (time.time(), [list(row) for row in data])
+
+
+def invalidate_read_cache(spreadsheet_id=None, sheet_name=None):
+    """Borra la caché de lectura. Llamar tras escribir una hoja para que la
+    próxima lectura traiga datos frescos."""
+    if spreadsheet_id is None:
+        _READ_CACHE.clear()
+        return
+    for key in list(_READ_CACHE.keys()):
+        if key[0] == spreadsheet_id and (sheet_name is None or key[1] == sheet_name):
+            _READ_CACHE.pop(key, None)
 
 
 def normalize_sku_for_match(s: str) -> str:
@@ -138,15 +171,15 @@ def get_sheet_metadata(connection):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Faltan credenciales de Google Sheets en el servidor (GOOGLE_CREDENTIALS_JSON no configurado).")
         
-    sheet_metadata = service.spreadsheets().get(spreadsheetId=connection.spreadsheet_id).execute()
+    sheet_metadata = execute_with_retry(service.spreadsheets().get(spreadsheetId=connection.spreadsheet_id))
     sheets = sheet_metadata.get('sheets', '')
-    
+
     result = {}
     for sheet in sheets:
         title = sheet['properties']['title']
         range_name = f"{title}!A1:ZZZ1"
-        response = service.spreadsheets().values().get(
-            spreadsheetId=connection.spreadsheet_id, range=range_name).execute()
+        response = execute_with_retry(service.spreadsheets().values().get(
+            spreadsheetId=connection.spreadsheet_id, range=range_name))
         
         headers = response.get('values', [[]])[0] if response.get('values') else []
         result[title] = headers
@@ -155,11 +188,17 @@ def get_sheet_metadata(connection):
 
 def get_sheet_data(connection, range_name: str):
     """Obtiene los datos usando los conectores modulares."""
-    connector = _create_connector(connection)
-    
     # Extraer el nombre de la hoja de range_name (ej: "Inventario!A1:Z" -> "Inventario")
     sheet_name = range_name.split('!')[0] if '!' in range_name else range_name
-    
+
+    # Caché solo para Google Sheets (es el que tiene cuota). Local/HTTP no.
+    cache_key = getattr(connection, "spreadsheet_id", None)
+    if cache_key:
+        cached = _cache_get(cache_key, sheet_name)
+        if cached is not None:
+            return cached
+
+    connector = _create_connector(connection)
     # Obtener diccionarios y convertir a lista de listas para compatibilidad
     try:
         dict_data = connector.fetch_data(sheet_name)
@@ -169,13 +208,16 @@ def get_sheet_data(connection, range_name: str):
 
     if not dict_data:
         return []
-        
+
     # Convertir dict_data (lista de diccionarios) a lista de listas
     headers = list(dict_data[0].keys())
     result = [headers]
     for row in dict_data:
         result.append([str(row.get(h, "")) for h in headers])
-        
+
+    if cache_key:
+        _cache_put(cache_key, sheet_name, result)
+
     return result
 
 def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
@@ -192,23 +234,24 @@ def write_sheet_data(spreadsheet_id: str, sheet_name: str, data: list) -> dict:
     range_name = f"{sheet_name}!A1"
 
     # 1. Limpiar el rango actual (A:ZZZ para no dejar columnas viejas sin borrar)
-    service.spreadsheets().values().clear(
+    execute_with_retry(service.spreadsheets().values().clear(
         spreadsheetId=spreadsheet_id,
         range=f"{sheet_name}!A:ZZZ"
-    ).execute()
+    ))
 
     # 2. Escribir los datos nuevos
     # RAW (no USER_ENTERED): evita que Sheets reformatee los SKU (notación
     # científica, fechas, ceros a la izquierda), lo que rompía la coincidencia
     # de SKU y causaba productos duplicados en cada sincronización.
     body = {"values": data}
-    result = service.spreadsheets().values().update(
+    result = execute_with_retry(service.spreadsheets().values().update(
         spreadsheetId=spreadsheet_id,
         range=range_name,
         valueInputOption="RAW",
         body=body
-    ).execute()
+    ))
 
+    invalidate_read_cache(spreadsheet_id, sheet_name)
     return {"rows_written": result.get("updatedRows", 0)}
 
 def column_index_to_letter(col_idx: int) -> str:
@@ -267,7 +310,7 @@ def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: lis
         last_row = max(total_rows_before, 1)
         table_range = f"{sheet_name}!A1:{last_col}{last_row}"
 
-        service.spreadsheets().values().append(
+        execute_with_retry(service.spreadsheets().values().append(
             spreadsheetId=spreadsheet_id,
             range=table_range,
             # RAW: preserva los SKU exactos también en filas nuevas (si no, Sheets
@@ -275,7 +318,7 @@ def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: lis
             valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body={"values": append_values}
-        ).execute()
+        ))
 
     # Ejecutar Batch Update
     if updates:
@@ -284,12 +327,14 @@ def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: lis
             "valueInputOption": "RAW",
             "data": updates
         }
-        result = service.spreadsheets().values().batchUpdate(
+        result = execute_with_retry(service.spreadsheets().values().batchUpdate(
             spreadsheetId=spreadsheet_id,
             body=body
-        ).execute()
+        ))
+        invalidate_read_cache(spreadsheet_id, sheet_name)
         return {"total_updates": result.get("totalUpdatedCells", 0)}
-    
+
+    invalidate_read_cache(spreadsheet_id, sheet_name)
     return {"total_updates": 0}
 
 from .models import Project, Connection

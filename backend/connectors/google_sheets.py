@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Tuple
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from .base import BaseConnector
+from ..sheets_retry import execute_with_retry
 
 class GoogleSheetsConnector(BaseConnector):
     """Conector para importar datos desde Google Sheets."""
@@ -39,8 +40,8 @@ class GoogleSheetsConnector(BaseConnector):
         # y no acota el número de filas.
         range_name = f"{source_path}!A:ZZZ"
         
-        response = service.spreadsheets().values().get(
-            spreadsheetId=self.spreadsheet_id, range=range_name).execute()
+        response = execute_with_retry(service.spreadsheets().values().get(
+            spreadsheetId=self.spreadsheet_id, range=range_name))
         
         values = response.get('values', [])
         if not values:
@@ -76,7 +77,7 @@ class GoogleSheetsConnector(BaseConnector):
         """Prueba si puede leer la metadata de la hoja."""
         try:
             service = self._get_service()
-            service.spreadsheets().get(spreadsheetId=self.spreadsheet_id).execute()
+            execute_with_retry(service.spreadsheets().get(spreadsheetId=self.spreadsheet_id))
             return True, "Conexión a Google Sheets exitosa."
         except Exception as e:
             return False, f"Fallo de conexión a Google Sheets: {str(e)}"
