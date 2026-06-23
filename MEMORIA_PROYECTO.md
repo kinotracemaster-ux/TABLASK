@@ -27,14 +27,16 @@ El sistema se divide en 4 pilares reflejados en la interfaz (React):
    - Si el Guardián detecta <10% de coincidencias de SKU, bloquea preventivamente la ejecución (requiere override manual).
 * **Distribución Quirúrgica (Suscripciones):** Las hojas hijas reciben automáticamente *sólo los campos a los que están suscritas*, propagados mediante `BackgroundTasks` en la API (FastAPI) únicamente si la escritura original a la Maestra fue exitosa. Las escrituras a hijas fallidas se loggean pero no abortan el pipeline.
 * **Escritura Celda por Celda (BatchUpdate):** En vez de descargar y reescribir la matriz gigante de Google Sheets, el motor actualiza la nube mediante el API granular enviando únicamente los rangos "A2, B4..." que cambiaron (`write_sheet_data_surgical`).
-* **Detección de "No cruzaron" (anti-duplicados por typo/variante):** Cuando un código del origen NO cruza exacto con ningún SKU de la maestra, antes de crearlo como fila nueva el motor verifica si se *parece* a un SKU existente (`find_similar_sku` en `services.py`). Según el motivo el comportamiento difiere:
-  - **`formato`** (`1203.0`/`01203`/mayúsculas/espacios) y **`similar`** (fuzzy ≥0.86 **solo de mismo largo** → typos por sustitución/transposición): NO se crean (evitar duplicados); se marcan como **sospechosos** para revisión manual (resaltado ámbar en Staging y preview). El fuzzy NO compara largos distintos a propósito: en códigos cortos una inserción/borrado (`7-59` vs `7-159`, `708-1` vs `1708-1`) casi siempre es OTRO producto y generaba falsos positivos.
-  - **`variante`** (`1203-1`/`1203/2` cuando existe la base `1203`): SÍ se crea como fila nueva, **heredando todos los datos del código padre** y aplicando encima los datos del origen; además se marca/resalta (sección teal) para sanity-check.
-  La comparación es SOLO para detectar/heredar; el valor real del SKU del origen nunca se altera. Los códigos que no se parecen a nada siguen entrando como nuevos legítimos.
-* **Microsistema de resolución de 'No cruzaron' (Staging):** En la Cola de Aprobación, la sección "No cruzaron" es interactiva: checkbox por fila + "seleccionar todo" + dos acciones en bloque. El endpoint `POST /api/staging/{batch_id}/resolve` aplica sobre el lote persistido según `action`:
-  - **`cross`**: los datos del código del origen pasan a **actualizar la fila del SKU sugerido** (se convierte en un `change`, nunca se pisa el SKU destino).
-  - **`create`**: el código se **fuerza como producto nuevo** (fila nueva con su código + datos del origen; se añade a `master_raw` y a `new_rows`).
-  En ambos casos el código sale de la lista de sospechosos y se recalculan los contadores (`rows_suspect`, `rows_to_update`, `rows_to_add`). No escribe a Sheets aún; deja el lote listo para Aprobar/Ejecutar.
+* **Clasificación del sync (REGLA central): solo rellenar, marcar el resto.** En `_compute_master_sync` (`services.py`):
+  - **Coincidencia exacta** → se **rellena** (actualiza) la fila de la Maestra. Único caso automático que escribe.
+  - **No cruza exacto** → NUNCA se crea solo; se **marca** en uno de dos grupos para revisión manual en el microsistema:
+    - **`suspects` ("se parecen")**: se parece a un SKU existente vía `find_similar_sku` — `formato` (`1203.0`/`01203`/mayúsculas), `variante` (`1203-1` con base `1203`) o `similar` (fuzzy ≥0.86 **solo de mismo largo**; no compara largos distintos porque en códigos cortos `7-59`/`7-159`, `708-1`/`1708-1` son otro producto y daban falsos positivos).
+    - **`new_candidates` ("no aparecen")**: no se parece a nada.
+  `rows_added` siempre 0 y `new_rows` vacío en el sync: las altas solo ocurren por el microsistema. El valor real del SKU nunca se altera.
+* **Microsistema de resolución (Staging):** En la Cola de Aprobación, "Se parecen" y "No aparecen" son tablas interactivas (checkbox por fila + seleccionar todo). `POST /api/staging/{batch_id}/resolve` aplica sobre el lote persistido según `action`:
+  - **`cross`** (solo "se parecen"): los datos del código pasan a **actualizar la fila del SKU sugerido** (genera `change`, nunca pisa el SKU destino).
+  - **`create`** (ambos grupos): el código se **da de alta como producto nuevo** (fila nueva a `master_raw` y `new_rows`).
+  El código sale de su grupo y se recalculan contadores. No escribe a Sheets aún; deja el lote listo para Aprobar/Ejecutar. **Nota infra:** `StagingQueue.jsx` usa la base `API` (`VITE_API_URL`) en todos sus `fetch`; con rutas relativas la pantalla fallaba cuando el backend está en otro host.
 
 ## 4. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):

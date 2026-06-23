@@ -472,25 +472,21 @@ export default function Processes() {
                 {/* Preview/Result Panel */}
                 {st?.preview && (
                   <div className="border-t border-gray-100 bg-gray-50 p-4">
-                    <div className="grid grid-cols-6 gap-3 mb-3">
+                    <div className="grid grid-cols-5 gap-3 mb-3">
                       <div className="bg-white p-2 rounded-lg border text-center">
                         <p className="text-xs text-gray-500">Filas de Origen</p>
                         <p className="text-lg font-bold text-gray-800">{st.preview.total_origen}</p>
                       </div>
                       <div className="bg-blue-50 p-2 rounded-lg border border-blue-200 text-center">
-                        <p className="text-[10px] font-bold text-blue-600 uppercase">Se Sobreescribirán</p>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase">Se Rellenan</p>
                         <p className="text-lg font-bold text-blue-700">{st.preview.rows_updated}</p>
                       </div>
-                      <div className="bg-green-50 p-2 rounded-lg border border-green-200 text-center">
-                        <p className="text-[10px] font-bold text-green-600 uppercase">Se Añadirán (Nuevos)</p>
-                        <p className="text-lg font-bold text-green-700">{st.preview.rows_added}</p>
-                      </div>
-                      <div className={`p-2 rounded-lg border text-center ${(st.preview.rows_variant || 0) > 0 ? 'bg-teal-50 border-teal-300' : 'bg-gray-50'}`}>
-                        <p className="text-[10px] font-bold text-teal-600 uppercase">Variantes (del padre)</p>
-                        <p className={`text-lg font-bold ${(st.preview.rows_variant || 0) > 0 ? 'text-teal-700' : 'text-gray-400'}`}>{st.preview.rows_variant || 0}</p>
+                      <div className={`p-2 rounded-lg border text-center ${(st.preview.rows_new_candidate || 0) > 0 ? 'bg-sky-50 border-sky-300' : 'bg-gray-50'}`}>
+                        <p className="text-[10px] font-bold text-sky-600 uppercase">No Aparecen</p>
+                        <p className={`text-lg font-bold ${(st.preview.rows_new_candidate || 0) > 0 ? 'text-sky-700' : 'text-gray-400'}`}>{st.preview.rows_new_candidate || 0}</p>
                       </div>
                       <div className={`p-2 rounded-lg border text-center ${(st.preview.rows_suspect || 0) > 0 ? 'bg-amber-50 border-amber-300' : 'bg-gray-50'}`}>
-                        <p className="text-[10px] font-bold text-amber-600 uppercase">No Cruzaron</p>
+                        <p className="text-[10px] font-bold text-amber-600 uppercase">Se Parecen</p>
                         <p className={`text-lg font-bold ${(st.preview.rows_suspect || 0) > 0 ? 'text-amber-700' : 'text-gray-400'}`}>{st.preview.rows_suspect || 0}</p>
                       </div>
                       <div className="bg-gray-50 p-2 rounded-lg border text-center">
@@ -499,29 +495,16 @@ export default function Processes() {
                       </div>
                     </div>
 
-                    {/* Detalle de VARIANTES creadas heredando del padre */}
-                    {st.preview.detail_variant?.length > 0 && (
-                      <div className="mb-3">
-                        <p className="text-xs font-semibold text-teal-700 mb-1">🧬 Variantes que se crearán heredando datos del código padre ({st.preview.detail_variant.length}):</p>
-                        <div className="bg-teal-50 border border-teal-200 rounded-lg p-2 max-h-32 overflow-y-auto space-y-0.5">
-                          {st.preview.detail_variant.slice(0, 100).map((v, i) => (
-                            <div key={i} className="text-xs font-mono flex gap-2 items-center">
-                              <span className="text-gray-800 w-28 truncate shrink-0">{v.sku}</span>
-                              <span className="text-teal-500 shrink-0">↤ hereda de</span>
-                              <span className="text-teal-700 font-semibold w-28 truncate shrink-0">{v.variant_of}</span>
-                            </div>
-                          ))}
-                          {st.preview.detail_variant.length > 100 && (
-                            <p className="text-xs text-teal-400 mt-1">... y {st.preview.detail_variant.length - 100} más</p>
-                          )}
-                        </div>
-                      </div>
+                    {((st.preview.rows_new_candidate || 0) + (st.preview.rows_suspect || 0)) > 0 && (
+                      <p className="text-[11px] text-gray-500 mb-2">
+                        ℹ️ Solo se rellenan las coincidencias. Lo de "No aparecen" y "Se parecen" NO se crea aquí: <b>envía a Staging</b> para crearlos o cruzarlos a mano.
+                      </p>
                     )}
 
-                    {/* Detalle de códigos que NO cruzaron (posibles typos/variantes) */}
+                    {/* Detalle de códigos que SE PARECEN a un SKU existente */}
                     {st.preview.detail_suspect?.length > 0 && (
                       <div className="mb-3">
-                        <p className="text-xs font-semibold text-amber-700 mb-1">⚠️ No cruzaron — posibles typos o duplicados por formato ({st.preview.detail_suspect.length}). NO se crean, requieren revisión:</p>
+                        <p className="text-xs font-semibold text-amber-700 mb-1">⚠️ Se parecen a un SKU existente ({st.preview.detail_suspect.length}). NO se crean, revisar en Staging:</p>
                         <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 max-h-32 overflow-y-auto space-y-0.5">
                           {st.preview.detail_suspect.slice(0, 100).map((s, i) => (
                             <div key={i} className="text-xs font-mono flex gap-2 items-center">
@@ -538,14 +521,14 @@ export default function Processes() {
                       </div>
                     )}
 
-                    {/* Detalle de filas NUEVAS */}
-                    {st.preview.detail_added?.length > 0 && (
+                    {/* Detalle de códigos que NO APARECEN en la Maestra */}
+                    {st.preview.detail_new_candidate?.length > 0 && (
                       <div className="mb-3">
-                        <p className="text-xs font-semibold text-green-700 mb-1">🆕 Códigos que se crearán ({st.preview.detail_added.length}):</p>
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-2 max-h-32 overflow-y-auto">
+                        <p className="text-xs font-semibold text-sky-700 mb-1">🆕 No aparecen en la Maestra ({st.preview.detail_new_candidate.length}). NO se crean solos, darlos de alta en Staging:</p>
+                        <div className="bg-sky-50 border border-sky-200 rounded-lg p-2 max-h-32 overflow-y-auto">
                           <div className="flex flex-wrap gap-1">
-                            {st.preview.detail_added.map((r, i) => (
-                              <span key={i} className="inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded font-mono">
+                            {st.preview.detail_new_candidate.map((r, i) => (
+                              <span key={i} className="inline-block bg-sky-100 text-sky-800 text-xs px-2 py-0.5 rounded font-mono">
                                 {r.sku}
                               </span>
                             ))}

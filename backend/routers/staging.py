@@ -229,15 +229,19 @@ def resolve_suspects(batch_id: int, req: ResolveRequest, db: Session = Depends(g
         if v:
             idx_by_sku.setdefault(v, i)
 
-    suspects = diff.get("suspects", [])
-    suspects_by_sku = {s["sku"]: s for s in suspects}
+    suspects = diff.get("suspects", [])          # 'se parecen'
+    new_candidates = diff.get("new_candidates", [])  # 'no aparecen'
+    # Ambos grupos son resolubles; se buscan por SKU del origen.
+    items_by_sku = {}
+    for it in suspects + new_candidates:
+        items_by_sku.setdefault(it["sku"], it)
     changes = diff.get("changes", [])
     new_rows = diff.get("new_rows", [])
 
     applied, created, not_found, no_suspect = [], [], [], []
 
     for r in req.resolutions:
-        susp = suspects_by_sku.get(r.sku)
+        susp = items_by_sku.get(r.sku)
         if not susp:
             no_suspect.append(r.sku)
             continue
@@ -283,10 +287,14 @@ def resolve_suspects(batch_id: int, req: ResolveRequest, db: Session = Depends(g
             master_raw[ti] = row
             applied.append(r.sku)
 
-    # Quitar de 'no cruzaron' los resueltos y recalcular contadores.
-    remaining = [s for s in suspects if s["sku"] not in applied]
-    diff["suspects"] = remaining
-    diff["rows_suspect"] = len(remaining)
+    # Quitar de ambos grupos los resueltos y recalcular contadores.
+    applied_set = set(applied)
+    remaining_suspects = [s for s in suspects if s["sku"] not in applied_set]
+    remaining_candidates = [c for c in new_candidates if c["sku"] not in applied_set]
+    diff["suspects"] = remaining_suspects
+    diff["rows_suspect"] = len(remaining_suspects)
+    diff["new_candidates"] = remaining_candidates
+    diff["rows_new_candidate"] = len(remaining_candidates)
     diff["changes"] = changes
     diff["rows_to_update"] = len({c["row_index"] for c in changes})
     diff["new_rows"] = new_rows

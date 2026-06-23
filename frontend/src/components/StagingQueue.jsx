@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Database, CheckCircle2, XCircle, AlertTriangle, Search, Filter, Link2, PlusCircle } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
+const API = import.meta.env.VITE_API_URL || '';
+
 export default function StagingQueue() {
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +38,7 @@ export default function StagingQueue() {
     if (resolutions.length === 0) return;
     setResolving(prev => ({ ...prev, [batch.id]: true }));
     try {
-      const res = await fetch(`/api/staging/${batch.id}/resolve`, {
+      const res = await fetch(`${API}/api/staging/${batch.id}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resolutions }),
@@ -66,7 +68,7 @@ export default function StagingQueue() {
 
   const fetchPendingBatches = async () => {
     try {
-      const res = await fetch('/api/staging/pending');
+      const res = await fetch(`${API}/api/staging/pending`);
       if (res.ok) {
         const data = await res.json();
         setBatches(data);
@@ -80,7 +82,7 @@ export default function StagingQueue() {
 
   const handleApprove = async (batchId) => {
     try {
-      const res = await fetch(`/api/staging/${batchId}/approve`, { method: 'POST' });
+      const res = await fetch(`${API}/api/staging/${batchId}/approve`, { method: 'POST' });
       if (res.ok) {
         setBatches(batches.filter(b => b.id !== batchId));
       } else {
@@ -95,7 +97,7 @@ export default function StagingQueue() {
 
   const handleReject = async (batchId) => {
     try {
-      const res = await fetch(`/api/staging/${batchId}/reject`, { method: 'POST' });
+      const res = await fetch(`${API}/api/staging/${batchId}/reject`, { method: 'POST' });
       if (res.ok) {
         setBatches(batches.filter(b => b.id !== batchId));
       }
@@ -168,54 +170,25 @@ export default function StagingQueue() {
                 <div className="p-6 bg-gray-50 grid grid-cols-5 gap-4">
                   <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
                     <span className="block text-2xl font-bold text-blue-600">{diff.rows_to_update || 0}</span>
-                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Actualizaciones</span>
+                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Se rellenan</span>
                   </div>
                   <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
                     <span className="block text-2xl font-bold text-green-600">{diff.rows_to_add || 0}</span>
-                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Nuevos</span>
+                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Creados (a mano)</span>
                   </div>
-                  <div className={`p-4 rounded-lg border text-center ${(diff.rows_variant || 0) > 0 ? 'bg-teal-50 border-teal-300' : 'bg-white border-gray-200'}`}>
-                    <span className={`block text-2xl font-bold ${(diff.rows_variant || 0) > 0 ? 'text-teal-600' : 'text-gray-400'}`}>{diff.rows_variant || 0}</span>
-                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Variantes</span>
+                  <div className={`p-4 rounded-lg border text-center ${(diff.rows_new_candidate || 0) > 0 ? 'bg-sky-50 border-sky-300' : 'bg-white border-gray-200'}`}>
+                    <span className={`block text-2xl font-bold ${(diff.rows_new_candidate || 0) > 0 ? 'text-sky-600' : 'text-gray-400'}`}>{diff.rows_new_candidate || 0}</span>
+                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">No aparecen</span>
                   </div>
                   <div className={`p-4 rounded-lg border text-center ${(diff.rows_suspect || 0) > 0 ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200'}`}>
                     <span className={`block text-2xl font-bold ${(diff.rows_suspect || 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{diff.rows_suspect || 0}</span>
-                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">No cruzaron</span>
+                    <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Se parecen</span>
                   </div>
                   <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
                     <span className="block text-2xl font-bold text-gray-400">{diff.rows_unchanged || 0}</span>
                     <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Sin cambios</span>
                   </div>
                 </div>
-
-                {diff.variants && diff.variants.length > 0 && (
-                  <div className="p-4 bg-teal-50 border-t border-teal-200">
-                    <h4 className="text-sm font-bold text-teal-800 flex items-center gap-2 mb-1">
-                      🧬 Variantes a crear (heredan datos del padre) ({diff.variants.length})
-                    </h4>
-                    <p className="text-xs text-teal-700 mb-3">
-                      Estos códigos parecen variantes (sufijo tipo <code>-1</code>) de un SKU existente. SÍ se crean como filas nuevas, rellenadas con los datos del código padre y luego los datos del origen encima. Revísalas por si alguna no debería heredar.
-                    </p>
-                    <div className="max-h-64 overflow-y-auto rounded-lg border border-teal-200 bg-white">
-                      <table className="w-full text-sm">
-                        <thead className="bg-teal-100 text-teal-900 sticky top-0">
-                          <tr>
-                            <th className="text-left px-3 py-2 font-semibold">Código nuevo</th>
-                            <th className="text-left px-3 py-2 font-semibold">Hereda del padre</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {diff.variants.map((v, i) => (
-                            <tr key={i} className="border-t border-teal-100">
-                              <td className="px-3 py-2 font-mono text-gray-800">{v.sku}</td>
-                              <td className="px-3 py-2 font-mono text-teal-700 font-semibold">{v.variant_of}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
 
                 {diff.suspects && diff.suspects.length > 0 && (() => {
                   const suspects = diff.suspects;
@@ -227,7 +200,7 @@ export default function StagingQueue() {
                     <div className="flex items-start justify-between gap-3 mb-1">
                       <h4 className="text-sm font-bold text-amber-800 flex items-center gap-2">
                         <AlertTriangle className="w-4 h-4" />
-                        No cruzaron — revisa y cruza ({suspects.length})
+                        Se parecen a un SKU existente — revisa ({suspects.length})
                       </h4>
                       <div className="flex gap-2 shrink-0">
                         <button
@@ -282,6 +255,59 @@ export default function StagingQueue() {
                                     : `Similar${s.similarity ? ` (${Math.round(s.similarity * 100)}%)` : ''}`}
                                 </span>
                               </td>
+                            </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  );
+                })()}
+
+                {diff.new_candidates && diff.new_candidates.length > 0 && (() => {
+                  const items = diff.new_candidates;
+                  const allOn = items.every(s => selected[keyFor(batch.id, s.sku)]);
+                  const nSel = selectedCount(batch, items);
+                  const busy = !!resolving[batch.id];
+                  return (
+                  <div className="p-4 bg-sky-50 border-t border-sky-200">
+                    <div className="flex items-start justify-between gap-3 mb-1">
+                      <h4 className="text-sm font-bold text-sky-800 flex items-center gap-2">
+                        <PlusCircle className="w-4 h-4" />
+                        No aparecen en la Maestra — revisa ({items.length})
+                      </h4>
+                      <button
+                        onClick={() => handleResolve(batch, items, 'create')}
+                        disabled={nSel === 0 || busy}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                      >
+                        <PlusCircle className="w-3.5 h-3.5" />
+                        {busy ? '...' : `Crear como nuevos (${nSel})`}
+                      </button>
+                    </div>
+                    <p className="text-xs text-sky-700 mb-3">
+                      Estos códigos no existen ni se parecen a nada en la Maestra. No se crean solos: marca los que quieras dar de alta como productos nuevos. Los que no marques quedan sin tocar.
+                    </p>
+                    <div className="max-h-64 overflow-y-auto rounded-lg border border-sky-200 bg-white">
+                      <table className="w-full text-sm">
+                        <thead className="bg-sky-100 text-sky-900 sticky top-0">
+                          <tr>
+                            <th className="px-3 py-2 w-10 text-center">
+                              <input type="checkbox" checked={allOn} onChange={() => toggleSelectAll(batch, items)} />
+                            </th>
+                            <th className="text-left px-3 py-2 font-semibold">Código del origen</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map((s, i) => {
+                            const on = !!selected[keyFor(batch.id, s.sku)];
+                            return (
+                            <tr key={i} className={`border-t border-sky-100 ${on ? 'bg-sky-50' : ''}`}>
+                              <td className="px-3 py-2 text-center">
+                                <input type="checkbox" checked={on} onChange={() => toggleSelect(batch.id, s.sku)} />
+                              </td>
+                              <td className="px-3 py-2 font-mono text-gray-800">{s.sku}</td>
                             </tr>
                             );
                           })}
