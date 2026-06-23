@@ -31,6 +31,7 @@ El sistema se divide en 4 pilares reflejados en la interfaz (React):
   - **`formato`** (`1203.0`/`01203`/mayúsculas/espacios) y **`similar`** (fuzzy ≥0.86, typos): NO se crean (evitar duplicados); se marcan como **sospechosos** para revisión manual (resaltado ámbar en Staging y preview).
   - **`variante`** (`1203-1`/`1203/2` cuando existe la base `1203`): SÍ se crea como fila nueva, **heredando todos los datos del código padre** y aplicando encima los datos del origen; además se marca/resalta (sección teal) para sanity-check.
   La comparación es SOLO para detectar/heredar; el valor real del SKU del origen nunca se altera. Los códigos que no se parecen a nada siguen entrando como nuevos legítimos.
+* **Microsistema de resolución de 'No cruzaron' (Staging):** En la Cola de Aprobación, la sección "No cruzaron" es interactiva: checkbox por fila + "seleccionar todo" + botón **"Cruzar seleccionados"**. Al cruzar, el endpoint `POST /api/staging/{batch_id}/resolve` aplica sobre el lote persistido la decisión: los datos del código del origen pasan a **actualizar la fila del SKU sugerido** (se convierte en un `change`, nunca se pisa el SKU destino), el código sale de la lista de sospechosos y se recalculan los contadores. No escribe a Sheets aún; deja el lote listo para Aprobar/Ejecutar. Diseñado extensible (campo `action`, hoy solo `"cross"`) para sumar luego "crear como nuevo"/cruce manual.
 
 ## 4. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):

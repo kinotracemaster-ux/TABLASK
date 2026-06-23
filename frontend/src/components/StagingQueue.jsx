@@ -1,10 +1,62 @@
 import { useState, useEffect } from 'react';
-import { Database, CheckCircle2, XCircle, AlertTriangle, Search, Filter } from 'lucide-react';
+import { Database, CheckCircle2, XCircle, AlertTriangle, Search, Filter, Link2 } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 export default function StagingQueue() {
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState({}); // `${batchId}::${sku}` -> true
+  const [resolving, setResolving] = useState({}); // batchId -> bool
+
+  const keyFor = (batchId, sku) => `${batchId}::${sku}`;
+
+  const toggleSelect = (batchId, sku) => {
+    const k = keyFor(batchId, sku);
+    setSelected(prev => ({ ...prev, [k]: !prev[k] }));
+  };
+
+  const toggleSelectAll = (batch, suspects) => {
+    const allOn = suspects.every(s => selected[keyFor(batch.id, s.sku)]);
+    setSelected(prev => {
+      const next = { ...prev };
+      suspects.forEach(s => { next[keyFor(batch.id, s.sku)] = !allOn; });
+      return next;
+    });
+  };
+
+  const selectedCount = (batch, suspects) =>
+    suspects.filter(s => selected[keyFor(batch.id, s.sku)]).length;
+
+  const handleResolve = async (batch, suspects) => {
+    const resolutions = suspects
+      .filter(s => selected[keyFor(batch.id, s.sku)])
+      .map(s => ({ sku: s.sku, action: 'cross', target_sku: s.suggested_sku }));
+    if (resolutions.length === 0) return;
+    setResolving(prev => ({ ...prev, [batch.id]: true }));
+    try {
+      const res = await fetch(`/api/staging/${batch.id}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolutions }),
+      });
+      if (res.ok) {
+        // limpiar selección de este lote y recargar para ver contadores actualizados
+        setSelected(prev => {
+          const next = { ...prev };
+          suspects.forEach(s => { delete next[keyFor(batch.id, s.sku)]; });
+          return next;
+        });
+        await fetchPendingBatches();
+      } else {
+        alert(await extractError(res));
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Fallo al cruzar los códigos.');
+    } finally {
+      setResolving(prev => ({ ...prev, [batch.id]: false }));
+    }
+  };
 
   useEffect(() => {
     fetchPendingBatches();
@@ -163,27 +215,50 @@ export default function StagingQueue() {
                   </div>
                 )}
 
-                {diff.suspects && diff.suspects.length > 0 && (
+                {diff.suspects && diff.suspects.length > 0 && (() => {
+                  const suspects = diff.suspects;
+                  const allOn = suspects.every(s => selected[keyFor(batch.id, s.sku)]);
+                  const nSel = selectedCount(batch, suspects);
+                  const busy = !!resolving[batch.id];
+                  return (
                   <div className="p-4 bg-amber-50 border-t border-amber-200">
-                    <h4 className="text-sm font-bold text-amber-800 flex items-center gap-2 mb-1">
-                      <AlertTriangle className="w-4 h-4" />
-                      No cruzaron — posibles typos o duplicados por formato ({diff.suspects.length})
-                    </h4>
+                    <div className="flex items-start justify-between gap-3 mb-1">
+                      <h4 className="text-sm font-bold text-amber-800 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        No cruzaron — revisa y cruza ({suspects.length})
+                      </h4>
+                      <button
+                        onClick={() => handleResolve(batch, suspects)}
+                        disabled={nSel === 0 || busy}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                        {busy ? 'Cruzando...' : `Cruzar seleccionados (${nSel})`}
+                      </button>
+                    </div>
                     <p className="text-xs text-amber-700 mb-3">
-                      Estos códigos se parecen a un SKU que ya existe en la Maestra, así que NO se crearon como nuevos para evitar duplicados. Revísalos: corrige el código en el origen o, si de verdad es un producto distinto, créalo a mano.
+                      Marca los que SÍ son el mismo producto: al cruzarlos, sus datos pasan a actualizar la fila del SKU sugerido (deja de contar como "no cruzó"). Los que no marques quedan sin tocar.
                     </p>
                     <div className="max-h-64 overflow-y-auto rounded-lg border border-amber-200 bg-white">
                       <table className="w-full text-sm">
                         <thead className="bg-amber-100 text-amber-900 sticky top-0">
                           <tr>
+                            <th className="px-3 py-2 w-10 text-center">
+                              <input type="checkbox" checked={allOn} onChange={() => toggleSelectAll(batch, suspects)} />
+                            </th>
                             <th className="text-left px-3 py-2 font-semibold">Código del origen</th>
-                            <th className="text-left px-3 py-2 font-semibold">SKU parecido en Maestra</th>
+                            <th className="text-left px-3 py-2 font-semibold">Cruzar con (Maestra)</th>
                             <th className="text-left px-3 py-2 font-semibold">Motivo</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {diff.suspects.map((s, i) => (
-                            <tr key={i} className="border-t border-amber-100">
+                          {suspects.map((s, i) => {
+                            const on = !!selected[keyFor(batch.id, s.sku)];
+                            return (
+                            <tr key={i} className={`border-t border-amber-100 ${on ? 'bg-amber-50' : ''}`}>
+                              <td className="px-3 py-2 text-center">
+                                <input type="checkbox" checked={on} onChange={() => toggleSelect(batch.id, s.sku)} />
+                              </td>
                               <td className="px-3 py-2 font-mono text-gray-800">{s.sku}</td>
                               <td className="px-3 py-2 font-mono text-amber-700 font-semibold">{s.suggested_sku}</td>
                               <td className="px-3 py-2">
@@ -196,12 +271,14 @@ export default function StagingQueue() {
                                 </span>
                               </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
                   </div>
-                )}
+                  );
+                })()}
 
                 {diff.warnings && diff.warnings.length > 0 && (
                   <div className="p-4 bg-yellow-50 border-t border-yellow-100">
