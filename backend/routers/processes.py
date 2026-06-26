@@ -33,6 +33,93 @@ def create_process(proc: schemas.ProcessCreate, db: Session = Depends(get_db)):
     db_proc.field_mappings = json.loads(db_proc.field_mappings)
     return db_proc
 
+# ──────────────────────────────────────────────────────────────────────────
+# Procesos preestablecidos (plantillas): crean un proceso ya configurado
+# usando el cerebro de auto-mapeo (intelligent_engine), para no mapear a mano.
+# ──────────────────────────────────────────────────────────────────────────
+PRESETS = {
+    "base_to_master": {
+        "name": "Sincronizar Master ← BASE",
+        "description": "Trae código, nombre, precio y stock de la hoja BASE y los refleja en la Master. Cruza por SKU normalizado y crea en la Master lo que falte.",
+        "source_sheet_aliases": ["base"],
+    }
+}
+# Nombres típicos de la columna llave (SKU/código) en el origen.
+_SOURCE_KEY_ALIASES = {"codigo", "código", "code", "cod", "sku", "id", "ref", "referencia"}
+
+
+@router.get("/presets")
+def list_presets():
+    """Catálogo de procesos preestablecidos disponibles."""
+    return [{"id": k, "name": v["name"], "description": v["description"]} for k, v in PRESETS.items()]
+
+
+@router.post("/presets/{preset_id}", response_model=schemas.Process)
+def create_preset(preset_id: str, db: Session = Depends(get_db)):
+    """Crea (o actualiza) un proceso a partir de una plantilla, auto-detectando
+    hoja origen, columna llave y mapeo de campos con el cerebro de auto-mapeo."""
+    preset = PRESETS.get(preset_id)
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset no encontrado")
+
+    from ..services import get_sheet_metadata, get_sheet_data
+    from ..intelligent_engine import auto_map_columns, detect_potential_keys
+
+    project, master_conn, master_sheet = _get_master_info(db)
+    if not project or not master_conn:
+        raise HTTPException(status_code=400, detail="Configura primero la Tabla Maestra (conexión maestra).")
+
+    meta = get_sheet_metadata(master_conn)  # {hoja: [encabezados]}
+    base_sheet = next((s for s in meta if s.strip().lower() in preset["source_sheet_aliases"]), None)
+    if not base_sheet:
+        raise HTTPException(status_code=400, detail=f"No encontré la hoja BASE. Hojas disponibles: {', '.join(meta.keys())}")
+
+    base_headers = meta.get(base_sheet) or []
+    master_headers = meta.get(master_sheet) or []
+    if not base_headers:
+        raise HTTPException(status_code=400, detail=f"La hoja '{base_sheet}' no tiene encabezados.")
+    if not master_headers:
+        raise HTTPException(status_code=400, detail=f"La hoja Master '{master_sheet}' no tiene encabezados.")
+
+    # Columna SKU en la Master: la configurada en el proyecto, o 'sku'.
+    sku_master = project.master_sku_column or next((h for h in master_headers if h.lower() == "sku"), master_headers[0])
+
+    # Columna llave en BASE: por nombre; si no, detección por datos.
+    sku_source = next((h for h in base_headers if h.strip().lower() in _SOURCE_KEY_ALIASES), None)
+    if not sku_source:
+        rows = get_sheet_data(master_conn, f"{base_sheet}!A1:Z")[1:60]
+        keys = detect_potential_keys(base_headers, rows)
+        sku_source = keys[0]["columna"] if keys and keys[0]["confianza"] > 0 else base_headers[0]
+
+    # Mapeo automático del núcleo (excluye la llave).
+    field_mappings = {}
+    for s in auto_map_columns(base_headers, master_headers):
+        if s["source_field"] == sku_source:
+            continue
+        if s["target_field"] and s["confidence"] in ("exact", "semantic"):
+            field_mappings[s["source_field"]] = s["target_field"]
+
+    # Idempotente: si ya existe el proceso de esta plantilla, se actualiza.
+    proc = db.query(models.Process).filter(models.Process.name == preset["name"]).first()
+    if proc is None:
+        proc = models.Process(name=preset["name"], description=preset["description"])
+        db.add(proc)
+    proc.description = preset["description"]
+    proc.source_connection_id = master_conn.id
+    proc.source_sheet_name = base_sheet
+    proc.target_connection_id = None   # usa la maestra global
+    proc.target_sheet_name = None
+    proc.sku_column_source = sku_source
+    proc.sku_column_master = sku_master
+    proc.field_mappings = json.dumps(field_mappings, ensure_ascii=False)
+    proc.add_new_rows = True
+    proc.is_active = True
+    db.commit()
+    db.refresh(proc)
+    proc.field_mappings = json.loads(proc.field_mappings)
+    return proc
+
+
 @router.get("/", response_model=list[schemas.Process])
 def list_processes(db: Session = Depends(get_db)):
     procs = db.query(models.Process).all()

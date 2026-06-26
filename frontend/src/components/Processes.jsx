@@ -12,6 +12,7 @@ export default function Processes() {
   const [loading, setLoading] = useState(true);
   const [masterInfo, setMasterInfo] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [presetBusy, setPresetBusy] = useState(false);
 
   // Form state
   const [name, setName] = useState('');
@@ -254,6 +255,26 @@ export default function Processes() {
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando procesos...</div>;
 
+  const createPreset = async (presetId) => {
+    setPresetBusy(true);
+    try {
+      const res = await fetch(`${API}/api/processes/presets/${presetId}`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        await loadAll();
+        const mapped = Object.entries(data.field_mappings || {}).map(([s, d]) => `${s} → ${d}`).join(', ');
+        alert(`✅ Proceso "${data.name}" listo.\n\nHoja origen: ${data.source_sheet_name}\nLlave: ${data.sku_column_source} ↔ ${data.sku_column_master}\nMapeo: ${mapped || '(ninguno)'}\n\nRevisa con "Previsualizar" antes de ejecutar.`);
+      } else {
+        alert(data.detail || 'No se pudo crear el proceso preestablecido.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error creando el proceso preestablecido.');
+    } finally {
+      setPresetBusy(false);
+    }
+  };
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
       {/* Header */}
@@ -271,6 +292,24 @@ export default function Processes() {
           <button onClick={() => { setShowForm(!showForm); if(showForm) resetForm(); }}
             className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm">
             <Plus className="w-4 h-4" /> {editingId ? 'Cancelar Edición' : 'Nuevo Proceso'}
+          </button>
+        </div>
+      </div>
+
+      {/* Procesos preestablecidos */}
+      <div className="mb-6 bg-gradient-to-r from-indigo-50 to-sky-50 border border-indigo-100 rounded-xl p-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-sm font-bold text-indigo-800 flex items-center gap-2">⚡ Procesos preestablecidos</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Crean un proceso ya configurado (hoja, llave y mapeo) automáticamente con el auto-mapeo.</p>
+          </div>
+          <button
+            onClick={() => createPreset('base_to_master')}
+            disabled={presetBusy}
+            className="shrink-0 flex items-center gap-2 bg-white border border-indigo-200 text-indigo-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-50 disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" />
+            {presetBusy ? 'Creando…' : 'Sincronizar Master ← BASE'}
           </button>
         </div>
       </div>
