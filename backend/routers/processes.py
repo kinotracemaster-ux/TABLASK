@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from ..services import _compute_master_sync, _get_master_info, _run_single_process
+from ..services import _compute_master_sync, _get_master_info, _run_single_process, invalidate_read_cache
 from .. import models, schemas
 from ..database import get_db
 from datetime import datetime, timedelta
@@ -191,6 +191,7 @@ def update_process(process_id: int, proc: schemas.ProcessCreate, db: Session = D
 
 @router.post("/{process_id}/preview")
 def preview_process(process_id: int, db: Session = Depends(get_db)):
+    invalidate_read_cache()  # leer fresco: reflejar ediciones externas de BASE/Master
     proc = db.query(models.Process).filter(models.Process.id == process_id).first()
     if not proc:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
@@ -231,6 +232,7 @@ def preview_process(process_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{process_id}/stage")
 def stage_process(process_id: int, db: Session = Depends(get_db)):
+    invalidate_read_cache()  # leer fresco: reflejar ediciones externas de BASE/Master
     proc = db.query(models.Process).filter(models.Process.id == process_id).first()
     if not proc:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
@@ -296,6 +298,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 # ... other imports ...
 @router.post("/{process_id}/run")
 def run_process(process_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    invalidate_read_cache()  # leer fresco: reflejar ediciones externas de BASE/Master
     proc = db.query(models.Process).filter(models.Process.id == process_id).first()
     if not proc:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
