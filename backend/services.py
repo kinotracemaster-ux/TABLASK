@@ -387,9 +387,12 @@ def _compute_master_sync(project, req, db):
     master_sku_idx = master_headers.index(req.sku_column_master)
     
     master_by_sku = {}
-    # Índices para detectar SKUs "parecidos" (no cruzan exacto pero probable typo/variante).
-    master_norm_index = {}       # normalizado -> SKU original de la maestra
-    master_len_buckets = {}      # longitud_normalizada -> [(normalizado, original), ...]
+    # Índice por SKU NORMALIZADO: el cruce se hace por aquí para que la suciedad
+    # de formato (1203.0 / 01203 / mayúsculas / espacios) no genere falsos
+    # "no cruza". La normalización es SOLO para comparar; el SKU guardado no se toca.
+    master_by_norm = {}          # normalizado -> {index, data, sku}
+    master_norm_index = {}       # normalizado -> SKU original (compat con detección de parecidos)
+    master_len_buckets = {}
     for i, row in enumerate(master_raw[1:]):
         sku_val = (row[master_sku_idx] if master_sku_idx < len(row) else "").strip()
         if sku_val:
@@ -397,18 +400,20 @@ def _compute_master_sync(project, req, db):
             master_by_sku[sku_val] = {"index": i + 1, "data": padded_row}
             norm = normalize_sku_for_match(sku_val)
             if norm:
+                master_by_norm.setdefault(norm, {"index": i + 1, "data": padded_row, "sku": sku_val})
                 master_norm_index.setdefault(norm, sku_val)
                 master_len_buckets.setdefault(len(norm), []).append((norm, sku_val))
-            
+
     rows_updated = 0
     rows_added = 0
     rows_unchanged = 0
     rows_skipped = 0  # filas de origen descartadas por SKU vacío o inválido
 
-    # Nuevo formato granular (El Guardián)
+    # Formato granular (El Guardián)
     granular_changes = []
+    granular_new_rows = []
     granular_unchanged_skus = []
-    rows_ignored = 0  # filas del origen cuyo SKU no existe en la Maestra: se ignoran
+    matched_norms = set()  # SKUs normalizados de la Maestra que SÍ aparecen en BASE
     skipped_skus = []
 
     for src_row in src_raw[1:]:
@@ -437,65 +442,97 @@ def _compute_master_sync(project, req, db):
             skipped_skus.append(sku_val)
             continue
 
-        if sku_val in master_by_sku:
-            mr_info = master_by_sku[sku_val]
+        norm = normalize_sku_for_match(sku_val)
+        mr_info = master_by_norm.get(norm)
+
+        if mr_info is not None:
+            # CRUZA (por SKU normalizado): se rellena el NÚCLEO. El enriquecimiento
+            # (columnas que no están en field_mappings) nunca se toca.
+            matched_norms.add(norm)
             mr_data = mr_info["data"]
+            master_sku = mr_info["sku"]  # se conserva el SKU tal cual está en la Maestra
             changed = False
-            changes_detail = {}
-            
+
             for src_col, dst_col in req.field_mappings.items():
-                if src_col in src_headers:
+                if src_col in src_headers and dst_col in master_headers:
                     s_idx = src_headers.index(src_col)
                     m_idx = master_headers.index(dst_col)
                     new_val = src_row[s_idx] if s_idx < len(src_row) else ""
                     old_val = mr_data[m_idx]
                     if old_val != new_val:
                         granular_changes.append({
-                            "sku": sku_val,
+                            "sku": master_sku,
                             "field": dst_col,
                             "old": old_val,
                             "new": new_val,
-                            "row_index": mr_info["index"]  # Para escritura quirúrgica
+                            "row_index": mr_info["index"]
                         })
                         mr_data[m_idx] = new_val
                         changed = True
-            
+
             if changed:
                 master_raw[mr_info["index"]] = mr_data
                 rows_updated += 1
             else:
                 rows_unchanged += 1
-                granular_unchanged_skus.append(sku_val)
-                
+                granular_unchanged_skus.append(master_sku)
+
         else:
-            # No cruzó exacto. SIMPLE: no se hace nada (ni crear, ni marcar).
-            # Solo se cuenta para informar cuántos quedaron fuera.
-            rows_ignored += 1
+            # NO está en la Maestra: como "todo lo de BASE debe estar en Master",
+            # se CREA con los datos de núcleo (el enriquecimiento queda vacío para
+            # llenarse luego). Se indexa para no duplicar si BASE lo trae 2 veces.
+            # El SKU va dentro de fields para que la escritura quirúrgica
+            # (que arma la fila nueva desde fields) escriba el código.
+            new_fields = {req.sku_column_master: sku_val}
+            new_mr_data = [""] * len(master_headers)
+            new_mr_data[master_sku_idx] = sku_val
+            for src_col, dst_col in req.field_mappings.items():
+                if src_col in src_headers and dst_col in master_headers:
+                    s_idx = src_headers.index(src_col)
+                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
+                    new_mr_data[master_headers.index(dst_col)] = new_val
+                    new_fields[dst_col] = new_val
+
+            master_raw.append(new_mr_data)
+            new_index = len(master_raw) - 1
+            master_by_norm[norm] = {"index": new_index, "data": new_mr_data, "sku": sku_val}
+            matched_norms.add(norm)
+            rows_added += 1
+            granular_new_rows.append({"sku": sku_val, "fields": new_fields})
+
+    # Coherencia: SKUs que están en la Maestra pero NO llegaron desde BASE (huérfanos).
+    granular_orphans = []
+    for norm, info in master_by_norm.items():
+        if norm not in matched_norms:
+            granular_orphans.append(info["sku"])
+    rows_orphan = len(granular_orphans)
+
+    total_base = len(src_raw) - 1
+    # Índice de coherencia: % de BASE que ya estaba en la Maestra ANTES de crear.
+    ya_estaban = rows_updated + rows_unchanged
+    coherence_index = round(100.0 * ya_estaban / total_base, 1) if total_base else 100.0
 
     return {
         "master_raw": master_raw,
         "master_conn": master_conn,
         "target_sheet_name": target_sheet_name,
         "rows_updated": rows_updated,
-        "rows_added": 0,             # SIMPLE: nunca se crea nada
+        "rows_added": rows_added,          # faltaban en Master y se crearon
         "rows_unchanged": rows_unchanged,
         "rows_skipped": rows_skipped,
-        "rows_ignored": rows_ignored,  # SKU del origen que no existe en la Maestra
+        "rows_orphan": rows_orphan,        # en Master pero no en BASE (revisar)
+        "coherence_index": coherence_index,
         "skipped_skus": skipped_skus,
-        "total_origen": len(src_raw) - 1,
+        "total_origen": total_base,
         "total_maestra": len(master_raw) - 1,
         "detail_updated": granular_changes,
+        "detail_added": granular_new_rows,
         "detail_unchanged": granular_unchanged_skus,
+        "detail_orphan": granular_orphans,
         "changes": granular_changes,
-        "new_rows": [],              # nada que crear
+        "new_rows": granular_new_rows,     # se escriben (BASE debe existir en Master)
         "unchanged_skus": granular_unchanged_skus,
-        # Compatibilidad con UI/staging (sin uso ahora): nada marcado ni creado.
-        "rows_suspect": 0,
-        "rows_new_candidate": 0,
-        "detail_suspect": [],
-        "detail_new_candidate": [],
-        "suspects": [],
-        "new_candidates": []
+        "orphans": granular_orphans
     }
 
 def _run_single_process(proc, db):

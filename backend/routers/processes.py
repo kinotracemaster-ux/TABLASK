@@ -100,11 +100,14 @@ def preview_process(process_id: int, db: Session = Depends(get_db)):
         "rows_updated": result["rows_updated"],
         "rows_added": result["rows_added"],
         "rows_unchanged": result["rows_unchanged"],
-        "rows_ignored": result.get("rows_ignored", 0),
+        "rows_orphan": result.get("rows_orphan", 0),
+        "coherence_index": result.get("coherence_index", 100),
         "total_origen": result["total_origen"],
         "total_maestra": result["total_maestra"],
         "detail_updated": result["detail_updated"],
+        "detail_added": result.get("detail_added", []),
         "detail_unchanged": result["detail_unchanged"],
+        "detail_orphan": result.get("detail_orphan", []),
     }
 
 @router.post("/{process_id}/stage")
@@ -138,10 +141,13 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
             "rows_to_update": result["rows_updated"],
             "rows_to_add": result["rows_added"],
             "rows_unchanged": result["rows_unchanged"],
-            "rows_ignored": result.get("rows_ignored", 0),
+            "rows_orphan": result.get("rows_orphan", 0),
+            "coherence_index": result.get("coherence_index", 100),
             "warnings": [],
             "changes": result.get("changes", []),
             "new_rows": result.get("new_rows", []),
+            "detail_added": result.get("detail_added", []),
+            "detail_orphan": result.get("detail_orphan", []),
             "total_rows_before": result.get("total_rows_before", 0),
             "total_origen": result.get("total_origen", 0)
         }
