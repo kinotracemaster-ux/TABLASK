@@ -70,19 +70,51 @@ def create_preset(preset_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Configura primero la Tabla Maestra (conexión maestra).")
 
     meta = get_sheet_metadata(master_conn)  # {hoja: [encabezados]}
-    base_sheet = next((s for s in meta if s.strip().lower() in preset["source_sheet_aliases"]), None)
+    low = {k.lower(): k for k in meta.keys()}  # nombre-en-minúsculas -> nombre real
+
+    def _resolve_sheet(wanted, fallbacks):
+        if wanted and wanted in meta:
+            return wanted
+        if wanted and wanted.lower() in low:
+            return low[wanted.lower()]
+        for cand in fallbacks:
+            if cand in low:
+                return low[cand]
+        return None
+
+    base_sheet = _resolve_sheet(None, preset["source_sheet_aliases"])
     if not base_sheet:
         raise HTTPException(status_code=400, detail=f"No encontré la hoja BASE. Hojas disponibles: {', '.join(meta.keys())}")
+
+    # Resolver la hoja maestra de forma flexible: la configurada ('Maestra'),
+    # o por nombre real ('Master'), tolerando mayúsculas/idioma.
+    real_master = _resolve_sheet(master_sheet, ["master", "maestra"])
+    if not real_master:
+        raise HTTPException(status_code=400, detail=f"No encontré la hoja maestra (config: '{master_sheet}'). Hojas disponibles: {', '.join(meta.keys())}")
+    # Auto-corregir la config del proyecto si el nombre real difiere (raíz del bug).
+    if real_master != project.master_sheet_name:
+        project.master_sheet_name = real_master
+        db.commit()
+    master_sheet = real_master
 
     base_headers = meta.get(base_sheet) or []
     master_headers = meta.get(master_sheet) or []
     if not base_headers:
         raise HTTPException(status_code=400, detail=f"La hoja '{base_sheet}' no tiene encabezados.")
     if not master_headers:
-        raise HTTPException(status_code=400, detail=f"La hoja Master '{master_sheet}' no tiene encabezados.")
+        raise HTTPException(status_code=400, detail=f"La hoja maestra '{master_sheet}' no tiene encabezados.")
 
-    # Columna SKU en la Master: la configurada en el proyecto, o 'sku'.
-    sku_master = project.master_sku_column or next((h for h in master_headers if h.lower() == "sku"), master_headers[0])
+    # Columna SKU en la Master: resolver contra los encabezados reales (tolerando
+    # mayúsculas) y auto-corregir la config si difiere.
+    configured_sku = project.master_sku_column
+    sku_master = None
+    if configured_sku:
+        sku_master = next((h for h in master_headers if h.lower() == configured_sku.lower()), None)
+    if not sku_master:
+        sku_master = next((h for h in master_headers if h.lower() == "sku"), master_headers[0])
+    if sku_master != project.master_sku_column:
+        project.master_sku_column = sku_master
+        db.commit()
 
     # Columna llave en BASE: por nombre; si no, detección por datos.
     sku_source = next((h for h in base_headers if h.strip().lower() in _SOURCE_KEY_ALIASES), None)
