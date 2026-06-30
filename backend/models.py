@@ -33,6 +33,7 @@ class Connection(Base):
     shopify_domain = Column(String, nullable=True)        # mi-tienda.myshopify.com
     shopify_client_id = Column(String, nullable=True)
     shopify_client_secret = Column(String, nullable=True) # Sensible: idealmente cifrar/rotar
+    shopify_access_token = Column(String, nullable=True)  # Token directo shpat_ (custom app); sensible
     shopify_api_version = Column(String, nullable=True)   # Ej: 2026-04 (nulo => default)
 
     user_id = Column(Integer, ForeignKey("users.id"))
@@ -43,7 +44,7 @@ class Connection(Base):
 
     @property
     def has_shopify_secret(self) -> bool:
-        return bool(self.shopify_client_secret)
+        return bool(self.shopify_client_secret) or bool(self.shopify_access_token)
 
 class Project(Base):
     __tablename__ = "projects"

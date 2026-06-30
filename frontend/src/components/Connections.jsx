@@ -19,6 +19,8 @@ export default function Connections() {
   const [shopDomain, setShopDomain] = useState('');
   const [shopClientId, setShopClientId] = useState('');
   const [shopClientSecret, setShopClientSecret] = useState('');
+  const [shopToken, setShopToken] = useState('');
+  const [shopAuthMode, setShopAuthMode] = useState('client'); // 'client' | 'token'
   const [testing, setTesting] = useState(null); // id de la conexión que se está probando
 
   // Fetch connections on load
@@ -75,25 +77,28 @@ export default function Connections() {
           alert("Fallo al agregar conexión HTTP.");
         }
       } else if (type === 'shopify') {
-        if (!shopDomain || !shopClientId || !shopClientSecret) {
-          alert('Completa dominio, Client ID y Client Secret de Shopify.');
-          return;
+        if (!shopDomain) { alert('Falta el dominio de la tienda.'); return; }
+        const body = { name, connection_type: 'shopify', shopify_domain: shopDomain };
+        if (shopAuthMode === 'token') {
+          if (!shopToken) { alert('Pega el Access Token (shpat_...).'); return; }
+          body.shopify_access_token = shopToken;
+        } else {
+          if (!shopClientId || !shopClientSecret) {
+            alert('Completa Client ID y Client Secret (o cambia a modo Token).');
+            return;
+          }
+          body.shopify_client_id = shopClientId;
+          body.shopify_client_secret = shopClientSecret;
         }
         const res = await fetch(`${API}/api/connections/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name,
-            connection_type: 'shopify',
-            shopify_domain: shopDomain,
-            shopify_client_id: shopClientId,
-            shopify_client_secret: shopClientSecret
-          })
+          body: JSON.stringify(body)
         });
         if (res.ok) {
           const newConn = await res.json();
           setConnections([...connections, newConn]);
-          setShopDomain(''); setShopClientId(''); setShopClientSecret(''); setName('');
+          setShopDomain(''); setShopClientId(''); setShopClientSecret(''); setShopToken(''); setName('');
         } else {
           const errMsg = await extractError(res, 'Fallo al agregar la tienda Shopify.');
           alert(errMsg);
@@ -261,30 +266,60 @@ export default function Connections() {
                     className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none"
                   />
                 </div>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Client ID</label>
-                    <input
-                      type="text"
-                      value={shopClientId}
-                      onChange={e => setShopClientId(e.target.value)}
-                      placeholder="Client ID de la app (Dev Dashboard)"
-                      className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none"
-                    />
+                <div className="flex gap-1 text-xs">
+                  <button type="button" onClick={() => setShopAuthMode('client')}
+                    className={`px-3 py-1 rounded-md border ${shopAuthMode === 'client' ? 'bg-green-600 text-white border-green-600' : 'border-gray-300 text-gray-600'}`}>
+                    Client ID + Secret (Dev Dashboard)
+                  </button>
+                  <button type="button" onClick={() => setShopAuthMode('token')}
+                    className={`px-3 py-1 rounded-md border ${shopAuthMode === 'token' ? 'bg-green-600 text-white border-green-600' : 'border-gray-300 text-gray-600'}`}>
+                    Access Token (shpat_)
+                  </button>
+                </div>
+
+                {shopAuthMode === 'client' && (
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Client ID</label>
+                      <input
+                        type="text"
+                        value={shopClientId}
+                        onChange={e => setShopClientId(e.target.value)}
+                        placeholder="Client ID de la app (Dev Dashboard)"
+                        className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Client Secret</label>
+                      <input
+                        type="password"
+                        value={shopClientSecret}
+                        onChange={e => setShopClientSecret(e.target.value)}
+                        placeholder="Client Secret (no se mostrará luego)"
+                        className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none"
+                      />
+                    </div>
                   </div>
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Client Secret</label>
+                )}
+
+                {shopAuthMode === 'token' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Admin API Access Token</label>
                     <input
                       type="password"
-                      value={shopClientSecret}
-                      onChange={e => setShopClientSecret(e.target.value)}
-                      placeholder="Client Secret (no se mostrará luego)"
+                      value={shopToken}
+                      onChange={e => setShopToken(e.target.value)}
+                      placeholder="shpat_..."
                       className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none"
                     />
                   </div>
-                </div>
+                )}
+
                 <p className="text-xs text-gray-500">
-                  Usa el <b>client credentials grant</b> (tiendas propias). El token de 24h se obtiene automáticamente. El secret se guarda en el servidor y no se vuelve a mostrar.
+                  {shopAuthMode === 'client'
+                    ? 'Dev Dashboard: el token de 24h se obtiene solo por client credentials. Recuerda declarar los scopes (read_products, read_inventory) y reinstalar.'
+                    : 'Custom app del admin de la tienda: pega el token shpat_. Los scopes se marcan con checkboxes al crear la app.'}
+                  {' '}El secret/token se guarda en el servidor y no se vuelve a mostrar.
                 </p>
               </>
             )}

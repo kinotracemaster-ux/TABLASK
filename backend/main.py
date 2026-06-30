@@ -56,6 +56,7 @@ for _col_sql in (
     "ALTER TABLE connections ADD COLUMN shopify_domain VARCHAR",
     "ALTER TABLE connections ADD COLUMN shopify_client_id VARCHAR",
     "ALTER TABLE connections ADD COLUMN shopify_client_secret VARCHAR",
+    "ALTER TABLE connections ADD COLUMN shopify_access_token VARCHAR",
     "ALTER TABLE connections ADD COLUMN shopify_api_version VARCHAR",
 ):
     try:

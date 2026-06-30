@@ -35,15 +35,31 @@ class ShopifyConnector(BaseConnector):
         self.domain = raw_domain
         self.client_id = (self.config.get("shopify_client_id") or "").strip()
         self.client_secret = (self.config.get("shopify_client_secret") or "").strip()
+        # Token directo (shpat_...) de un custom app del admin. Si está, se usa tal cual
+        # y se omite el client_credentials grant.
+        self.access_token = (self.config.get("shopify_access_token") or "").strip()
         self.api_version = (self.config.get("shopify_api_version") or DEFAULT_API_VERSION).strip()
 
     # ------------------------------------------------------------------ auth
     def _get_access_token(self) -> str:
-        """Obtiene un access token válido (cacheado 24h) vía client_credentials."""
+        """
+        Devuelve un access token válido. Dos modos:
+        - Token directo (shopify_access_token, ej. shpat_...): se usa tal cual.
+        - client_credentials (client_id + client_secret): pide token de 24h y lo cachea.
+        """
         if not self.domain:
             raise ValueError("Falta el dominio de la tienda Shopify (shopify_domain).")
+
+        # Modo 1: token estático provisto por el usuario.
+        if self.access_token:
+            return self.access_token
+
+        # Modo 2: client_credentials grant.
         if not self.client_id or not self.client_secret:
-            raise ValueError("Faltan las credenciales Shopify (client_id / client_secret).")
+            raise ValueError(
+                "Faltan credenciales Shopify: provee un Access Token directo (shpat_...) "
+                "o un par Client ID + Client Secret."
+            )
 
         cache_key = (self.domain, self.client_id)
         cached = _TOKEN_CACHE.get(cache_key)

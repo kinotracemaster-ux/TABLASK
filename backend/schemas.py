@@ -31,8 +31,9 @@ class ConnectionBase(BaseModel):
     shopify_api_version: Optional[str] = None
 
 class ConnectionCreate(ConnectionBase):
-    # Solo de entrada: nunca se devuelve en las respuestas.
+    # Solo de entrada: nunca se devuelven en las respuestas.
     shopify_client_secret: Optional[str] = None
+    shopify_access_token: Optional[str] = None
 
 class Connection(ConnectionBase):
     id: int

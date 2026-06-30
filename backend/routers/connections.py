@@ -32,6 +32,7 @@ def create_connection(conn: schemas.ConnectionCreate, db: Session = Depends(get_
         shopify_domain=conn.shopify_domain,
         shopify_client_id=conn.shopify_client_id,
         shopify_client_secret=conn.shopify_client_secret,
+        shopify_access_token=conn.shopify_access_token,
         shopify_api_version=conn.shopify_api_version,
     )
     db.add(db_conn)

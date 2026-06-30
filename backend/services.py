@@ -150,6 +150,7 @@ def _create_connector(connection):
         "shopify_domain": connection.shopify_domain,
         "shopify_client_id": connection.shopify_client_id,
         "shopify_client_secret": connection.shopify_client_secret,
+        "shopify_access_token": connection.shopify_access_token,
         "shopify_api_version": connection.shopify_api_version,
     }
     return get_connector(connection.connection_type, config)
