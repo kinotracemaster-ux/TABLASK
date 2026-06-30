@@ -1,7 +1,14 @@
+import re
 import time
+import uuid
 import requests
 from typing import List, Dict, Any, Tuple
 from .base import BaseConnector
+
+
+def _chunks(seq, size):
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
 
 # Versión por defecto de la Admin API. REST quedó legacy (oct-2024); usamos GraphQL.
 DEFAULT_API_VERSION = "2026-04"
@@ -217,6 +224,140 @@ class ShopifyConnector(BaseConnector):
             "inventory_quantity", "inventory_item_id", "variant_id",
             "product_id", "vendor", "product_type", "status",
         ]
+
+    # --------------------------------------------------------------- writing
+    @staticmethod
+    def _normalize_sku(s: str) -> str:
+        """Mismas reglas que services.normalize_sku_for_match (solo para cruzar)."""
+        s = (s or "").strip().lower()
+        if not s:
+            return ""
+        if re.fullmatch(r"\d+\.0+", s):
+            s = s.split(".")[0]
+        if s.isdigit():
+            s = s.lstrip("0") or "0"
+        return s
+
+    def get_primary_location_id(self) -> str:
+        """Primera ubicación activa de la tienda (para escribir inventario)."""
+        data = self._graphql('{ locations(first: 1, query: "status:active") { edges { node { id name } } } }')
+        edges = data.get("locations", {}).get("edges", [])
+        if not edges:
+            raise ValueError("La tienda no tiene ubicaciones activas para actualizar inventario.")
+        return edges[0]["node"]["id"]
+
+    def index_variants_by_sku(self) -> Dict[str, Dict[str, Any]]:
+        """{ sku_normalizado: {variant_id, product_id, inventory_item_id, sku} } leyendo el catálogo."""
+        idx: Dict[str, Dict[str, Any]] = {}
+        for r in self.fetch_data("Products"):
+            sku = r.get("sku") or ""
+            if not sku:
+                continue
+            idx[self._normalize_sku(sku)] = {
+                "variant_id": r.get("variant_id") or "",
+                "product_id": r.get("product_id") or "",
+                "inventory_item_id": r.get("inventory_item_id") or "",
+                "sku": sku,
+            }
+        return idx
+
+    def _price_bulk_update(self, product_id: str, variants: List[Dict[str, str]]):
+        q = """
+        mutation ($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+            userErrors { field message }
+          }
+        }"""
+        data = self._graphql(q, {"productId": product_id, "variants": variants})
+        errs = (data.get("productVariantsBulkUpdate") or {}).get("userErrors", [])
+        if errs:
+            raise ValueError(str(errs)[:250])
+
+    def _inventory_set(self, quantities: List[Dict[str, Any]]):
+        # @idempotent es obligatorio en 2026-04; key única por llamada evita duplicados en reintentos.
+        key = str(uuid.uuid4())
+        q = """
+        mutation ($input: InventorySetQuantitiesInput!) {
+          inventorySetQuantities(input: $input) @idempotent(key: "%s") {
+            userErrors { field message }
+          }
+        }""" % key
+        inp = {"name": "available", "reason": "correction", "quantities": quantities}
+        data = self._graphql(q, {"input": inp})
+        errs = (data.get("inventorySetQuantities") or {}).get("userErrors", [])
+        if errs:
+            raise ValueError(str(errs)[:250])
+
+    def push_updates(self, updates: List[Dict[str, Any]], do_price: bool, do_stock: bool,
+                     dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Escribe precio/stock en Shopify cruzando por SKU.
+        updates: [{"sku":..., "price":..., "stock":...}]. dry_run solo reporta el cruce.
+        """
+        idx = self.index_variants_by_sku()
+        matched, not_found = [], []
+        for u in updates:
+            key = self._normalize_sku(u.get("sku", ""))
+            if key and key in idx:
+                matched.append((u, idx[key]))
+            else:
+                not_found.append(u.get("sku", ""))
+
+        summary = {
+            "total": len(updates),
+            "matched": len(matched),
+            "not_found_count": len(not_found),
+            "not_found": not_found[:200],
+            "price_updated": 0,
+            "stock_updated": 0,
+            "errors": [],
+        }
+        if dry_run:
+            return summary
+
+        # Precio: agrupado por producto (productVariantsBulkUpdate es por producto).
+        if do_price:
+            by_product: Dict[str, List[Dict[str, str]]] = {}
+            for u, info in matched:
+                price = u.get("price")
+                if price in (None, "") or not info.get("product_id"):
+                    continue
+                by_product.setdefault(info["product_id"], []).append(
+                    {"id": info["variant_id"], "price": str(price).replace(",", ".").strip()}
+                )
+            for pid, variants in by_product.items():
+                try:
+                    self._price_bulk_update(pid, variants)
+                    summary["price_updated"] += len(variants)
+                except Exception as e:
+                    summary["errors"].append(f"precio (producto {pid[-8:]}): {str(e)[:140]}")
+
+        # Inventario: por lotes a la ubicación principal.
+        if do_stock:
+            location_id = self.get_primary_location_id()
+            quantities = []
+            for u, info in matched:
+                raw = u.get("stock")
+                if raw in (None, "") or not info.get("inventory_item_id"):
+                    continue
+                try:
+                    qty = int(float(str(raw).replace(",", ".").strip()))
+                except (ValueError, TypeError):
+                    continue
+                quantities.append({
+                    "inventoryItemId": info["inventory_item_id"],
+                    "locationId": location_id,
+                    "quantity": qty,
+                    "changeFromQuantity": None,
+                })
+            for chunk in _chunks(quantities, 200):
+                try:
+                    self._inventory_set(chunk)
+                    summary["stock_updated"] += len(chunk)
+                except Exception as e:
+                    summary["errors"].append(f"stock (lote): {str(e)[:140]}")
+
+        return summary
 
     def test_connection(self) -> Tuple[bool, str]:
         # 1) Validar credenciales/token leyendo info básica de la tienda.

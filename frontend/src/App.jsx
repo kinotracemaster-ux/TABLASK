@@ -7,7 +7,8 @@ import MasterTable from './components/MasterTable';
 import ActivityLogs from './components/ActivityLogs';
 import StagingQueue from './components/StagingQueue';
 import ConnectedApps from './components/ConnectedApps';
-import { Database, Link2, Settings2, Download, Table2, Terminal, ShieldAlert, Network, MoreHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
+import ShopifyPush from './components/ShopifyPush';
+import { Database, Link2, Settings2, Download, Table2, Terminal, ShieldAlert, Network, MoreHorizontal, ChevronDown, ChevronUp, Upload } from 'lucide-react';
 
 // Detecta si estamos en un entorno de PREVIEW (no producción).
 // Railway nombra los previews como "...-pr-<n>.up.railway.app".
@@ -58,6 +59,9 @@ function Sidebar() {
         <Link to="/exports" className={linkClass('/exports')}>
           <Download className="w-5 h-5" /> Distribución
         </Link>
+        <Link to="/shopify-push" className={linkClass('/shopify-push')}>
+          <Upload className="w-5 h-5" /> Enviar a Shopify
+        </Link>
 
         <div className={`border-t my-2 ${IS_PREVIEW ? 'border-indigo-600' : 'border-gray-100'}`}></div>
 
@@ -103,6 +107,7 @@ function App() {
             <Route path="/connections" element={<Connections />} />
             <Route path="/intake" element={<ConnectedApps />} />
             <Route path="/exports" element={<Exports />} />
+            <Route path="/shopify-push" element={<ShopifyPush />} />
             <Route path="/logs" element={<ActivityLogs />} />
           </Routes>
         </main>
