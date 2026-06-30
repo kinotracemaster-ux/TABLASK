@@ -25,15 +25,22 @@ class ConnectionBase(BaseModel):
     http_url: Optional[str] = None
     http_method: str = "GET"
     http_headers: Optional[str] = None
+    # Shopify (el client_secret NO va aquí: es write-only, ver ConnectionCreate)
+    shopify_domain: Optional[str] = None
+    shopify_client_id: Optional[str] = None
+    shopify_api_version: Optional[str] = None
 
 class ConnectionCreate(ConnectionBase):
-    pass
+    # Solo de entrada: nunca se devuelve en las respuestas.
+    shopify_client_secret: Optional[str] = None
 
 class Connection(ConnectionBase):
     id: int
     spreadsheet_id: Optional[str] = None
     user_id: Optional[int] = None
-    
+    # Indica si la conexión Shopify ya tiene secret guardado (sin exponerlo).
+    has_shopify_secret: bool = False
+
     class Config:
         from_attributes = True
 

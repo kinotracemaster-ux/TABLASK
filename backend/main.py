@@ -50,6 +50,22 @@ try:
 except Exception as e:
     print("Migraciones omitidas para processes (ya existen las columnas o error benigno):", e)
 
+# Columnas Shopify (una conexión por tienda; cada ALTER en su propia transacción
+# para que si una columna ya existe no aborte la creación de las demás).
+for _col_sql in (
+    "ALTER TABLE connections ADD COLUMN shopify_domain VARCHAR",
+    "ALTER TABLE connections ADD COLUMN shopify_client_id VARCHAR",
+    "ALTER TABLE connections ADD COLUMN shopify_client_secret VARCHAR",
+    "ALTER TABLE connections ADD COLUMN shopify_api_version VARCHAR",
+):
+    try:
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            conn.execute(text(_col_sql))
+            conn.commit()
+    except Exception as e:
+        print(f"Migración Shopify omitida ({_col_sql.split('ADD COLUMN ')[1]}):", e)
+
 app = FastAPI(title="Actualizar Tablas K API")
 
 # CORS

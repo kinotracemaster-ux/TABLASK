@@ -146,7 +146,11 @@ def _create_connector(connection):
         "file_path": connection.file_path,
         "http_url": connection.http_url,
         "http_method": connection.http_method,
-        "http_headers": connection.http_headers
+        "http_headers": connection.http_headers,
+        "shopify_domain": connection.shopify_domain,
+        "shopify_client_id": connection.shopify_client_id,
+        "shopify_client_secret": connection.shopify_client_secret,
+        "shopify_api_version": connection.shopify_api_version,
     }
     return get_connector(connection.connection_type, config)
 
@@ -164,6 +168,12 @@ def get_sheet_metadata(connection):
                 df = pd.read_excel(connection.file_path, sheet_name=sheet_name, nrows=0)
                 result[sheet_name] = df.columns.tolist()
         return result
+
+    if connection.connection_type == "shopify":
+        # Shopify no tiene "hojas". Exponemos una pseudo-hoja "Products" con las
+        # columnas planas (sku, price, inventory_quantity, ...) para el mapeo.
+        connector = _create_connector(connection)
+        return {"Products": connector.get_available_columns()}
 
     # Google Sheets logic usando api existente (para metadata es más simple directo por ahora)
     service = get_sheets_service()

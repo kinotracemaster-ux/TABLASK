@@ -15,6 +15,12 @@ export default function Connections() {
   const [httpMethod, setHttpMethod] = useState('GET');
   const [httpHeaders, setHttpHeaders] = useState('{\n  "Authorization": "Bearer TOKEN"\n}');
 
+  // Shopify state
+  const [shopDomain, setShopDomain] = useState('');
+  const [shopClientId, setShopClientId] = useState('');
+  const [shopClientSecret, setShopClientSecret] = useState('');
+  const [testing, setTesting] = useState(null); // id de la conexión que se está probando
+
   // Fetch connections on load
   useEffect(() => {
     fetch(`${API}/api/connections/`)
@@ -68,6 +74,30 @@ export default function Connections() {
         } else {
           alert("Fallo al agregar conexión HTTP.");
         }
+      } else if (type === 'shopify') {
+        if (!shopDomain || !shopClientId || !shopClientSecret) {
+          alert('Completa dominio, Client ID y Client Secret de Shopify.');
+          return;
+        }
+        const res = await fetch(`${API}/api/connections/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            connection_type: 'shopify',
+            shopify_domain: shopDomain,
+            shopify_client_id: shopClientId,
+            shopify_client_secret: shopClientSecret
+          })
+        });
+        if (res.ok) {
+          const newConn = await res.json();
+          setConnections([...connections, newConn]);
+          setShopDomain(''); setShopClientId(''); setShopClientSecret(''); setName('');
+        } else {
+          const errMsg = await extractError(res, 'Fallo al agregar la tienda Shopify.');
+          alert(errMsg);
+        }
       } else {
         if (!file) return;
         const formData = new FormData();
@@ -90,6 +120,19 @@ export default function Connections() {
       }
     } catch (error) {
       console.error(error);
+    }
+  };
+
+  const handleTest = async (connId) => {
+    setTesting(connId);
+    try {
+      const res = await fetch(`${API}/api/connections/${connId}/test`, { method: 'POST' });
+      const data = await res.json();
+      alert(data.success ? `✅ ${data.message}` : `❌ ${data.message}`);
+    } catch (err) {
+      alert('❌ Error probando la conexión.');
+    } finally {
+      setTesting(null);
     }
   };
 
@@ -119,12 +162,19 @@ export default function Connections() {
           >
             Subir Archivo (.csv, .xlsx)
           </button>
-          <button 
+          <button
             type="button"
             className={`flex-1 py-3 font-medium text-sm transition ${type === 'http_api' ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
             onClick={() => setType('http_api')}
           >
             API Externa (HTTP)
+          </button>
+          <button
+            type="button"
+            className={`flex-1 py-3 font-medium text-sm transition ${type === 'shopify' ? 'bg-green-50 text-green-700 border-b-2 border-green-600' : 'text-gray-500 hover:bg-gray-50'}`}
+            onClick={() => setType('shopify')}
+          >
+            Shopify
           </button>
         </div>
         
@@ -189,19 +239,59 @@ export default function Connections() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Headers (JSON Opcional)</label>
-                  <textarea 
+                  <textarea
                     value={httpHeaders}
                     onChange={e => setHttpHeaders(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg p-2 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                    className="w-full border border-gray-300 rounded-lg p-2 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                     rows="2"
                   ></textarea>
                 </div>
               </>
             )}
+
+            {type === 'shopify' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Dominio de la tienda</label>
+                  <input
+                    type="text"
+                    value={shopDomain}
+                    onChange={e => setShopDomain(e.target.value)}
+                    placeholder="mi-tienda.myshopify.com"
+                    className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Client ID</label>
+                    <input
+                      type="text"
+                      value={shopClientId}
+                      onChange={e => setShopClientId(e.target.value)}
+                      placeholder="Client ID de la app (Dev Dashboard)"
+                      className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Client Secret</label>
+                    <input
+                      type="password"
+                      value={shopClientSecret}
+                      onChange={e => setShopClientSecret(e.target.value)}
+                      placeholder="Client Secret (no se mostrará luego)"
+                      className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Usa el <b>client credentials grant</b> (tiendas propias). El token de 24h se obtiene automáticamente. El secret se guarda en el servidor y no se vuelve a mostrar.
+                </p>
+              </>
+            )}
           </div>
           
           <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition h-[42px] self-end">
-            {type === 'google_sheets' ? 'Conectar' : 'Subir'}
+            {type === 'local_file' ? 'Subir' : 'Conectar'}
           </button>
         </form>
       </div>
@@ -209,16 +299,27 @@ export default function Connections() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {connections.map(conn => (
           <div key={conn.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex items-start justify-between">
-            <div>
+            <div className="min-w-0">
               <h3 className="font-semibold text-gray-800">{conn.name}</h3>
-              <p className="text-sm text-gray-500 truncate w-48" title={conn.google_sheet_url}>
-                {conn.google_sheet_url}
+              <p className="text-sm text-gray-500 truncate w-48" title={conn.connection_type === 'shopify' ? conn.shopify_domain : conn.google_sheet_url}>
+                {conn.connection_type === 'shopify' ? conn.shopify_domain : conn.google_sheet_url}
               </p>
+              {(conn.connection_type === 'shopify' || conn.connection_type === 'http_api') && (
+                <button
+                  type="button"
+                  onClick={() => handleTest(conn.id)}
+                  disabled={testing === conn.id}
+                  className="mt-2 text-xs px-3 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {testing === conn.id ? 'Probando…' : 'Probar conexión'}
+                </button>
+              )}
             </div>
-            <div className="flex items-center gap-1 text-green-600 text-sm font-medium">
+            <div className="flex items-center gap-1 text-green-600 text-sm font-medium shrink-0">
               <CheckCircle2 className="w-4 h-4" />
-              {conn.connection_type === 'local_file' ? 'Archivo Local' : 
-               conn.connection_type === 'http_api' ? 'API Externa' : 'Conectado'}
+              {conn.connection_type === 'local_file' ? 'Archivo Local' :
+               conn.connection_type === 'http_api' ? 'API Externa' :
+               conn.connection_type === 'shopify' ? 'Shopify' : 'Conectado'}
             </div>
           </div>
         ))}

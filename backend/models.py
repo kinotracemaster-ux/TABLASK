@@ -28,12 +28,22 @@ class Connection(Base):
     http_url = Column(String, nullable=True)
     http_method = Column(String, default="GET")
     http_headers = Column(Text, nullable=True) # JSON stringificado
-    
+
+    # Campos para Shopify (client_credentials grant, una conexión por tienda)
+    shopify_domain = Column(String, nullable=True)        # mi-tienda.myshopify.com
+    shopify_client_id = Column(String, nullable=True)
+    shopify_client_secret = Column(String, nullable=True) # Sensible: idealmente cifrar/rotar
+    shopify_api_version = Column(String, nullable=True)   # Ej: 2026-04 (nulo => default)
+
     user_id = Column(Integer, ForeignKey("users.id"))
     connection_type = Column(String, default="google_sheets")
     
     owner = relationship("User", back_populates="connections")
     projects = relationship("Project", foreign_keys="[Project.connection_id]", back_populates="connection")
+
+    @property
+    def has_shopify_secret(self) -> bool:
+        return bool(self.shopify_client_secret)
 
 class Project(Base):
     __tablename__ = "projects"

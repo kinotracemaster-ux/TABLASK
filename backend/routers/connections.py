@@ -28,7 +28,11 @@ def create_connection(conn: schemas.ConnectionCreate, db: Session = Depends(get_
         file_path=conn.file_path,
         http_url=conn.http_url,
         http_method=conn.http_method,
-        http_headers=conn.http_headers
+        http_headers=conn.http_headers,
+        shopify_domain=conn.shopify_domain,
+        shopify_client_id=conn.shopify_client_id,
+        shopify_client_secret=conn.shopify_client_secret,
+        shopify_api_version=conn.shopify_api_version,
     )
     db.add(db_conn)
     db.commit()
@@ -95,6 +99,22 @@ def upload_file_connection(
     db.commit()
     db.refresh(db_conn)
     return db_conn
+
+@router.post("/{conn_id}/test")
+def test_connection(conn_id: int, db: Session = Depends(get_db)):
+    """Prueba la conexión (credenciales/acceso). Útil sobre todo para Shopify/HTTP."""
+    conn = db.query(models.Connection).filter(models.Connection.id == conn_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Conexión no encontrada")
+
+    from ..services import _create_connector
+    try:
+        connector = _create_connector(conn)
+        ok, message = connector.test_connection()
+        return {"success": ok, "message": message}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
 
 @router.get("/{conn_id}/metadata")
 def get_connection_metadata(conn_id: int, db: Session = Depends(get_db)):
