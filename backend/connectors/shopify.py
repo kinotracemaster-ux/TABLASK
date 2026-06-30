@@ -184,9 +184,25 @@ class ShopifyConnector(BaseConnector):
         ]
 
     def test_connection(self) -> Tuple[bool, str]:
+        # 1) Validar credenciales/token leyendo info básica de la tienda.
         try:
             data = self._graphql("{ shop { name myshopifyDomain } }")
             shop = data.get("shop", {})
-            return True, f"Conexión Shopify exitosa: {shop.get('name', '?')} ({shop.get('myshopifyDomain', self.domain)})"
+            shop_name = shop.get("name", "?")
         except Exception as e:
-            return False, f"Fallo de conexión a Shopify: {str(e)}"
+            return False, f"Fallo de conexión/credenciales: {str(e)}"
+
+        # 2) Validar que el token TIENE los scopes de productos (read_products).
+        #    El query anterior puede pasar sin scopes; este confirma el permiso real.
+        try:
+            self._graphql("{ products(first: 1) { edges { node { id } } } }")
+        except Exception as e:
+            msg = str(e)
+            if "ACCESS_DENIED" in msg.upper() or "access denied" in msg.lower() or "scope" in msg.lower():
+                return False, (
+                    f"Credenciales OK ({shop_name}), pero faltan PERMISOS de lectura de productos. "
+                    f"Activa 'read_products' + 'read_inventory' en la app y reinstálala. Detalle: {msg[:160]}"
+                )
+            return False, f"Credenciales OK ({shop_name}), pero falló la lectura de productos: {msg[:200]}"
+
+        return True, f"Conexión Shopify exitosa: {shop_name} ({shop.get('myshopifyDomain', self.domain)}). Lectura de productos OK."
