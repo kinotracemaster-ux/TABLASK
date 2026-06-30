@@ -115,12 +115,12 @@ class ShopifyConnector(BaseConnector):
         raise ValueError(f"Shopify GraphQL falló tras reintentos. Último error: {last_err}")
 
     # --------------------------------------------------------------- fetching
-    def fetch_data(self, source_path: str) -> List[Dict[str, Any]]:
-        """
-        Descarga productos y sus variantes como filas planas (una por variante).
-        source_path se ignora (Shopify no tiene "hojas"); se usa "Products" por convención.
-        """
-        query = """
+    @staticmethod
+    def _products_query(with_inventory: bool) -> str:
+        # inventoryQuantity/inventoryItem requieren el scope read_inventory.
+        # Si no está, se omiten y se traen igual productos/SKU/precio.
+        inv = "inventoryQuantity\n                      inventoryItem { id }" if with_inventory else ""
+        return """
         query ($cursor: String) {
           products(first: 50, after: $cursor) {
             pageInfo { hasNextPage endCursor }
@@ -139,8 +139,7 @@ class ShopifyConnector(BaseConnector):
                       title
                       price
                       barcode
-                      inventoryQuantity
-                      inventoryItem { id }
+                      %s
                     }
                   }
                 }
@@ -148,11 +147,31 @@ class ShopifyConnector(BaseConnector):
             }
           }
         }
+        """ % inv
+
+    def fetch_data(self, source_path: str) -> List[Dict[str, Any]]:
         """
+        Descarga productos y sus variantes como filas planas (una por variante).
+        source_path se ignora (Shopify no tiene "hojas"); se usa "Products" por convención.
+        Si falta el scope read_inventory, reintenta sin los campos de inventario.
+        """
+        with_inventory = True
+        query = self._products_query(with_inventory)
         rows: List[Dict[str, Any]] = []
         cursor = None
         while True:
-            data = self._graphql(query, {"cursor": cursor})
+            try:
+                data = self._graphql(query, {"cursor": cursor})
+            except ValueError as e:
+                msg = str(e).lower()
+                # Degradar a consulta sin inventario si el scope no está concedido.
+                if with_inventory and ("inventory" in msg or "access_denied" in msg or "scope" in msg):
+                    with_inventory = False
+                    query = self._products_query(with_inventory)
+                    rows = []
+                    cursor = None
+                    continue
+                raise
             products = data.get("products", {})
             for p_edge in products.get("edges", []):
                 node = p_edge.get("node", {})
