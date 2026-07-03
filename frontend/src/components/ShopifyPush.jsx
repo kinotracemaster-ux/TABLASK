@@ -15,6 +15,9 @@ export default function ShopifyPush() {
   const [skuCol, setSkuCol] = useState('');
   const [priceCol, setPriceCol] = useState('');
   const [stockCol, setStockCol] = useState('');
+  const [locations, setLocations] = useState([]);
+  const [locId, setLocId] = useState('');
+  const [locError, setLocError] = useState(null);
 
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -47,10 +50,26 @@ export default function ShopifyPush() {
 
   const cols = tab && sheets[tab] ? sheets[tab] : [];
 
+  // Cargar ubicaciones al elegir tienda (para el stock).
+  useEffect(() => {
+    setLocations([]); setLocId(''); setLocError(null);
+    if (!shopId) return;
+    fetch(`${API}/api/shopify/locations?connection_id=${shopId}`)
+      .then(async r => {
+        const d = await r.json();
+        if (!r.ok) { setLocError(formatError(d)); return; }
+        setLocations(d.locations || []);
+        // Si solo hay una, se elige sola.
+        if ((d.locations || []).length === 1) setLocId(d.locations[0].id);
+      })
+      .catch(e => setLocError(e.message));
+  }, [shopId]);
+
   const run = async (dryRun) => {
     setError(null); setResult(null); setPreview(null);
     if (!shopId || !tab || !skuCol) { setError('Elige tienda, hoja y columna SKU.'); return; }
     if (!priceCol && !stockCol) { setError('Mapea al menos Precio o Stock.'); return; }
+    if (stockCol && !locId) { setError('Para enviar STOCK debes elegir la ubicación (bodega) destino.'); return; }
     setBusy(true);
     try {
       const res = await fetch(`${API}/api/shopify/push`, {
@@ -63,6 +82,7 @@ export default function ShopifyPush() {
           sku_column: skuCol,
           price_column: priceCol || null,
           stock_column: stockCol || null,
+          location_id: locId || null,
           dry_run: dryRun,
         }),
       });
@@ -107,6 +127,31 @@ export default function ShopifyPush() {
               {shopConns.map(c => <option key={c.id} value={c.id}>{c.name} ({c.shopify_domain})</option>)}
             </select>
           </div>
+
+          {/* Ubicación (para stock) */}
+          {shopId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ubicación / Bodega (para el stock)
+              </label>
+              {locError ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs text-amber-800">
+                  {locError}
+                </div>
+              ) : (
+                <select value={locId} onChange={e => setLocId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                  <option value="">Seleccionar ubicación…</option>
+                  {locations.map(l => (
+                    <option key={l.id} value={l.id}>{l.name}{l.active === false ? ' (inactiva)' : ''}</option>
+                  ))}
+                </select>
+              )}
+              <p className="text-xs text-gray-500 mt-1">
+                El stock se <b>sobrescribe</b> en esta ubicación. Elige la bodega donde manejas el inventario real.
+              </p>
+            </div>
+          )}
 
           {/* Hoja origen */}
           <div>

@@ -256,6 +256,24 @@ class ShopifyConnector(BaseConnector):
             raise ValueError("La tienda no tiene ubicaciones para actualizar inventario.")
         return edges[0]["node"]["id"]
 
+    def get_locations(self) -> List[Dict[str, str]]:
+        """Lista de ubicaciones (id + nombre) para que el usuario elija dónde escribir.
+        Leer el 'name' requiere el scope read_locations."""
+        try:
+            data = self._graphql('{ locations(first: 50) { edges { node { id name isActive } } } }')
+        except ValueError as e:
+            if "read_locations" in str(e).lower() or "ACCESS_DENIED" in str(e).upper():
+                raise ValueError(
+                    "Falta el scope 'read_locations' para listar ubicaciones. "
+                    "Agrégalo (Versiones → Nueva versión) y reinstala la app."
+                )
+            raise
+        out = []
+        for e in data.get("locations", {}).get("edges", []):
+            n = e.get("node", {})
+            out.append({"id": n.get("id", ""), "name": n.get("name", ""), "active": n.get("isActive", True)})
+        return out
+
     def index_variants_by_sku(self) -> Dict[str, Dict[str, Any]]:
         """{ sku_normalizado: {variant_id, product_id, inventory_item_id, sku} } leyendo el catálogo."""
         idx: Dict[str, Dict[str, Any]] = {}
@@ -299,10 +317,12 @@ class ShopifyConnector(BaseConnector):
             raise ValueError(str(errs)[:250])
 
     def push_updates(self, updates: List[Dict[str, Any]], do_price: bool, do_stock: bool,
-                     dry_run: bool = False) -> Dict[str, Any]:
+                     dry_run: bool = False, location_id: str = None) -> Dict[str, Any]:
         """
         Escribe precio/stock en Shopify cruzando por SKU.
         updates: [{"sku":..., "price":..., "stock":...}]. dry_run solo reporta el cruce.
+        location_id: ubicación donde SET del inventario. Si None, usa la primera (arriesgado
+        si hay varias bodegas) — la UI debería mandarlo explícito.
         """
         idx = self.index_variants_by_sku()
         matched, not_found = [], []
@@ -342,9 +362,11 @@ class ShopifyConnector(BaseConnector):
                 except Exception as e:
                     summary["errors"].append(f"precio (producto {pid[-8:]}): {str(e)[:140]}")
 
-        # Inventario: por lotes a la ubicación principal.
+        # Inventario: por lotes a la ubicación elegida (o la primera si no se indicó).
         if do_stock:
-            location_id = self.get_primary_location_id()
+            if not location_id:
+                location_id = self.get_primary_location_id()
+            summary["location_id"] = location_id
             quantities = []
             for u, info in matched:
                 raw = u.get("stock")

@@ -15,7 +15,21 @@ class PushRequest(BaseModel):
     sku_column: str
     price_column: Optional[str] = None
     stock_column: Optional[str] = None
+    location_id: Optional[str] = None             # ubicación destino para el stock
     dry_run: bool = True
+
+
+@router.get("/locations")
+def list_locations(connection_id: int, db: Session = Depends(get_db)):
+    """Ubicaciones de la tienda Shopify (para elegir dónde escribir el stock)."""
+    conn = db.query(models.Connection).filter(models.Connection.id == connection_id).first()
+    if not conn or conn.connection_type != "shopify":
+        raise HTTPException(status_code=400, detail="La conexión indicada no es de tipo Shopify.")
+    from ..services import _create_connector
+    try:
+        return {"locations": _create_connector(conn).get_locations()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)[:300])
 
 
 def _resolve_master_connection_id(db: Session) -> Optional[int]:
@@ -79,7 +93,8 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
     connector = _create_connector(shop_conn)
     try:
         summary = connector.push_updates(
-            updates, do_price=pi >= 0, do_stock=ti >= 0, dry_run=req.dry_run
+            updates, do_price=pi >= 0, do_stock=ti >= 0,
+            dry_run=req.dry_run, location_id=req.location_id
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error contra Shopify: {str(e)[:300]}")
