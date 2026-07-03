@@ -239,11 +239,21 @@ class ShopifyConnector(BaseConnector):
         return s
 
     def get_primary_location_id(self) -> str:
-        """Primera ubicación activa de la tienda (para escribir inventario)."""
-        data = self._graphql('{ locations(first: 1, query: "status:active") { edges { node { id name } } } }')
+        """
+        Primera ubicación de la tienda (solo el id; pedir 'name' exigiría read_locations).
+        """
+        try:
+            data = self._graphql('{ locations(first: 1) { edges { node { id } } } }')
+        except ValueError as e:
+            if "ACCESS_DENIED" in str(e).upper() or "read_locations" in str(e).lower():
+                raise ValueError(
+                    "Para escribir inventario falta el scope 'read_locations' en la app Shopify. "
+                    "Agrégalo (Versiones → Nueva versión) y reinstala."
+                )
+            raise
         edges = data.get("locations", {}).get("edges", [])
         if not edges:
-            raise ValueError("La tienda no tiene ubicaciones activas para actualizar inventario.")
+            raise ValueError("La tienda no tiene ubicaciones para actualizar inventario.")
         return edges[0]["node"]["id"]
 
     def index_variants_by_sku(self) -> Dict[str, Dict[str, Any]]:
