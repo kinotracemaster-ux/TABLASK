@@ -242,8 +242,9 @@ class ShopifyConnector(BaseConnector):
         """
         Primera ubicación de la tienda (solo el id; pedir 'name' exigiría read_locations).
         """
+        # Pedimos varias (solo id, no requiere read_locations) para detectar multi-bodega.
         try:
-            data = self._graphql('{ locations(first: 1) { edges { node { id } } } }')
+            data = self._graphql('{ locations(first: 10) { edges { node { id } } } }')
         except ValueError as e:
             if "ACCESS_DENIED" in str(e).upper() or "read_locations" in str(e).lower():
                 raise ValueError(
@@ -254,6 +255,11 @@ class ShopifyConnector(BaseConnector):
         edges = data.get("locations", {}).get("edges", [])
         if not edges:
             raise ValueError("La tienda no tiene ubicaciones para actualizar inventario.")
+        if len(edges) > 1:
+            raise ValueError(
+                "Tu tienda tiene VARIAS ubicaciones. Agrega el scope 'read_locations', "
+                "reinstala la app y elige la bodega en 'Enviar a Shopify' para no escribir en la equivocada."
+            )
         return edges[0]["node"]["id"]
 
     def get_locations(self) -> List[Dict[str, str]]:

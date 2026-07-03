@@ -69,7 +69,11 @@ export default function ShopifyPush() {
     setError(null); setResult(null); setPreview(null);
     if (!shopId || !tab || !skuCol) { setError('Elige tienda, hoja y columna SKU.'); return; }
     if (!priceCol && !stockCol) { setError('Mapea al menos Precio o Stock.'); return; }
-    if (stockCol && !locId) { setError('Para enviar STOCK debes elegir la ubicación (bodega) destino.'); return; }
+    // Solo exigimos elegir ubicación si hay VARIAS. Con una sola (o si no se pudieron
+    // listar por falta de read_locations), el backend resuelve la única ubicación.
+    if (stockCol && locations.length > 1 && !locId) {
+      setError('Tu tienda tiene varias bodegas: elige la ubicación destino del stock.'); return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`${API}/api/shopify/push`, {
@@ -137,6 +141,10 @@ export default function ShopifyPush() {
               {locError ? (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs text-amber-800">
                   {locError}
+                  <div className="mt-1 text-amber-700">
+                    Si tu tienda tiene <b>una sola</b> ubicación, igual puedo escribir el stock.
+                    Si tiene varias, agrega <b>read_locations</b> para elegir la correcta.
+                  </div>
                 </div>
               ) : (
                 <select value={locId} onChange={e => setLocId(e.target.value)}
