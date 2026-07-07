@@ -164,6 +164,10 @@ def delete_process(process_id: int, db: Session = Depends(get_db)):
     proc = db.query(models.Process).filter(models.Process.id == process_id).first()
     if not proc:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    # Los batches de staging son datos transitorios: se borran con el proceso.
+    db.query(models.StagingBatch).filter(models.StagingBatch.process_id == process_id).delete()
+    # Los logs de ejecución se conservan como historial; solo se desvinculan.
+    db.query(models.ExecutionLog).filter(models.ExecutionLog.process_id == process_id).update({"process_id": None})
     db.delete(proc)
     db.commit()
     return {"message": "Proceso eliminado"}

@@ -200,7 +200,12 @@ export default function Processes() {
 
   const handleDelete = async (id) => {
     if (!window.confirm("¿Eliminar este proceso?")) return;
-    await fetch(`${API}/api/processes/${id}`, { method: 'DELETE' });
+    const res = await fetch(`${API}/api/processes/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || 'No se pudo eliminar el proceso.');
+      return;
+    }
     loadAll();
   };
 
