@@ -5,10 +5,9 @@ import Processes from './components/Processes';
 import Exports from './components/Exports';
 import MasterTable from './components/MasterTable';
 import ActivityLogs from './components/ActivityLogs';
-import StagingQueue from './components/StagingQueue';
 import ConnectedApps from './components/ConnectedApps';
 import ShopifyPush from './components/ShopifyPush';
-import { Database, Link2, Settings2, Download, Table2, Terminal, ShieldAlert, Network, MoreHorizontal, ChevronDown, ChevronUp, Upload } from 'lucide-react';
+import { Database, Link2, Settings2, Download, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Upload } from 'lucide-react';
 
 // Detecta si estamos en un entorno de PREVIEW (no producción).
 // Railway nombra los previews como "...-pr-<n>.up.railway.app".
@@ -28,7 +27,7 @@ function Sidebar() {
         : (IS_PREVIEW ? 'text-indigo-100 hover:bg-white/10 hover:text-white' : 'text-gray-700 hover:bg-indigo-50 hover:text-indigo-600')
     }`;
 
-  const moreActive = ['/staging', '/logs', '/intake'].includes(location.pathname);
+  const moreActive = ['/logs', '/intake'].includes(location.pathname);
 
   return (
     <aside className={`w-60 flex flex-col flex-shrink-0 ${IS_PREVIEW ? 'bg-indigo-700' : 'bg-white border-r border-gray-200'}`}>
@@ -78,9 +77,6 @@ function Sidebar() {
 
         {moreOpen && (
           <div className="pl-4 space-y-1">
-            <Link to="/staging" className={linkClass('/staging')}>
-              <ShieldAlert className="w-4 h-4" /> Staging
-            </Link>
             <Link to="/logs" className={linkClass('/logs')}>
               <Terminal className="w-4 h-4" /> Logs
             </Link>
@@ -103,7 +99,6 @@ function App() {
           <Routes>
             <Route path="/" element={<MasterTable />} />
             <Route path="/processes" element={<Processes />} />
-            <Route path="/staging" element={<StagingQueue />} />
             <Route path="/connections" element={<Connections />} />
             <Route path="/intake" element={<ConnectedApps />} />
             <Route path="/exports" element={<Exports />} />

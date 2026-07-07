@@ -3,7 +3,6 @@ from google.oauth2 import service_account
 import os
 import re
 import time
-import difflib
 import pandas as pd
 from .sheets_retry import execute_with_retry
 
@@ -59,61 +58,6 @@ def normalize_sku_for_match(s: str) -> str:
         s = s.lstrip("0") or "0"
     return s
 
-
-def find_similar_sku(sku_val: str, master_norm_index: dict, master_len_buckets: dict,
-                     threshold: float = 0.86):
-    """Busca un SKU de la maestra parecido a `sku_val` (que NO cruzó exacto).
-    Devuelve (sku_maestra_sugerido, motivo, similitud) o None.
-
-    Estrategia en pasos para no ser O(N*M):
-    1. Match normalizado exacto (dict): cubre diferencias de formato (.0, ceros,
-       mayúsculas, espacios) — motivo 'formato', confianza máxima.
-    2. Fuzzy SOLO de mismo largo (sustitución/transposición) usando
-       SequenceMatcher: cubre typos reales (ej. '12O3' vs '1203'). NO se hace
-       fuzzy de largo distinto porque en códigos cortos (ej. '7-59' vs '7-159',
-       '708-1' vs '1708-1') una inserción/borrado casi siempre es OTRO producto:
-       puntúa alto pero es un falso positivo.
-    """
-    norm = normalize_sku_for_match(sku_val)
-    if not norm:
-        return None
-
-    # Paso 1: mismo SKU salvo formato.
-    exact = master_norm_index.get(norm)
-    if exact is not None and exact != sku_val:
-        return (exact, "formato", 1.0)
-
-    # Paso 1b: variante con sufijo. El origen trae 'base-1' / 'base_2' / 'base/3'
-    # y la maestra tiene la 'base' sola → casi seguro es una variante no explícita
-    # del mismo producto. Lookup directo por la base (barato y preciso).
-    m = re.match(r"^(.+?)[-_/.\s].*$", norm)
-    if m:
-        base_hit = master_norm_index.get(m.group(1))
-        if base_hit is not None and base_hit != sku_val:
-            return (base_hit, "variante", 1.0)
-
-    # Paso 2: fuzzy SOLO de mismo largo (typos por sustitución/transposición).
-    candidates = master_len_buckets.get(len(norm), ())
-    if not candidates:
-        return None
-
-    best_sku = None
-    best_ratio = 0.0
-    sm = difflib.SequenceMatcher()
-    sm.set_seq2(norm)
-    for cand_norm, cand_original in candidates:
-        sm.set_seq1(cand_norm)
-        # quick_ratio es barato y acota antes del ratio real
-        if sm.quick_ratio() < threshold:
-            continue
-        r = sm.ratio()
-        if r > best_ratio:
-            best_ratio = r
-            best_sku = cand_original
-
-    if best_sku is not None and best_sku != sku_val and best_ratio >= threshold:
-        return (best_sku, "similar", round(best_ratio, 3))
-    return None
 
 # Configuración de credenciales (Service Account)
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
