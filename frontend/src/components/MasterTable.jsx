@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, Send, FileDown, ShieldAlert, Play, RefreshCw } from 'lucide-react';
+import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, ShieldAlert, Play, RefreshCw } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -46,7 +46,6 @@ export default function MasterTable() {
   // Processes & Exports lists for tabs
   const [processes, setProcesses] = useState([]);
   const [exports, setExports] = useState([]);
-  const [pushStatus, setPushStatus] = useState({});
 
   useEffect(() => {
     loadConnections();
@@ -224,22 +223,6 @@ export default function MasterTable() {
       setRunAllResult({ message: 'Fallo de conexión: ' + err.message, errors: [{ process: 'Red', error: err.message }] });
     }
     setRunAllLoading(false);
-  };
-
-  // Export actions
-  const handlePushExport = async (id) => {
-    setPushStatus(s => ({ ...s, [id]: { loading: true } }));
-    try {
-      const res = await fetch(`${API}/api/exports/${id}/push`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        setPushStatus(s => ({ ...s, [id]: { success: data.message || 'Enviado' } }));
-      } else {
-        setPushStatus(s => ({ ...s, [id]: { error: data.detail || 'Error' } }));
-      }
-    } catch (err) {
-      setPushStatus(s => ({ ...s, [id]: { error: err.message } }));
-    }
   };
 
   // Reflejo: propaga ediciones manuales de la maestra a las hojas hijas
@@ -487,7 +470,6 @@ export default function MasterTable() {
           {[
             { key: 'datos', label: 'Datos', icon: Table2 },
             { key: 'entradas', label: 'Entradas', icon: Settings2, count: processes.length },
-            { key: 'salidas', label: 'Salidas', icon: Download, count: exports.length },
           ].map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition -mb-px ${
@@ -590,52 +572,6 @@ export default function MasterTable() {
         </div>
       )}
 
-      {/* Salidas Tab */}
-      {activeTab === 'salidas' && (
-        <div className="space-y-3">
-          {exports.length === 0 ? (
-            <div className="bg-white rounded-xl border p-12 text-center text-gray-400">
-              <Download className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="font-medium">No hay formatos de salida configurados</p>
-              <p className="text-sm mt-1">Ve a Distribución en el menú lateral para crear uno.</p>
-            </div>
-          ) : (
-            exports.map(fmt => {
-              const st = pushStatus[fmt.id];
-              return (
-                <div key={fmt.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                      <Download className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-800">{fmt.name}</h3>
-                      <p className="text-xs text-gray-500">
-                        {fmt.output_type === 'push_to_sheet' ? `→ Google Sheet / "${fmt.output_sheet_name}"` : '→ Descarga CSV'}
-                        {' • '}{Object.keys(fmt.columns_mapping || {}).length} columna(s)
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {fmt.output_type === 'push_to_sheet' && (
-                      <button onClick={() => handlePushExport(fmt.id)} disabled={st?.loading}
-                        className="flex items-center gap-1 text-sm text-green-700 border border-green-200 px-3 py-1.5 rounded-lg hover:bg-green-50">
-                        <Send className="w-3.5 h-3.5" /> {st?.loading ? 'Enviando...' : 'Push'}
-                      </button>
-                    )}
-                    <a href={`${API}/api/exports/${fmt.id}/download`}
-                      className="flex items-center gap-1 text-sm text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-50">
-                      <FileDown className="w-3.5 h-3.5" /> CSV
-                    </a>
-                    {st?.success && <span className="text-xs text-green-600 self-center">✓ {st.success}</span>}
-                    {st?.error && <span className="text-xs text-red-600 self-center">✕ {st.error}</span>}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
     </div>
   );
 }
