@@ -341,6 +341,15 @@ def read_export_formats(project_id: int = None, db: Session = Depends(get_db)):
         r.columns_mapping = json.loads(r.columns_mapping)
     return results
 
+@app.delete("/api/exports/{export_id}")
+def delete_export_format(export_id: int, db: Session = Depends(get_db)):
+    fmt = db.query(models.ExportFormat).filter(models.ExportFormat.id == export_id).first()
+    if not fmt:
+        raise HTTPException(status_code=404, detail="Formato de salida no encontrado")
+    db.delete(fmt)
+    db.commit()
+    return {"message": "Formato de salida eliminado"}
+
 @app.get("/api/exports/{export_id}/download")
 def download_export_csv(export_id: int, db: Session = Depends(get_db)):
     fmt = db.query(models.ExportFormat).filter(models.ExportFormat.id == export_id).first()
