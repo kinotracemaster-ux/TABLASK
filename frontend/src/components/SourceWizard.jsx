@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UploadCloud, Link2, ChevronRight, CheckCircle2, ArrowRight, Sparkles, Download, FileDown } from 'lucide-react';
-import { extractError } from '../utils/errors';
+import { UploadCloud, Link2, Server, Store, ChevronRight, CheckCircle2, ArrowRight, Sparkles, Download, FileDown, Eye, Send, XCircle, AlertTriangle } from 'lucide-react';
+import { extractError, formatError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -11,16 +11,60 @@ const STEPS = [
   { key: 'destinos', label: 'Elegir destinos' },
 ];
 
+// Campos para conectar/crear una tienda Shopify. Se reutiliza en el Paso 1
+// (Shopify como origen de lectura) y en el Paso 3 (Shopify como destino de escritura).
+function ShopifyConnectFields({ domain, setDomain, authMode, setAuthMode, clientId, setClientId, clientSecret, setClientSecret, token, setToken }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Dominio de la tienda</label>
+        <input value={domain} onChange={e => setDomain(e.target.value)}
+          placeholder="mi-tienda.myshopify.com"
+          className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+      </div>
+      <div className="flex gap-1 text-xs">
+        <button type="button" onClick={() => setAuthMode('client')}
+          className={`px-3 py-1 rounded-md border ${authMode === 'client' ? 'bg-green-600 text-white border-green-600' : 'border-gray-300 text-gray-600'}`}>
+          Client ID + Secret
+        </button>
+        <button type="button" onClick={() => setAuthMode('token')}
+          className={`px-3 py-1 rounded-md border ${authMode === 'token' ? 'bg-green-600 text-white border-green-600' : 'border-gray-300 text-gray-600'}`}>
+          Access Token (shpat_)
+        </button>
+      </div>
+      {authMode === 'client' ? (
+        <div className="flex gap-2">
+          <input value={clientId} onChange={e => setClientId(e.target.value)} placeholder="Client ID"
+            className="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+          <input type="password" value={clientSecret} onChange={e => setClientSecret(e.target.value)} placeholder="Client Secret"
+            className="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+        </div>
+      ) : (
+        <input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="shpat_..."
+          className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+      )}
+    </div>
+  );
+}
+
 export default function SourceWizard() {
   const navigate = useNavigate();
   const [step, setStep] = useState('origen');
   const [projectId, setProjectId] = useState(null);
 
   // --- Paso 1: Origen ---
-  const [mode, setMode] = useState('connect'); // 'connect' | 'upload'
+  const [originType, setOriginType] = useState('sheets'); // 'sheets' | 'upload' | 'api' | 'shopify'
   const [sourceName, setSourceName] = useState('');
   const [sheetUrl, setSheetUrl] = useState('');
   const [file, setFile] = useState(null);
+  const [apiUrl, setApiUrl] = useState('');
+  const [apiMethod, setApiMethod] = useState('GET');
+  const [apiHeaders, setApiHeaders] = useState('');
+  const [shopDomain, setShopDomain] = useState('');
+  const [shopAuthMode, setShopAuthMode] = useState('client');
+  const [shopClientId, setShopClientId] = useState('');
+  const [shopClientSecret, setShopClientSecret] = useState('');
+  const [shopToken, setShopToken] = useState('');
   const [creatingSource, setCreatingSource] = useState(false);
   const [sourceConn, setSourceConn] = useState(null); // conexión creada
 
@@ -34,11 +78,10 @@ export default function SourceWizard() {
   const [processName, setProcessName] = useState('');
   const [loadingMap, setLoadingMap] = useState(false);
   const [savingProcess, setSavingProcess] = useState(false);
-  const [createdProcess, setCreatedProcess] = useState(null);
 
   // --- Paso 3: Destinos ---
   const [destinations, setDestinations] = useState([]); // suscripciones + csv exports ya existentes
-  const [destType, setDestType] = useState('sheet'); // 'sheet' | 'csv'
+  const [destType, setDestType] = useState('sheet'); // 'sheet' | 'csv' | 'shopify'
   const [destName, setDestName] = useState('');
   const [destConnId, setDestConnId] = useState('');
   const [connections, setConnections] = useState([]);
@@ -49,9 +92,32 @@ export default function SourceWizard() {
   const [savingDest, setSavingDest] = useState(false);
   const [masterConnId, setMasterConnId] = useState(null); // conexión real de la Maestra global (para el CSV)
   const [masterSheetNameRef, setMasterSheetNameRef] = useState(null);
+  const [masterSheetsAll, setMasterSheetsAll] = useState({}); // todas las pestañas de la Maestra (para push a Shopify)
+
+  // Shopify como destino (push ahora, no queda "guardado" como suscripción/CSV)
+  const [newShopDomain, setNewShopDomain] = useState('');
+  const [newShopAuthMode, setNewShopAuthMode] = useState('client');
+  const [newShopClientId, setNewShopClientId] = useState('');
+  const [newShopClientSecret, setNewShopClientSecret] = useState('');
+  const [newShopToken, setNewShopToken] = useState('');
+  const [creatingShopConn, setCreatingShopConn] = useState(false);
+  const [shopConnId, setShopConnId] = useState('');
+  const [shopTab, setShopTab] = useState('');
+  const [shopSkuCol, setShopSkuCol] = useState('');
+  const [shopPriceCol, setShopPriceCol] = useState('');
+  const [shopStockCol, setShopStockCol] = useState('');
+  const [shopLocations, setShopLocations] = useState([]);
+  const [shopLocId, setShopLocId] = useState('');
+  const [shopLocError, setShopLocError] = useState(null);
+  const [shopBusy, setShopBusy] = useState(false);
+  const [shopPreview, setShopPreview] = useState(null);
+  const [shopResult, setShopResult] = useState(null);
+  const [shopError, setShopError] = useState(null);
 
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
   const destCols = destType === 'sheet' && destSheet && destSheets[destSheet] ? destSheets[destSheet] : [];
+  const shopStoreConns = connections.filter(c => c.connection_type === 'shopify');
+  const shopTabCols = shopTab && masterSheetsAll[shopTab] ? masterSheetsAll[shopTab] : [];
 
   useEffect(() => {
     (async () => {
@@ -86,18 +152,41 @@ export default function SourceWizard() {
     } catch (err) { console.error(err); }
   };
 
-  // ── Paso 1: crear la conexión origen (conectar o subir) ──
+  // ── Paso 1: crear la conexión origen ──
   const handleCreateSource = async (e) => {
     e.preventDefault();
     setCreatingSource(true);
     try {
       let conn;
-      if (mode === 'upload') {
+      if (originType === 'upload') {
         if (!file) { alert('Elegí un archivo primero.'); setCreatingSource(false); return; }
         const form = new FormData();
         form.append('name', sourceName || file.name);
         form.append('file', file);
         const res = await fetch(`${API}/api/connections/upload`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await extractError(res));
+        conn = await res.json();
+      } else if (originType === 'api') {
+        const res = await fetch(`${API}/api/connections/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: sourceName || 'Nueva fuente', connection_type: 'http_api',
+            http_url: apiUrl, http_method: apiMethod, http_headers: apiHeaders || null
+          })
+        });
+        if (!res.ok) throw new Error(await extractError(res));
+        conn = await res.json();
+      } else if (originType === 'shopify') {
+        if (!shopDomain) { alert('Falta el dominio de la tienda.'); setCreatingSource(false); return; }
+        const body = { name: sourceName || 'Nueva fuente', connection_type: 'shopify', shopify_domain: shopDomain };
+        if (shopAuthMode === 'token') body.shopify_access_token = shopToken;
+        else { body.shopify_client_id = shopClientId; body.shopify_client_secret = shopClientSecret; }
+        const res = await fetch(`${API}/api/connections/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
         if (!res.ok) throw new Error(await extractError(res));
         conn = await res.json();
       } else {
@@ -129,7 +218,7 @@ export default function SourceWizard() {
         fetch(`${API}/api/master`)
       ]);
       const meta = await metaRes.json();
-      if (!metaRes.ok) throw new Error(meta.detail || 'No se pudo leer el archivo/hoja.');
+      if (!metaRes.ok) throw new Error(meta.detail || 'No se pudo leer el origen.');
       const sheets = meta.sheets || {};
       setSourceSheets(sheets);
       const firstSheet = Object.keys(sheets)[0] || '';
@@ -208,8 +297,6 @@ export default function SourceWizard() {
         })
       });
       if (!res.ok) throw new Error(await extractError(res));
-      const data = await res.json();
-      setCreatedProcess(data);
       if (projectId) await loadDestinations(projectId);
       setStep('destinos');
     } catch (err) {
@@ -218,7 +305,7 @@ export default function SourceWizard() {
     setSavingProcess(false);
   };
 
-  // ── Paso 3: destinos ──
+  // ── Paso 3: destinos Sheets/CSV ──
   const loadDestSheets = async (connId) => {
     setDestConnId(connId);
     setDestSheet('');
@@ -309,6 +396,91 @@ export default function SourceWizard() {
     setSavingDest(false);
   };
 
+  // ── Paso 3: destino Shopify (push ahora) ──
+  const loadMasterSheetsAll = async () => {
+    if (!masterConnId) return;
+    try {
+      const res = await fetch(`${API}/api/connections/${masterConnId}/metadata`);
+      const data = await res.json();
+      if (res.ok) setMasterSheetsAll(data.sheets || {});
+    } catch (err) { console.error(err); }
+  };
+
+  const handleSelectDestType = (t) => {
+    setDestType(t);
+    if (t === 'shopify' && Object.keys(masterSheetsAll).length === 0) loadMasterSheetsAll();
+  };
+
+  const handleCreateShopConn = async (e) => {
+    e.preventDefault();
+    if (!newShopDomain) { alert('Falta el dominio de la tienda.'); return; }
+    setCreatingShopConn(true);
+    try {
+      const body = { name: newShopDomain, connection_type: 'shopify', shopify_domain: newShopDomain };
+      if (newShopAuthMode === 'token') body.shopify_access_token = newShopToken;
+      else { body.shopify_client_id = newShopClientId; body.shopify_client_secret = newShopClientSecret; }
+      const res = await fetch(`${API}/api/connections/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error(await extractError(res));
+      const conn = await res.json();
+      setConnections([...connections, conn]);
+      setShopConnId(String(conn.id));
+      setNewShopDomain(''); setNewShopClientId(''); setNewShopClientSecret(''); setNewShopToken('');
+    } catch (err) {
+      alert(err.message || 'No se pudo conectar la tienda.');
+    }
+    setCreatingShopConn(false);
+  };
+
+  useEffect(() => {
+    setShopLocations([]); setShopLocId(''); setShopLocError(null);
+    if (!shopConnId) return;
+    fetch(`${API}/api/shopify/locations?connection_id=${shopConnId}`)
+      .then(async r => {
+        const d = await r.json();
+        if (!r.ok) { setShopLocError(formatError(d)); return; }
+        setShopLocations(d.locations || []);
+        if ((d.locations || []).length === 1) setShopLocId(d.locations[0].id);
+      })
+      .catch(e => setShopLocError(e.message));
+  }, [shopConnId]);
+
+  const runShopifyPush = async (dryRun) => {
+    setShopError(null); setShopResult(null); setShopPreview(null);
+    if (!shopConnId || !shopTab || !shopSkuCol) { setShopError('Elegí tienda, hoja y columna SKU.'); return; }
+    if (!shopPriceCol && !shopStockCol) { setShopError('Mapeá al menos Precio o Stock.'); return; }
+    if (shopStockCol && shopLocations.length > 1 && !shopLocId) {
+      setShopError('Tu tienda tiene varias bodegas: elegí la ubicación destino del stock.'); return;
+    }
+    setShopBusy(true);
+    try {
+      const res = await fetch(`${API}/api/shopify/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopify_connection_id: parseInt(shopConnId),
+          source_connection_id: masterConnId,
+          source_sheet_name: shopTab,
+          sku_column: shopSkuCol,
+          price_column: shopPriceCol || null,
+          stock_column: shopStockCol || null,
+          location_id: shopLocId || null,
+          dry_run: dryRun,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setShopError(formatError(data)); return; }
+      if (dryRun) setShopPreview(data); else setShopResult(data);
+    } catch (e) {
+      setShopError(e.message);
+    } finally {
+      setShopBusy(false);
+    }
+  };
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <div className="mb-6">
@@ -339,14 +511,22 @@ export default function SourceWizard() {
       {/* Paso 1: Origen */}
       {step === 'origen' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex gap-2 mb-5">
-            <button type="button" onClick={() => setMode('connect')}
-              className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg text-sm font-medium border transition ${mode === 'connect' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-              <Link2 className="w-4 h-4" /> Conectar Google Sheet
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
+            <button type="button" onClick={() => setOriginType('sheets')}
+              className={`flex flex-col items-center justify-center gap-1 p-3 rounded-lg text-xs font-medium border transition ${originType === 'sheets' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+              <Link2 className="w-4 h-4" /> Google Sheet
             </button>
-            <button type="button" onClick={() => setMode('upload')}
-              className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg text-sm font-medium border transition ${mode === 'upload' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-              <UploadCloud className="w-4 h-4" /> Subir archivo (CSV/Excel)
+            <button type="button" onClick={() => setOriginType('upload')}
+              className={`flex flex-col items-center justify-center gap-1 p-3 rounded-lg text-xs font-medium border transition ${originType === 'upload' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+              <UploadCloud className="w-4 h-4" /> Subir archivo
+            </button>
+            <button type="button" onClick={() => setOriginType('api')}
+              className={`flex flex-col items-center justify-center gap-1 p-3 rounded-lg text-xs font-medium border transition ${originType === 'api' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+              <Server className="w-4 h-4" /> API externa
+            </button>
+            <button type="button" onClick={() => setOriginType('shopify')}
+              className={`flex flex-col items-center justify-center gap-1 p-3 rounded-lg text-xs font-medium border transition ${originType === 'shopify' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+              <Store className="w-4 h-4" /> Shopify
             </button>
           </div>
 
@@ -358,18 +538,50 @@ export default function SourceWizard() {
                 className="w-full border border-gray-300 rounded-lg p-2 text-sm max-w-md" />
             </div>
 
-            {mode === 'connect' ? (
+            {originType === 'sheets' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">URL del Google Sheet</label>
                 <input key="sheetUrl" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} required
                   placeholder="https://docs.google.com/spreadsheets/d/..."
                   className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
               </div>
-            ) : (
+            )}
+
+            {originType === 'upload' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Archivo (.csv, .xls, .xlsx)</label>
                 <input key="fileInput" type="file" accept=".csv,.xls,.xlsx" onChange={e => setFile(e.target.files?.[0] || null)} required
                   className="w-full text-sm" />
+              </div>
+            )}
+
+            {originType === 'api' && (
+              <div key="apiFields" className="space-y-3">
+                <div className="flex gap-2">
+                  <select value={apiMethod} onChange={e => setApiMethod(e.target.value)}
+                    className="w-24 border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                    <option>GET</option>
+                    <option>POST</option>
+                  </select>
+                  <input value={apiUrl} onChange={e => setApiUrl(e.target.value)} required
+                    placeholder="https://api.proveedor.com/v1/productos"
+                    className="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+                </div>
+                <textarea value={apiHeaders} onChange={e => setApiHeaders(e.target.value)}
+                  placeholder='Headers (JSON opcional), ej: {"Authorization": "Bearer TOKEN"}'
+                  rows={2} className="w-full border border-gray-300 rounded-lg p-2 text-sm font-mono" />
+              </div>
+            )}
+
+            {originType === 'shopify' && (
+              <div key="shopifyFields">
+                <ShopifyConnectFields
+                  domain={shopDomain} setDomain={setShopDomain}
+                  authMode={shopAuthMode} setAuthMode={setShopAuthMode}
+                  clientId={shopClientId} setClientId={setShopClientId}
+                  clientSecret={shopClientSecret} setClientSecret={setShopClientSecret}
+                  token={shopToken} setToken={setShopToken}
+                />
               </div>
             )}
 
@@ -494,101 +706,227 @@ export default function SourceWizard() {
           )}
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3">Agregar un destino nuevo</h3>
-            <div className="flex gap-2 mb-4">
-              <button type="button" onClick={() => setDestType('sheet')}
-                className={`flex-1 flex items-center justify-center gap-2 p-2.5 rounded-lg text-sm font-medium border transition ${destType === 'sheet' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">Agregar un destino</h3>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              <button type="button" onClick={() => handleSelectDestType('sheet')}
+                className={`flex items-center justify-center gap-2 p-2.5 rounded-lg text-sm font-medium border transition ${destType === 'sheet' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
                 <Download className="w-4 h-4" /> Google Sheet
               </button>
-              <button type="button" onClick={() => setDestType('csv')}
-                className={`flex-1 flex items-center justify-center gap-2 p-2.5 rounded-lg text-sm font-medium border transition ${destType === 'csv' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+              <button type="button" onClick={() => handleSelectDestType('csv')}
+                className={`flex items-center justify-center gap-2 p-2.5 rounded-lg text-sm font-medium border transition ${destType === 'csv' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
                 <FileDown className="w-4 h-4" /> Descarga CSV
+              </button>
+              <button type="button" onClick={() => handleSelectDestType('shopify')}
+                className={`flex items-center justify-center gap-2 p-2.5 rounded-lg text-sm font-medium border transition ${destType === 'shopify' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                <Store className="w-4 h-4" /> Shopify
               </button>
             </div>
 
-            <form onSubmit={handleCreateDestination} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-                <input value={destName} onChange={e => setDestName(e.target.value)} required
-                  placeholder={destType === 'csv' ? 'Ej: KYTE, Effi' : 'Ej: Catálogo, Shopi-Kino'}
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm max-w-md" />
-              </div>
-
-              {destType === 'sheet' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Google Sheets</label>
-                    <select value={destConnId} onChange={e => loadDestSheets(e.target.value)} required
-                      className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                      <option value="">Seleccionar...</option>
-                      {connections.filter(c => c.connection_type === 'google_sheets').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Pestaña destino</label>
-                    <select value={destSheet} onChange={e => setDestSheet(e.target.value)} required disabled={!destConnId}
-                      className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                      <option value="">Seleccionar...</option>
-                      {Object.keys(destSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">🔑 Columna llave en destino (SKU)</label>
-                    <select value={destSkuCol} onChange={e => setDestSkuCol(e.target.value)} required disabled={destCols.length === 0}
-                      className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white max-w-sm">
-                      <option value="">Seleccionar...</option>
-                      {destCols.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
+            {destType !== 'shopify' ? (
+              <form onSubmit={handleCreateDestination} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+                  <input value={destName} onChange={e => setDestName(e.target.value)} required
+                    placeholder={destType === 'csv' ? 'Ej: KYTE, Effi' : 'Ej: Catálogo, Shopi-Kino'}
+                    className="w-full border border-gray-300 rounded-lg p-2 text-sm max-w-md" />
                 </div>
-              )}
 
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="block text-sm font-medium text-gray-700">Campos a enviar</label>
-                  {destType === 'sheet' && (
-                    <button type="button" onClick={handleAutoMapDest} className="bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-xs font-semibold hover:bg-gray-200">
-                      ✨ Auto-Mapear
-                    </button>
-                  )}
-                </div>
-                {destMappings.map((m, i) => (
-                  <div key={i} className="flex gap-2 items-center mb-2">
-                    <select value={m.src} onChange={e => {
-                      const n = [...destMappings]; n[i].src = e.target.value; setDestMappings(n);
-                    }} className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white">
-                      <option value="">[Maestra] Columna...</option>
-                      {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
-                    {destType === 'csv' ? (
-                      <input value={m.dst} onChange={e => {
-                        const n = [...destMappings]; n[i].dst = e.target.value; setDestMappings(n);
-                      }} placeholder="Nombre de columna en el CSV..."
-                        className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white" />
-                    ) : (
-                      <select value={m.dst} onChange={e => {
-                        const n = [...destMappings]; n[i].dst = e.target.value; setDestMappings(n);
-                      }} className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white">
-                        <option value="">[Destino] Columna...</option>
+                {destType === 'sheet' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Conexión Google Sheets</label>
+                      <select value={destConnId} onChange={e => loadDestSheets(e.target.value)} required
+                        className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                        <option value="">Seleccionar...</option>
+                        {connections.filter(c => c.connection_type === 'google_sheets').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Pestaña destino</label>
+                      <select value={destSheet} onChange={e => setDestSheet(e.target.value)} required disabled={!destConnId}
+                        className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                        <option value="">Seleccionar...</option>
+                        {Object.keys(destSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">🔑 Columna llave en destino (SKU)</label>
+                      <select value={destSkuCol} onChange={e => setDestSkuCol(e.target.value)} required disabled={destCols.length === 0}
+                        className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white max-w-sm">
+                        <option value="">Seleccionar...</option>
                         {destCols.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
-                    )}
-                    {destMappings.length > 1 && (
-                      <button type="button" onClick={() => setDestMappings(destMappings.filter((_, idx) => idx !== i))}
-                        className="text-red-400 hover:text-red-600 text-sm">✕</button>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-sm font-medium text-gray-700">Campos a enviar</label>
+                    {destType === 'sheet' && (
+                      <button type="button" onClick={handleAutoMapDest} className="bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-xs font-semibold hover:bg-gray-200">
+                        ✨ Auto-Mapear
+                      </button>
                     )}
                   </div>
-                ))}
-                <button type="button" onClick={() => setDestMappings([...destMappings, { src: '', dst: '' }])}
-                  className="text-gray-600 text-sm font-medium hover:underline mt-1">+ Añadir campo</button>
-              </div>
+                  {destMappings.map((m, i) => (
+                    <div key={i} className="flex gap-2 items-center mb-2">
+                      <select value={m.src} onChange={e => {
+                        const n = [...destMappings]; n[i].src = e.target.value; setDestMappings(n);
+                      }} className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white">
+                        <option value="">[Maestra] Columna...</option>
+                        {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                      {destType === 'csv' ? (
+                        <input value={m.dst} onChange={e => {
+                          const n = [...destMappings]; n[i].dst = e.target.value; setDestMappings(n);
+                        }} placeholder="Nombre de columna en el CSV..."
+                          className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white" />
+                      ) : (
+                        <select value={m.dst} onChange={e => {
+                          const n = [...destMappings]; n[i].dst = e.target.value; setDestMappings(n);
+                        }} className="flex-1 border border-gray-300 rounded-md p-1.5 text-sm bg-white">
+                          <option value="">[Destino] Columna...</option>
+                          {destCols.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      )}
+                      {destMappings.length > 1 && (
+                        <button type="button" onClick={() => setDestMappings(destMappings.filter((_, idx) => idx !== i))}
+                          className="text-red-400 hover:text-red-600 text-sm">✕</button>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setDestMappings([...destMappings, { src: '', dst: '' }])}
+                    className="text-gray-600 text-sm font-medium hover:underline mt-1">+ Añadir campo</button>
+                </div>
 
-              <button type="submit" disabled={savingDest}
-                className="bg-green-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 text-sm">
-                {savingDest ? 'Guardando...' : 'Guardar destino'}
-              </button>
-            </form>
+                <button type="submit" disabled={savingDest}
+                  className="bg-green-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 text-sm">
+                  {savingDest ? 'Guardando...' : 'Guardar destino'}
+                </button>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-xs text-gray-500">
+                  Shopify no queda "guardado" como los otros destinos: elegís la tienda, revisás la previsualización y mandás cuando quieras.
+                </p>
+
+                {shopStoreConns.length === 0 ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                    <p className="text-sm text-amber-800 mb-3 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" /> Todavía no conectaste ninguna tienda Shopify.
+                    </p>
+                    <form onSubmit={handleCreateShopConn} className="space-y-3">
+                      <ShopifyConnectFields
+                        domain={newShopDomain} setDomain={setNewShopDomain}
+                        authMode={newShopAuthMode} setAuthMode={setNewShopAuthMode}
+                        clientId={newShopClientId} setClientId={setNewShopClientId}
+                        clientSecret={newShopClientSecret} setClientSecret={setNewShopClientSecret}
+                        token={newShopToken} setToken={setNewShopToken}
+                      />
+                      <button type="submit" disabled={creatingShopConn}
+                        className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+                        {creatingShopConn ? 'Conectando...' : 'Conectar tienda'}
+                      </button>
+                    </form>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Tienda</label>
+                        <select value={shopConnId} onChange={e => setShopConnId(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                          <option value="">Seleccionar...</option>
+                          {shopStoreConns.map(c => <option key={c.id} value={c.id}>{c.name} ({c.shopify_domain})</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Hoja de la Maestra a enviar</label>
+                        <select value={shopTab} onChange={e => { setShopTab(e.target.value); setShopSkuCol(''); setShopPriceCol(''); setShopStockCol(''); }}
+                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                          <option value="">Seleccionar...</option>
+                          {Object.keys(masterSheetsAll).map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    {shopConnId && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Ubicación / Bodega (para el stock)</label>
+                        {shopLocError ? (
+                          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">{shopLocError} Si la tienda tiene una sola ubicación, igual se puede escribir el stock.</p>
+                        ) : (
+                          <select value={shopLocId} onChange={e => setShopLocId(e.target.value)}
+                            className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white max-w-sm">
+                            <option value="">Seleccionar ubicación...</option>
+                            {shopLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">🔑 SKU</label>
+                        <select value={shopSkuCol} onChange={e => setShopSkuCol(e.target.value)} disabled={!shopTabCols.length}
+                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                          <option value="">—</option>
+                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Precio</label>
+                        <select value={shopPriceCol} onChange={e => setShopPriceCol(e.target.value)} disabled={!shopTabCols.length}
+                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                          <option value="">— no enviar —</option>
+                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Stock</label>
+                        <select value={shopStockCol} onChange={e => setShopStockCol(e.target.value)} disabled={!shopTabCols.length}
+                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                          <option value="">— no enviar —</option>
+                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => runShopifyPush(true)} disabled={shopBusy}
+                        className="flex items-center gap-2 border border-green-300 text-green-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-50 disabled:opacity-50">
+                        <Eye className="w-4 h-4" /> {shopBusy ? 'Calculando...' : 'Previsualizar'}
+                      </button>
+                      <button type="button"
+                        onClick={() => { if (window.confirm('Esto ESCRIBIRÁ precio/stock en la tienda Shopify. ¿Continuar?')) runShopifyPush(false); }}
+                        disabled={shopBusy || !shopPreview}
+                        className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+                        <Send className="w-4 h-4" /> Enviar a Shopify
+                      </button>
+                    </div>
+
+                    {shopError && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex gap-2">
+                        <XCircle className="w-4 h-4 shrink-0" /> {shopError}
+                      </div>
+                    )}
+                    {shopPreview && (
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
+                        Cruzan (se actualizarán): <b className="text-green-700">{shopPreview.matched}</b> de {shopPreview.total}
+                        {shopPreview.not_found_count > 0 && <span className="text-amber-700"> · sin cruzar: {shopPreview.not_found_count}</span>}
+                      </div>
+                    )}
+                    {shopResult && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+                        ✅ Precios: {shopResult.price_updated} · Stock: {shopResult.stock_updated}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <button onClick={() => navigate('/')}

@@ -131,8 +131,6 @@ def _get_master_info(db):
     ).first()
     return project, master_conn, project.master_sheet_name
 
-from .services import _run_single_process
-
 
 # ═══════════════════════════════════════════════════════════════════
 # ██ SEED: maestra enlazada por defecto (útil en previews con DB vacía)

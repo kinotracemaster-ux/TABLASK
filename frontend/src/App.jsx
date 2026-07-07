@@ -1,14 +1,11 @@
 import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import Connections from './components/Connections';
-import Processes from './components/Processes';
-import Exports from './components/Exports';
 import MasterTable from './components/MasterTable';
 import ActivityLogs from './components/ActivityLogs';
 import ConnectedApps from './components/ConnectedApps';
-import ShopifyPush from './components/ShopifyPush';
 import SourceWizard from './components/SourceWizard';
-import { Database, Link2, Settings2, Download, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Upload, Sparkles } from 'lucide-react';
+import Flujos from './components/Flujos';
+import { Database, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Sparkles, ListChecks } from 'lucide-react';
 
 // Detecta si estamos en un entorno de PREVIEW (no producción).
 // Railway nombra los previews como "...-pr-<n>.up.railway.app".
@@ -28,7 +25,7 @@ function Sidebar() {
         : (IS_PREVIEW ? 'text-indigo-100 hover:bg-white/10 hover:text-white' : 'text-gray-700 hover:bg-indigo-50 hover:text-indigo-600')
     }`;
 
-  const moreActive = ['/connections', '/processes', '/exports', '/logs', '/intake'].includes(location.pathname);
+  const moreActive = ['/logs', '/intake'].includes(location.pathname);
 
   return (
     <aside className={`w-60 flex flex-col flex-shrink-0 ${IS_PREVIEW ? 'bg-indigo-700' : 'bg-white border-r border-gray-200'}`}>
@@ -52,8 +49,8 @@ function Sidebar() {
         <Link to="/" className={linkClass('/')}>
           <Table2 className="w-5 h-5" /> Tabla Maestra
         </Link>
-        <Link to="/shopify-push" className={linkClass('/shopify-push')}>
-          <Upload className="w-5 h-5" /> Enviar a Shopify
+        <Link to="/flujos" className={linkClass('/flujos')}>
+          <ListChecks className="w-5 h-5" /> Mis Flujos
         </Link>
 
         <div className={`border-t my-2 ${IS_PREVIEW ? 'border-indigo-600' : 'border-gray-100'}`}></div>
@@ -71,15 +68,6 @@ function Sidebar() {
 
         {moreOpen && (
           <div className="pl-4 space-y-1">
-            <Link to="/connections" className={linkClass('/connections')}>
-              <Link2 className="w-4 h-4" /> Conexiones
-            </Link>
-            <Link to="/processes" className={linkClass('/processes')}>
-              <Settings2 className="w-4 h-4" /> Procesos
-            </Link>
-            <Link to="/exports" className={linkClass('/exports')}>
-              <Download className="w-4 h-4" /> Distribución
-            </Link>
             <Link to="/logs" className={linkClass('/logs')}>
               <Terminal className="w-4 h-4" /> Logs
             </Link>
@@ -102,11 +90,8 @@ function App() {
           <Routes>
             <Route path="/" element={<MasterTable />} />
             <Route path="/nueva-fuente" element={<SourceWizard />} />
-            <Route path="/processes" element={<Processes />} />
-            <Route path="/connections" element={<Connections />} />
+            <Route path="/flujos" element={<Flujos />} />
             <Route path="/intake" element={<ConnectedApps />} />
-            <Route path="/exports" element={<Exports />} />
-            <Route path="/shopify-push" element={<ShopifyPush />} />
             <Route path="/logs" element={<ActivityLogs />} />
           </Routes>
         </main>

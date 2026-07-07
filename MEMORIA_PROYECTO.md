@@ -13,12 +13,13 @@ Este documento sirve como **memoria central** del proyecto. Contiene la arquitec
 * **El SKU es la Llave Universal:** Todo el sistema cruza información utilizando una columna "llave" única (generalmente el SKU). El nombre de esta columna puede variar en los orígenes, pero su contenido dicta cómo se fusiona la información.
 
 ## 2. Flujo de Trabajo (El "Motor")
-El sistema se divide en 4 pilares reflejados en la interfaz (React):
-1. **Fuentes Externas (Conexiones):** Archivos CSV locales o URLs de Google Sheets de donde provienen los datos (proveedores, inventarios).
-2. **Importar (Procesos):** Tareas configuradas que extraen datos de una Fuente Externa y los inyectan en la Tabla Maestra.
+El motor de datos son 4 pilares (Conexiones, Procesos, Tabla Maestra, Distribución/Suscripciones), pero **la interfaz (React) ya NO expone esas 4 pantallas por separado** (ver §3.1: simplificación de julio 2026). De cara al usuario todo pasa por:
+1. **"+ Nueva Fuente"** (`SourceWizard.jsx`, 3 pasos: Traer datos → Confirmar campos → Elegir destinos) para dar de alta una fuente y sus destinos.
+2. **"Mis Flujos"** (`Flujos.jsx`) para pausar/borrar lo ya creado.
+3. **"Tabla Maestra"** (home) con el botón **"⚡ Correr Procesos"**.
+
+Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTTP / Shopify) → un Proceso que mapea su núcleo (sku/name/price/stock) hacia la Maestra → Suscripciones (Sheets) o Exportaciones CSV o un push puntual a Shopify como destinos.
    - *Lógica de Sincronización:* Si el SKU ya existe en la Maestra, **sólo se sobreescriben** las columnas mapeadas cuyos valores hayan cambiado. Si el SKU no existe, se **añade** como una fila nueva al final.
-3. **Tabla Maestra:** El panel central que visualiza los datos en tiempo real desde Google Sheets. Tiene el botón principal **"⚡ Correr Procesos"** que ejecuta todos los procesos de importación y luego todas las exportaciones en cadena.
-4. **Distribuir (Formatos de Salida):** Configuración para enviar columnas específicas de la Tabla Maestra hacia otras hojas de cálculo destino (por ejemplo, catálogos para Shopify o listas de precios).
 
 ## 3. Hitos Logrados y Arquitectura Actual
 * **Motor "Acumulador Inteligente":** Cada origen externo aporta solo la información de sus columnas mapeadas a una Maestra centralizada. Los valores no mapeados se conservan intactos.
@@ -35,18 +36,21 @@ El sistema se divide en 4 pilares reflejados en la interfaz (React):
   - **Huérfanos** (`rows_orphan`/`detail_orphan`): SKUs en Master que NO llegaron desde BASE → solo se reportan (no se borran).
   - **`coherence_index`**: % de BASE que ya estaba en Master antes de crear. Termómetro de integración.
   El guard anti-basura (fila-encabezado del proveedor) sigue. El SKU se mete en `fields` de `new_rows` para que la escritura quirúrgica escriba el código.
-* **Procesos preestablecidos (plantillas):** `GET /api/processes/presets` lista las plantillas; `POST /api/processes/presets/{id}` crea/actualiza un proceso ya configurado usando el cerebro de auto-mapeo (`intelligent_engine.auto_map_columns` + `detect_potential_keys`). Primer preset: **`base_to_master`** ("Sincronizar Master ← BASE") → detecta la hoja `BASE`, la llave (`Código`↔`sku`) y mapea el núcleo (`Nombre→name, PRECIO→price, Cantidad→stock`); idempotente por nombre. Botón en `Processes.jsx` ("⚡ Procesos preestablecidos"). Origen y destino son la misma conexión maestra (BASE y Master son pestañas del mismo Sheet); el destino queda nulo → usa la maestra global.
-* **Limpieza de código muerto (Jul 2026):** se eliminó todo lo que no formaba parte del flujo real Base→Master→Distribución, para que "Correr Procesos" sea el único botón necesario:
+* **Limpieza de código muerto (Jul 2026, primera pasada):** se eliminó lo que no formaba parte del flujo real Base→Master→Distribución:
   - Microsistema de resolución manual "Se parecen"/"No aparecen" (`StagingQueue.jsx`, endpoints `/api/staging/{id}/{pending,approve,reject,resolve}`) — dormido desde que el motor dejó de generar `suspects`/`new_candidates`.
   - Detección fuzzy `find_similar_sku` (sin llamadores).
   - API vieja per-proyecto de Tabla Maestra (`/api/projects/{id}/master*`, `/api/sync/*`, `/api/run-all`, `sync_engine.py`) — duplicaba la API global (`/api/master`, `/api/master-columns`, `/api/master/sync-reflection`) que sí usa el frontend.
   - `POST /api/exports/{id}/push` y la pestaña "Salidas" de `MasterTable.jsx` — el `output_type` que hubiera activado el push (`google_sheets`) nunca era creable desde la UI; quedó como código inalcanzable.
-  - El flujo vigente de un solo botón es: `Processes.jsx`/`MasterTable.jsx` → `POST /api/processes/{id}/stage` (preview) → `POST /api/staging/execute-bulk` (escribe + dispara propagación en background).
+  - El flujo vigente de un solo botón es: `MasterTable.jsx` → `POST /api/processes/{id}/stage` (preview) → `POST /api/staging/execute-bulk` (escribe + dispara propagación en background).
+* **Simplificación de UI (Jul 2026, segunda pasada) — un solo asistente en vez de 4 pantallas:** se borraron `Connections.jsx`, `Processes.jsx`, `Exports.jsx`, `ShopifyPush.jsx` y los endpoints de "procesos preestablecidos" (`/api/processes/presets*`, dependían de una hoja `BASE` hardcodeada en el mismo Sheet que la Maestra). Reemplazados por:
+  - **`SourceWizard.jsx`** ("+ Nueva Fuente"): 3 pasos — (1) Traer datos: conecta Google Sheet / sube CSV-Excel / conecta API HTTP / conecta Shopify (crea la `Connection` correspondiente); (2) Confirmar campos: auto-detecta hojas/columnas y sugiere SKU + mapeo contra la Maestra (reusa `intelligent_engine`), crea el `Process` ya activo; (3) Elegir destinos: agrega una Suscripción (Sheets), una Exportación CSV, o hace un push puntual a Shopify (no queda "guardado" como los otros dos: se previsualiza y se envía ahí mismo, reusa `/api/shopify/push`).
+  - **`Flujos.jsx`** ("Mis Flujos"): única pantalla de gestión — lista Fuentes (Procesos), Destinos (Suscripciones + Exportaciones CSV) y Conexiones, cada una con pausar/borrar. Reemplaza la necesidad de editar desde 3 pantallas distintas.
+  - Se sacaron del `main.py` los endpoints ahora huérfanos: `/api/processes/presets`, `/api/processes/{id}/preview`, `/api/processes/{id}/run` (y `services._run_single_process`, sin más llamadores).
 
 * **Conector Shopify (multi-tienda, LECTURA):** `backend/connectors/shopify.py` (`connection_type="shopify"`). Cada tienda es una **conexión** con `shopify_domain` + `shopify_client_id` + `shopify_client_secret` (+ `shopify_api_version`, default `2026-04`). 
   - **Auth:** `client_credentials grant` (`POST /admin/oauth/access_token`) → token de **24h cacheado en memoria** (`_TOKEN_CACHE`). Sirve para tiendas propias (app y tienda en la misma organización); **no** requiere OAuth con redirects. Los custom apps del admin (token `shpat_`) quedaron deprecados (1-ene-2026); por eso se usa el Dev Dashboard + client credentials.
   - **Lectura:** GraphQL Admin API (REST quedó legacy). `fetch_data` pagina `products`+`variants` y devuelve **una fila por variante** (`sku`, `product_title`, `price`, `inventory_quantity`, `inventory_item_id`, `variant_id`, ...). Se mapea como cualquier otra fuente al núcleo de la Maestra.
-  - **Seguridad:** el `client_secret` es **write-only** (entra por `ConnectionCreate`, nunca se devuelve; el response expone solo `has_shopify_secret`). Endpoint `POST /api/connections/{id}/test` valida credenciales. UI: pestaña "Shopify" en `Connections.jsx`.
+  - **Seguridad:** el `client_secret` es **write-only** (entra por `ConnectionCreate`, nunca se devuelve; el response expone solo `has_shopify_secret`). Endpoint `POST /api/connections/{id}/test` valida credenciales. UI: opción "Shopify" en `SourceWizard.jsx` (Paso 1 como origen de lectura, Paso 3 como destino de escritura).
   - **Pendiente (fase B):** ESCRITURA a Shopify (`inventorySetQuantities` con `changeFromQuantity` + `@idempotent`, requeridos desde 2026-04) vía suscripciones.
 
 ## 4. Fuera de Scope (Versión Actual)
