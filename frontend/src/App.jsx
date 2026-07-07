@@ -7,7 +7,8 @@ import MasterTable from './components/MasterTable';
 import ActivityLogs from './components/ActivityLogs';
 import ConnectedApps from './components/ConnectedApps';
 import ShopifyPush from './components/ShopifyPush';
-import { Database, Link2, Settings2, Download, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Upload } from 'lucide-react';
+import SourceWizard from './components/SourceWizard';
+import { Database, Link2, Settings2, Download, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Upload, Sparkles } from 'lucide-react';
 
 // Detecta si estamos en un entorno de PREVIEW (no producción).
 // Railway nombra los previews como "...-pr-<n>.up.railway.app".
@@ -27,7 +28,7 @@ function Sidebar() {
         : (IS_PREVIEW ? 'text-indigo-100 hover:bg-white/10 hover:text-white' : 'text-gray-700 hover:bg-indigo-50 hover:text-indigo-600')
     }`;
 
-  const moreActive = ['/logs', '/intake'].includes(location.pathname);
+  const moreActive = ['/connections', '/processes', '/exports', '/logs', '/intake'].includes(location.pathname);
 
   return (
     <aside className={`w-60 flex flex-col flex-shrink-0 ${IS_PREVIEW ? 'bg-indigo-700' : 'bg-white border-r border-gray-200'}`}>
@@ -43,20 +44,13 @@ function Sidebar() {
         )}
       </div>
       <nav className="flex-1 p-3 space-y-1">
+        <Link to="/nueva-fuente"
+          className="flex items-center gap-2 p-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition mb-1">
+          <Sparkles className="w-5 h-5" /> + Nueva Fuente
+        </Link>
+
         <Link to="/" className={linkClass('/')}>
           <Table2 className="w-5 h-5" /> Tabla Maestra
-        </Link>
-
-        <div className={`border-t my-2 ${IS_PREVIEW ? 'border-indigo-600' : 'border-gray-100'}`}></div>
-
-        <Link to="/connections" className={linkClass('/connections')}>
-          <Link2 className="w-5 h-5" /> Conexiones
-        </Link>
-        <Link to="/processes" className={linkClass('/processes')}>
-          <Settings2 className="w-5 h-5" /> Procesos
-        </Link>
-        <Link to="/exports" className={linkClass('/exports')}>
-          <Download className="w-5 h-5" /> Distribución
         </Link>
         <Link to="/shopify-push" className={linkClass('/shopify-push')}>
           <Upload className="w-5 h-5" /> Enviar a Shopify
@@ -71,12 +65,21 @@ function Sidebar() {
               : (moreActive ? 'text-indigo-600' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50')
           }`}>
           <MoreHorizontal className="w-5 h-5" />
-          Más
+          Avanzado
           {moreOpen ? <ChevronUp className="w-3.5 h-3.5 ml-auto" /> : <ChevronDown className="w-3.5 h-3.5 ml-auto" />}
         </button>
 
         {moreOpen && (
           <div className="pl-4 space-y-1">
+            <Link to="/connections" className={linkClass('/connections')}>
+              <Link2 className="w-4 h-4" /> Conexiones
+            </Link>
+            <Link to="/processes" className={linkClass('/processes')}>
+              <Settings2 className="w-4 h-4" /> Procesos
+            </Link>
+            <Link to="/exports" className={linkClass('/exports')}>
+              <Download className="w-4 h-4" /> Distribución
+            </Link>
             <Link to="/logs" className={linkClass('/logs')}>
               <Terminal className="w-4 h-4" /> Logs
             </Link>
@@ -98,6 +101,7 @@ function App() {
         <main className="flex-1 overflow-auto bg-gray-50/50">
           <Routes>
             <Route path="/" element={<MasterTable />} />
+            <Route path="/nueva-fuente" element={<SourceWizard />} />
             <Route path="/processes" element={<Processes />} />
             <Route path="/connections" element={<Connections />} />
             <Route path="/intake" element={<ConnectedApps />} />
