@@ -540,7 +540,7 @@ export default function MasterTable() {
             <div className="bg-white rounded-xl border p-12 text-center text-gray-400">
               <Settings2 className="w-10 h-10 mx-auto mb-2 opacity-30" />
               <p className="font-medium">No hay procesos configurados</p>
-              <p className="text-sm mt-1">Ve a Procesos en el menú lateral para crear uno.</p>
+              <p className="text-sm mt-1">Usá "+ Nueva Fuente" en el menú lateral para crear uno.</p>
             </div>
           ) : (
             processes.map(proc => (
