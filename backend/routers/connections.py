@@ -44,6 +44,47 @@ def create_connection(conn: schemas.ConnectionCreate, db: Session = Depends(get_
 def list_connections(db: Session = Depends(get_db)):
     return db.query(models.Connection).all()
 
+@router.put("/{conn_id}", response_model=schemas.Connection)
+def update_connection(conn_id: int, conn_update: schemas.ConnectionUpdate, db: Session = Depends(get_db)):
+    conn = db.query(models.Connection).filter(models.Connection.id == conn_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Conexión no encontrada")
+
+    data = conn_update.dict(exclude_unset=True)
+
+    if "name" in data:
+        conn.name = data["name"]
+    if "google_sheet_url" in data:
+        conn.google_sheet_url = data["google_sheet_url"]
+        spreadsheet_id = None
+        if data["google_sheet_url"] and "/d/" in data["google_sheet_url"]:
+            try:
+                spreadsheet_id = data["google_sheet_url"].split("/d/")[1].split("/")[0]
+            except IndexError:
+                pass
+        conn.spreadsheet_id = spreadsheet_id
+    if "http_url" in data:
+        conn.http_url = data["http_url"]
+    if "http_method" in data:
+        conn.http_method = data["http_method"]
+    if "http_headers" in data:
+        conn.http_headers = data["http_headers"]
+    if "shopify_domain" in data:
+        conn.shopify_domain = data["shopify_domain"]
+    if "shopify_client_id" in data:
+        conn.shopify_client_id = data["shopify_client_id"]
+    if "shopify_api_version" in data:
+        conn.shopify_api_version = data["shopify_api_version"]
+    # Secretos: solo se pisan si vienen con valor (en blanco = mantener el actual).
+    if data.get("shopify_client_secret"):
+        conn.shopify_client_secret = data["shopify_client_secret"]
+    if data.get("shopify_access_token"):
+        conn.shopify_access_token = data["shopify_access_token"]
+
+    db.commit()
+    db.refresh(conn)
+    return conn
+
 @router.delete("/{conn_id}")
 def delete_connection(conn_id: int, db: Session = Depends(get_db)):
     conn = db.query(models.Connection).filter(models.Connection.id == conn_id).first()

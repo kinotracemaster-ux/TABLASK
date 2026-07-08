@@ -45,6 +45,21 @@ class Connection(ConnectionBase):
     class Config:
         from_attributes = True
 
+class ConnectionUpdate(BaseModel):
+    # Todos opcionales: solo se actualizan los campos enviados.
+    # Los secretos de Shopify solo se pisan si vienen no vacíos (así se puede
+    # editar el resto de la conexión sin tener que reingresarlos).
+    name: Optional[str] = None
+    google_sheet_url: Optional[str] = None
+    http_url: Optional[str] = None
+    http_method: Optional[str] = None
+    http_headers: Optional[str] = None
+    shopify_domain: Optional[str] = None
+    shopify_client_id: Optional[str] = None
+    shopify_api_version: Optional[str] = None
+    shopify_client_secret: Optional[str] = None
+    shopify_access_token: Optional[str] = None
+
 # Projects
 class ProjectBase(BaseModel):
     name: str
