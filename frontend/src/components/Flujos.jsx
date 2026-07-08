@@ -92,6 +92,8 @@ export default function Flujos() {
   const [ecShopClientId, setEcShopClientId] = useState('');
   const [ecShopClientSecret, setEcShopClientSecret] = useState('');
   const [ecShopToken, setEcShopToken] = useState('');
+  const [ecFile, setEcFile] = useState(null);
+  const [ecFileUploading, setEcFileUploading] = useState(false);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -300,6 +302,21 @@ export default function Flujos() {
     setEcShopClientId(conn.shopify_client_id || '');
     setEcShopClientSecret('');
     setEcShopToken('');
+    setEcFile(null);
+  };
+
+  const uploadReplacementFile = async () => {
+    if (!ecFile) { alert('Elegí un archivo primero.'); return; }
+    setEcFileUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', ecFile);
+      const res = await fetch(`${API}/api/connections/${editConn.id}/file`, { method: 'PUT', body: form });
+      if (!res.ok) throw new Error(await extractError(res));
+      alert('Archivo reemplazado. Los flujos que lo usan ya van a leer la versión nueva en la próxima corrida.');
+      setEcFile(null);
+    } catch (err) { alert(err.message || 'No se pudo reemplazar el archivo.'); }
+    setEcFileUploading(false);
   };
 
   const saveEditConn = async (e) => {
@@ -612,7 +629,16 @@ export default function Flujos() {
             )}
 
             {editConn.connection_type === 'local_file' && (
-              <p className="text-xs text-gray-500">Los archivos subidos solo se pueden renombrar. Para reemplazar el archivo, borrá esta conexión y subí uno nuevo desde "+ Nueva Fuente".</p>
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reemplazar archivo</label>
+                <input type="file" accept=".csv,.xls,.xlsx" onChange={e => setEcFile(e.target.files?.[0] || null)}
+                  className="w-full text-sm" />
+                <button type="button" onClick={uploadReplacementFile} disabled={ecFileUploading || !ecFile}
+                  className="bg-gray-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-800 disabled:opacity-50">
+                  {ecFileUploading ? 'Subiendo...' : 'Subir y reemplazar'}
+                </button>
+                <p className="text-xs text-gray-500">Los flujos que usan esta fuente van a leer el archivo nuevo en la próxima corrida. Si cambian las columnas, puede que haga falta ajustar el mapeo del flujo.</p>
+              </div>
             )}
 
             {editConn.connection_type === 'http_api' && (

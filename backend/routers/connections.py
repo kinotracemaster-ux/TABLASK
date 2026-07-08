@@ -119,6 +119,37 @@ def delete_connection(conn_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Conexión eliminada"}
 
+@router.put("/{conn_id}/file", response_model=schemas.Connection)
+def replace_connection_file(conn_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Reemplaza el archivo de una conexión 'archivo subido' existente (misma conexión,
+    mismo id), para refrescar los flujos que la usan como origen sin tener que borrarlos
+    y volver a crearlos. Si el archivo nuevo trae hojas/columnas distintas, el flujo que
+    la usa puede necesitar re-mapeo."""
+    conn = db.query(models.Connection).filter(models.Connection.id == conn_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Conexión no encontrada")
+    if conn.connection_type != "local_file":
+        raise HTTPException(status_code=400, detail="Esta conexión no es un archivo subido.")
+
+    upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    new_path = os.path.join(upload_dir, file.filename)
+    with open(new_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    old_path = conn.file_path
+    conn.file_path = new_path
+    db.commit()
+    db.refresh(conn)
+
+    if old_path and old_path != new_path and os.path.exists(old_path):
+        try:
+            os.remove(old_path)
+        except Exception as e:
+            print(f"No se pudo borrar el archivo viejo {old_path}: {e}")
+
+    return conn
+
 @router.post("/upload", response_model=schemas.Connection)
 def upload_file_connection(
     name: str = Form(...),
