@@ -266,6 +266,25 @@ class StagingBatch(StagingBatchBase):
     class Config:
         from_attributes = True
 
+# Módulo Shopify → Maestra (sync de precio/stock, independiente de los Flujos)
+class ShopifyMasterSyncConfigUpdate(BaseModel):
+    connection_id: int
+    sku_column_master: str
+    price_column_master: Optional[str] = None
+    stock_column_master: Optional[str] = None
+
+class ShopifyMasterSyncConfigOut(BaseModel):
+    id: int
+    connection_id: Optional[int] = None
+    sku_column_master: Optional[str] = None
+    price_column_master: Optional[str] = None
+    stock_column_master: Optional[str] = None
+    last_synced_at: Optional[datetime] = None
+    last_sync_summary: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 # Connected Apps (Intake API)
 class ConnectedAppBase(BaseModel):
     name: str

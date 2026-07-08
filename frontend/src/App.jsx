@@ -5,7 +5,8 @@ import ActivityLogs from './components/ActivityLogs';
 import ConnectedApps from './components/ConnectedApps';
 import SourceWizard from './components/SourceWizard';
 import Flujos from './components/Flujos';
-import { Database, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Sparkles, ListChecks } from 'lucide-react';
+import ShopifyMasterSync from './components/ShopifyMasterSync';
+import { Database, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Sparkles, ListChecks, Store } from 'lucide-react';
 
 // Detecta si estamos en un entorno de PREVIEW (no producción).
 // Railway nombra los previews como "...-pr-<n>.up.railway.app".
@@ -52,6 +53,9 @@ function Sidebar() {
         <Link to="/flujos" className={linkClass('/flujos')}>
           <ListChecks className="w-5 h-5" /> Mis Flujos
         </Link>
+        <Link to="/shopify-sync" className={linkClass('/shopify-sync')}>
+          <Store className="w-5 h-5" /> Shopify → Maestra
+        </Link>
 
         <div className={`border-t my-2 ${IS_PREVIEW ? 'border-indigo-600' : 'border-gray-100'}`}></div>
 
@@ -91,6 +95,7 @@ function App() {
             <Route path="/" element={<MasterTable />} />
             <Route path="/nueva-fuente" element={<SourceWizard />} />
             <Route path="/flujos" element={<Flujos />} />
+            <Route path="/shopify-sync" element={<ShopifyMasterSync />} />
             <Route path="/intake" element={<ConnectedApps />} />
             <Route path="/logs" element={<ActivityLogs />} />
           </Routes>
