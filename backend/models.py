@@ -185,6 +185,24 @@ class Process(Base):
     source_connection = relationship("Connection", foreign_keys=[source_connection_id])
     target_connection = relationship("Connection", foreign_keys=[target_connection_id])
 
+
+class ShopifyMasterSyncConfig(Base):
+    """Configuración del módulo independiente 'Shopify → Maestra': trae precio/stock
+    de una tienda Shopify y actualiza (no crea filas) los SKU que ya están en la
+    Tabla Maestra. Registro único (get-or-create), como la Maestra global."""
+    __tablename__ = "shopify_master_sync_config"
+    id = Column(Integer, primary_key=True, index=True)
+    connection_id = Column(Integer, ForeignKey("connections.id"), nullable=True)
+    sku_column_master = Column(String, nullable=True)
+    price_column_master = Column(String, nullable=True)
+    stock_column_master = Column(String, nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)
+    last_sync_summary = Column(Text, nullable=True)  # JSON: resumen del último corrido
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    connection = relationship("Connection")
+
+
 class ExecutionLog(Base):
     """Registro detallado de ejecuciones y errores del sistema."""
     __tablename__ = "execution_logs"
