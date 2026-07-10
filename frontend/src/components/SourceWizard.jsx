@@ -57,6 +57,8 @@ export default function SourceWizard() {
   const [sourceName, setSourceName] = useState('');
   const [sheetUrl, setSheetUrl] = useState('');
   const [file, setFile] = useState(null);
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const [fileError, setFileError] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [apiMethod, setApiMethod] = useState('GET');
   const [apiHeaders, setApiHeaders] = useState('');
@@ -150,6 +152,30 @@ export default function SourceWizard() {
         ...exps.map(e => ({ id: `exp-${e.id}`, name: e.name, kind: 'CSV' })),
       ]);
     } catch (err) { console.error(err); }
+  };
+
+  // ── Paso 1: selección de archivo (drag&drop + validación de extensión) ──
+  const ALLOWED_FILE_EXT = ['.csv', '.xls', '.xlsx'];
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+  const pickFile = (candidate) => {
+    if (!candidate) return;
+    const ext = candidate.name.slice(candidate.name.lastIndexOf('.')).toLowerCase();
+    if (!ALLOWED_FILE_EXT.includes(ext)) {
+      setFile(null);
+      setFileError(`Formato no soportado (${ext || 'sin extensión'}). Usá .csv, .xls o .xlsx.`);
+      return;
+    }
+    setFileError('');
+    setFile(candidate);
+  };
+  const handleFileDrop = (e) => {
+    e.preventDefault();
+    setFileDragActive(false);
+    pickFile(e.dataTransfer.files?.[0]);
   };
 
   // ── Paso 1: crear la conexión origen ──
@@ -549,9 +575,52 @@ export default function SourceWizard() {
 
             {originType === 'upload' && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Archivo (.csv, .xls, .xlsx)</label>
-                <input key="fileInput" type="file" accept=".csv,.xls,.xlsx" onChange={e => setFile(e.target.files?.[0] || null)} required
-                  className="w-full text-sm" />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Archivo base (.csv, .xls, .xlsx)</label>
+                <p className="text-xs text-gray-500 mb-2">Este archivo se usará para actualizar el sistema: arrastralo o hacé click para elegirlo.</p>
+
+                {!file ? (
+                  <label
+                    htmlFor="fileInput"
+                    onDragOver={e => { e.preventDefault(); setFileDragActive(true); }}
+                    onDragLeave={e => { e.preventDefault(); setFileDragActive(false); }}
+                    onDrop={handleFileDrop}
+                    className={`flex flex-col items-center justify-center gap-2 text-center border-2 border-dashed rounded-xl p-8 cursor-pointer transition ${
+                      fileDragActive ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    <UploadCloud className={`w-8 h-8 ${fileDragActive ? 'text-indigo-600' : 'text-gray-400'}`} />
+                    <p className="text-sm font-medium text-gray-700">
+                      Arrastrá tu archivo acá o <span className="text-indigo-600">buscalo en tu computadora</span>
+                    </p>
+                    <p className="text-xs text-gray-400">CSV, XLS o XLSX</p>
+                    <input id="fileInput" key="fileInput" type="file" accept=".csv,.xls,.xlsx"
+                      onChange={e => pickFile(e.target.files?.[0])}
+                      className="hidden" />
+                  </label>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 border border-indigo-200 bg-indigo-50 rounded-xl p-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileDown className="w-6 h-6 text-indigo-600 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{file.name}</p>
+                        <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      <button type="button" onClick={() => { setFile(null); setFileError(''); }}
+                        className="text-gray-400 hover:text-red-600" title="Quitar archivo">
+                        <XCircle className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {fileError && (
+                  <p className="flex items-center gap-1 text-xs text-red-600 mt-2">
+                    <AlertTriangle className="w-3.5 h-3.5" /> {fileError}
+                  </p>
+                )}
               </div>
             )}
 
