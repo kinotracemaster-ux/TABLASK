@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, ShieldAlert, Play, RefreshCw } from 'lucide-react';
+import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, ShieldAlert, Play, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -42,6 +42,10 @@ export default function MasterTable() {
   
   // Alerta de 0 Matches
   const [lowMatchAcknowledged, setLowMatchAcknowledged] = useState(false);
+
+  // Detalle expandible de la vista previa (qué filas/campos entran)
+  const [previewDetailTab, setPreviewDetailTab] = useState(null); // null | 'nuevas' | 'actualizaciones'
+  const PREVIEW_DETAIL_LIMIT = 50;
 
   // Processes & Exports lists for tabs
   const [processes, setProcesses] = useState([]);
@@ -163,6 +167,7 @@ export default function MasterTable() {
     setPreviewData(null);
     setRunAllResult(null);
     setLowMatchAcknowledged(false);
+    setPreviewDetailTab(null);
     try {
       const activeProcesses = processes.filter(p => p.is_active);
       const previews = await Promise.all(
@@ -187,6 +192,17 @@ export default function MasterTable() {
       
       const matchPercentage = totalOrigin > 0 ? (totalUpdated / totalOrigin) : 1;
 
+      // Detalle plano: qué filas/campos concretos entran, para mostrarlo antes de confirmar
+      const newRowsDetail = previews.filter(p => p.ok).flatMap(p =>
+        (p.new_rows || []).map(r => ({ process: p.name, sku: r.sku, fields: r.fields || {} }))
+      );
+      const changesDetail = previews.filter(p => p.ok).flatMap(p =>
+        (p.changes || []).map(c => ({ process: p.name, ...c }))
+      );
+
+      // Se abre solo: si hay filas nuevas se ve esa tabla, si no hay pero sí actualizaciones, esa.
+      setPreviewDetailTab(newRowsDetail.length > 0 ? 'nuevas' : changesDetail.length > 0 ? 'actualizaciones' : null);
+
       setPreviewData({
         previews,
         totalUpdated,
@@ -196,7 +212,9 @@ export default function MasterTable() {
         batchIds,
         processesOk,
         exportsCount: exports.length,
-        errors
+        errors,
+        newRowsDetail,
+        changesDetail
       });
     } catch (err) {
       setPreviewData({ error: err.message });
@@ -335,6 +353,97 @@ export default function MasterTable() {
               <p className="text-xl font-bold text-green-700">{previewData.exportsCount}</p>
             </div>
           </div>
+
+          {/* Detalle: qué filas/campos concretos van a entrar */}
+          {(previewData.totalAdded > 0 || previewData.totalUpdated > 0) && (
+            <div className="mb-4">
+              <div className="flex gap-2">
+                {previewData.totalAdded > 0 && (
+                  <button type="button"
+                    onClick={() => setPreviewDetailTab(previewDetailTab === 'nuevas' ? null : 'nuevas')}
+                    className="flex items-center gap-1 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50">
+                    {previewDetailTab === 'nuevas' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    Ver las {previewData.totalAdded} fila(s) nueva(s)
+                  </button>
+                )}
+                {previewData.totalUpdated > 0 && (
+                  <button type="button"
+                    onClick={() => setPreviewDetailTab(previewDetailTab === 'actualizaciones' ? null : 'actualizaciones')}
+                    className="flex items-center gap-1 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50">
+                    {previewDetailTab === 'actualizaciones' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    Ver las {previewData.totalUpdated} actualización(es)
+                  </button>
+                )}
+              </div>
+
+              {previewDetailTab === 'nuevas' && (
+                <div className="mt-2 bg-white border rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 whitespace-nowrap">SKU</th>
+                          <th className="px-3 py-2">Campos que se van a cargar</th>
+                          {previewData.processesOk > 1 && <th className="px-3 py-2 whitespace-nowrap">Fuente</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewData.newRowsDetail.slice(0, PREVIEW_DETAIL_LIMIT).map((r, i) => (
+                          <tr key={i} className="border-t">
+                            <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{r.sku}</td>
+                            <td className="px-3 py-1.5 text-gray-600">
+                              {Object.entries(r.fields).filter(([, v]) => v !== r.sku).map(([k, v]) => `${k}: ${v || '-'}`).join(' · ')}
+                            </td>
+                            {previewData.processesOk > 1 && <td className="px-3 py-1.5 text-gray-400 whitespace-nowrap">{r.process}</td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {previewData.newRowsDetail.length > PREVIEW_DETAIL_LIMIT && (
+                    <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">
+                      Mostrando {PREVIEW_DETAIL_LIMIT} de {previewData.newRowsDetail.length} filas nuevas.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {previewDetailTab === 'actualizaciones' && (
+                <div className="mt-2 bg-white border rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 whitespace-nowrap">SKU</th>
+                          <th className="px-3 py-2 whitespace-nowrap">Campo</th>
+                          <th className="px-3 py-2">Antes → Después</th>
+                          {previewData.processesOk > 1 && <th className="px-3 py-2 whitespace-nowrap">Fuente</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewData.changesDetail.slice(0, PREVIEW_DETAIL_LIMIT).map((c, i) => (
+                          <tr key={i} className="border-t">
+                            <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{c.sku}</td>
+                            <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{c.field}</td>
+                            <td className="px-3 py-1.5 text-gray-600">
+                              <span className="text-gray-400">{c.old || '-'}</span> → <span className="font-medium text-blue-700">{c.new || '-'}</span>
+                            </td>
+                            {previewData.processesOk > 1 && <td className="px-3 py-1.5 text-gray-400 whitespace-nowrap">{c.process}</td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {previewData.changesDetail.length > PREVIEW_DETAIL_LIMIT && (
+                    <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">
+                      Mostrando {PREVIEW_DETAIL_LIMIT} de {previewData.changesDetail.length} actualizaciones.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {previewData.errors.length > 0 && (
             <div className="mb-3 space-y-1">
               {previewData.errors.map((e, i) => (
