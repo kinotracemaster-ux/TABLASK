@@ -200,6 +200,9 @@ export default function MasterTable() {
         (p.changes || []).map(c => ({ process: p.name, ...c }))
       );
 
+      // Se abre solo: si hay filas nuevas se ve esa tabla, si no hay pero sí actualizaciones, esa.
+      setPreviewDetailTab(newRowsDetail.length > 0 ? 'nuevas' : changesDetail.length > 0 ? 'actualizaciones' : null);
+
       setPreviewData({
         previews,
         totalUpdated,
