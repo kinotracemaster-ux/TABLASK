@@ -96,7 +96,7 @@ export default function SourceWizard() {
   const [masterSheetNameRef, setMasterSheetNameRef] = useState(null);
   const [masterSheetsAll, setMasterSheetsAll] = useState({}); // todas las pestañas de la Maestra (para push a Shopify)
 
-  // Shopify como destino (push ahora, no queda "guardado" como suscripción/CSV)
+  // Shopify como destino: push ahora y/o guardado como destino permanente (fase B)
   const [newShopDomain, setNewShopDomain] = useState('');
   const [newShopAuthMode, setNewShopAuthMode] = useState('client');
   const [newShopClientId, setNewShopClientId] = useState('');
@@ -115,6 +115,9 @@ export default function SourceWizard() {
   const [shopPreview, setShopPreview] = useState(null);
   const [shopResult, setShopResult] = useState(null);
   const [shopError, setShopError] = useState(null);
+  const [shopDestName, setShopDestName] = useState('');
+  const [savingShopSub, setSavingShopSub] = useState(false);
+  const [shopSubSaved, setShopSubSaved] = useState(null);
 
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
   const destCols = destType === 'sheet' && destSheet && destSheets[destSheet] ? destSheets[destSheet] : [];
@@ -434,7 +437,45 @@ export default function SourceWizard() {
 
   const handleSelectDestType = (t) => {
     setDestType(t);
-    if (t === 'shopify' && Object.keys(masterSheetsAll).length === 0) loadMasterSheetsAll();
+    if (t === 'shopify') {
+      if (Object.keys(masterSheetsAll).length === 0) loadMasterSheetsAll();
+      // Preseleccionar la pestaña principal de la Maestra: es la que se
+      // actualiza con cada sync y la que alimenta el destino permanente.
+      if (!shopTab && masterSheetNameRef) setShopTab(masterSheetNameRef);
+    }
+  };
+
+  const saveShopifySubscription = async () => {
+    setShopError(null); setShopSubSaved(null);
+    if (!shopConnId) { setShopError('Elegí la tienda Shopify.'); return; }
+    if (!shopPriceCol && !shopStockCol) { setShopError('Mapeá al menos Precio o Stock para guardar el destino.'); return; }
+    if (shopStockCol && shopLocations.length > 1 && !shopLocId) {
+      setShopError('Tu tienda tiene varias bodegas: elegí la ubicación destino del stock.'); return;
+    }
+    setSavingShopSub(true);
+    try {
+      const store = shopStoreConns.find(c => String(c.id) === String(shopConnId));
+      const res = await fetch(`${API}/api/shopify-subscriptions/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: shopDestName || `Shopify · ${store?.name || store?.shopify_domain || 'tienda'}`,
+          connection_id: parseInt(shopConnId),
+          price_column_master: shopPriceCol || null,
+          stock_column_master: shopStockCol || null,
+          location_id: shopLocId || null,
+          is_active: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setShopError(formatError(data)); return; }
+      setShopSubSaved(data);
+      setShopDestName('');
+    } catch (e) {
+      setShopError(e.message);
+    } finally {
+      setSavingShopSub(false);
+    }
   };
 
   const handleCreateShopConn = async (e) => {
@@ -878,7 +919,9 @@ export default function SourceWizard() {
             ) : (
               <div className="space-y-4">
                 <p className="text-xs text-gray-500">
-                  Shopify no queda "guardado" como los otros destinos: elegís la tienda, revisás la previsualización y mandás cuando quieras.
+                  Elegí la tienda, revisá la previsualización y mandá cuando quieras. Si además lo guardás como
+                  destino permanente, el precio/stock se enviará solo cada vez que se actualice la Maestra.
+                  Nunca se crean productos en la tienda: solo se actualizan los que cruzan por SKU.
                 </p>
 
                 {shopStoreConns.length === 0 ? (
@@ -992,6 +1035,28 @@ export default function SourceWizard() {
                         ✅ Precios: {shopResult.price_updated} · Stock: {shopResult.stock_updated}
                       </div>
                     )}
+
+                    <div className="border-t border-gray-200 pt-4">
+                      <p className="text-sm font-medium text-gray-700 mb-1">Guardar como destino permanente</p>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Queda en "Mis Flujos" y se actualiza automáticamente con cada sincronización de la Maestra
+                        (solo se envían los SKUs que cambiaron precio/stock).
+                      </p>
+                      <div className="flex gap-2 items-center">
+                        <input value={shopDestName} onChange={e => setShopDestName(e.target.value)}
+                          placeholder="Nombre del destino (ej. Shopi-Poe)"
+                          className="flex-1 border border-gray-300 rounded-lg p-2 text-sm max-w-xs" />
+                        <button type="button" onClick={saveShopifySubscription} disabled={savingShopSub}
+                          className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+                          {savingShopSub ? 'Guardando...' : 'Guardar destino'}
+                        </button>
+                      </div>
+                      {shopSubSaved && (
+                        <p className="text-sm text-green-700 mt-2">
+                          ✅ Destino "{shopSubSaved.name}" guardado. Lo podés pausar o borrar desde "Mis Flujos".
+                        </p>
+                      )}
+                    </div>
                   </>
                 )}
               </div>

@@ -190,7 +190,7 @@ _seed_default_master()
 # ██ ROUTERS (deben importarse DESPUÉS de las funciones internas)
 # ═══════════════════════════════════════════════════════════════════
 
-from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync
+from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions
 app.include_router(logs.router)
 app.include_router(staging.router)
 app.include_router(connections.router)
@@ -200,6 +200,7 @@ app.include_router(subscriptions.router)
 app.include_router(intelligence.router)
 app.include_router(shopify_sync.router)
 app.include_router(shopify_master_sync.router)
+app.include_router(shopify_subscriptions.router)
 
 
 # --- Reset DB (Solo Desarrollo) ---

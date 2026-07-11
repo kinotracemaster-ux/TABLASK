@@ -96,6 +96,13 @@ def delete_connection(conn_id: int, db: Session = Depends(get_db)):
     if sub_in_use:
         raise HTTPException(status_code=400, detail=f"No se puede borrar: está siendo usada como destino por la suscripción '{sub_in_use.name}'")
         
+    # Validar si está en uso por una suscripción Maestra → Shopify
+    shop_sub_in_use = db.query(models.ShopifySubscription).filter(
+        models.ShopifySubscription.connection_id == conn_id
+    ).first()
+    if shop_sub_in_use:
+        raise HTTPException(status_code=400, detail=f"No se puede borrar: está siendo usada como destino por la suscripción Shopify '{shop_sub_in_use.name}'")
+
     # Validar si está en uso por un proceso (origen o destino)
     proc_in_use = db.query(models.Process).filter(
         (models.Process.source_connection_id == conn_id) | 
