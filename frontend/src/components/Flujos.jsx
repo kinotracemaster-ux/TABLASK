@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight } from 'lucide-react';
+import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -51,9 +51,11 @@ export default function Flujos() {
   const [loading, setLoading] = useState(true);
   const [processes, setProcesses] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
+  const [shopifySubs, setShopifySubs] = useState([]);
   const [exports, setExports] = useState([]);
   const [connections, setConnections] = useState([]);
   const [testing, setTesting] = useState(null);
+  const [pushingShopSub, setPushingShopSub] = useState(null);
 
   // --- Edición: Fuente (Proceso) ---
   const [editProc, setEditProc] = useState(null);
@@ -102,16 +104,18 @@ export default function Flujos() {
       const projs = await projsRes.json();
       const pid = projs[0]?.id;
 
-      const [procsRes, connsRes, subsRes, expRes] = await Promise.all([
+      const [procsRes, connsRes, subsRes, expRes, shopSubsRes] = await Promise.all([
         fetch(`${API}/api/processes/`),
         fetch(`${API}/api/connections/`),
         pid ? fetch(`${API}/api/subscriptions/?project_id=${pid}`) : Promise.resolve(null),
         pid ? fetch(`${API}/api/exports/?project_id=${pid}`) : Promise.resolve(null),
+        fetch(`${API}/api/shopify-subscriptions/`),
       ]);
       setProcesses(await procsRes.json());
       setConnections(await connsRes.json());
       setSubscriptions(subsRes ? await subsRes.json() : []);
       setExports(expRes ? await expRes.json() : []);
+      setShopifySubs(shopSubsRes.ok ? await shopSubsRes.json() : []);
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -151,6 +155,68 @@ export default function Flujos() {
     if (!window.confirm('¿Eliminar este destino?')) return;
     await fetch(`${API}/api/subscriptions/${id}`, { method: 'DELETE' });
     loadAll();
+  };
+
+  // --- Destinos (Suscripciones Shopify: Maestra → tienda) ---
+  const toggleShopSub = async (sub) => {
+    const res = await fetch(`${API}/api/shopify-subscriptions/${sub.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...sub, is_active: !sub.is_active })
+    });
+    if (res.ok) loadAll();
+    else alert(await extractError(res));
+  };
+
+  const deleteShopSub = async (id) => {
+    if (!window.confirm('¿Eliminar este destino Shopify? (No borra nada en la tienda)')) return;
+    const res = await fetch(`${API}/api/shopify-subscriptions/${id}`, { method: 'DELETE' });
+    if (res.ok) loadAll();
+    else alert(await extractError(res));
+  };
+
+  const pushNowShopSub = async (sub) => {
+    setPushingShopSub(sub.id);
+    try {
+      // 1) Preview (dry run): cuántos SKUs cruzan
+      let res = await fetch(`${API}/api/shopify-subscriptions/${sub.id}/push-now?dry_run=true`, { method: 'POST' });
+      if (!res.ok) { alert(await extractError(res)); return; }
+      const prev = await res.json();
+      const ok = window.confirm(
+        `Se actualizarán ${prev.matched} de ${prev.total} SKUs en "${prev.store}"` +
+        (prev.not_found_count > 0 ? ` (${prev.not_found_count} no existen en la tienda y NO se crean)` : '') +
+        `.\n\n¿Enviar ahora?`
+      );
+      if (!ok) return;
+      // 2) Envío real
+      res = await fetch(`${API}/api/shopify-subscriptions/${sub.id}/push-now?dry_run=false`, { method: 'POST' });
+      if (!res.ok) { alert(await extractError(res)); return; }
+      const result = await res.json();
+      alert(`✅ Enviado a "${result.store}": ${result.price_updated} precios, ${result.stock_updated} stock.` +
+        (result.errors?.length ? `\n⚠️ Errores: ${result.errors.join(' · ')}` : ''));
+      loadAll();
+    } catch (err) {
+      alert(err.message || 'Error enviando a Shopify.');
+    } finally {
+      setPushingShopSub(null);
+    }
+  };
+
+  const shopSubDetail = (sub) => {
+    const parts = [];
+    if (sub.price_column_master) parts.push(`Precio: ${sub.price_column_master}`);
+    if (sub.stock_column_master) parts.push(`Stock: ${sub.stock_column_master}`);
+    return parts.join(' · ');
+  };
+
+  const shopSubLastPush = (sub) => {
+    if (!sub.last_pushed_at) return 'Aún sin envíos';
+    try {
+      const s = JSON.parse(sub.last_push_summary || '{}');
+      return `Último envío: ${new Date(sub.last_pushed_at).toLocaleString()} · ${s.price_updated ?? 0} precios, ${s.stock_updated ?? 0} stock`;
+    } catch {
+      return `Último envío: ${new Date(sub.last_pushed_at).toLocaleString()}`;
+    }
   };
 
   const deleteExport = async (id) => {
@@ -339,7 +405,7 @@ export default function Flujos() {
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando...</div>;
 
-  const nothing = processes.length === 0 && subscriptions.length === 0 && exports.length === 0 && connections.length === 0;
+  const nothing = processes.length === 0 && subscriptions.length === 0 && shopifySubs.length === 0 && exports.length === 0 && connections.length === 0;
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-8">
@@ -394,12 +460,40 @@ export default function Flujos() {
         </section>
       )}
 
-      {(subscriptions.length > 0 || exports.length > 0) && (
+      {(subscriptions.length > 0 || shopifySubs.length > 0 || exports.length > 0) && (
         <section>
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-            <Download className="w-4 h-4" /> Destinos ({subscriptions.length + exports.length})
+            <Download className="w-4 h-4" /> Destinos ({subscriptions.length + shopifySubs.length + exports.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {shopifySubs.map(sub => (
+              <div key={`shopsub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${!sub.is_active ? 'opacity-60 grayscale' : 'border-green-200'}`}>
+                <div className="flex justify-between items-start mb-1">
+                  <h3 className="font-semibold text-gray-800 flex items-center gap-1.5">
+                    <Store className="w-4 h-4 text-green-600" /> {sub.name}
+                  </h3>
+                  <div className="flex gap-1">
+                    <button onClick={() => pushNowShopSub(sub)} title="Enviar toda la Maestra ahora"
+                      disabled={pushingShopSub === sub.id}
+                      className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 transition disabled:opacity-50">
+                      <Send className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => toggleShopSub(sub)} title={sub.is_active ? 'Pausar' : 'Activar'}
+                      className={`p-1.5 rounded-lg transition ${sub.is_active ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100'}`}>
+                      <Power className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => deleteShopSub(sub.id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded-lg">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500">Shopify · {connName(sub.connection_id)} · {shopSubDetail(sub)}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {pushingShopSub === sub.id ? 'Enviando…' : shopSubLastPush(sub)}
+                  {sub.is_active ? ' · se actualiza con cada sync' : ' · pausado'}
+                </p>
+              </div>
+            ))}
             {subscriptions.map(sub => (
               <div key={`sub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${!sub.is_active ? 'opacity-60 grayscale' : 'border-gray-200'}`}>
                 <div className="flex justify-between items-start mb-1">

@@ -203,6 +203,29 @@ class ShopifyMasterSyncConfig(Base):
     connection = relationship("Connection")
 
 
+class ShopifySubscription(Base):
+    """Destino permanente 'Maestra → Shopify' (fase B). Al ejecutarse un sync que
+    escribe la Tabla Maestra, se empuja precio/stock de los SKUs afectados a la
+    tienda (misma corrida, en background). Regla dura: NUNCA crea productos en
+    Shopify — solo actualiza variantes que cruzan por SKU normalizado."""
+    __tablename__ = "shopify_subscriptions"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)                     # Ej: "Shopi-Poe"
+    connection_id = Column(Integer, ForeignKey("connections.id"), nullable=False)
+    # Columnas DE LA MAESTRA que alimentan la tienda (al menos una)
+    price_column_master = Column(String, nullable=True)
+    stock_column_master = Column(String, nullable=True)
+    # Ubicación/bodega destino del stock (gid://shopify/Location/...). Si es nulo
+    # y la tienda tiene una sola bodega, se usa esa.
+    location_id = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_pushed_at = Column(DateTime, nullable=True)
+    last_push_summary = Column(Text, nullable=True)  # JSON: resumen del último envío
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    connection = relationship("Connection")
+
+
 class ExecutionLog(Base):
     """Registro detallado de ejecuciones y errores del sistema."""
     __tablename__ = "execution_logs"

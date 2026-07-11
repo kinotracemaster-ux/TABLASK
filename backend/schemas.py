@@ -266,6 +266,28 @@ class StagingBatch(StagingBatchBase):
     class Config:
         from_attributes = True
 
+# Suscripciones Maestra → Shopify (fase B: destino permanente)
+class ShopifySubscriptionBase(BaseModel):
+    name: str
+    connection_id: int                          # Conexión tipo 'shopify' (la tienda)
+    price_column_master: Optional[str] = None   # Columna de la Maestra con el precio
+    stock_column_master: Optional[str] = None   # Columna de la Maestra con el stock
+    location_id: Optional[str] = None           # Bodega destino del stock
+    is_active: bool = True
+
+class ShopifySubscriptionCreate(ShopifySubscriptionBase):
+    pass
+
+class ShopifySubscriptionOut(ShopifySubscriptionBase):
+    id: int
+    last_pushed_at: Optional[datetime] = None
+    last_push_summary: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # Módulo Shopify → Maestra (sync de precio/stock, independiente de los Flujos)
 class ShopifyMasterSyncConfigUpdate(BaseModel):
     connection_id: int
