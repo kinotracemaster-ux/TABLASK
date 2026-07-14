@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap } from 'lucide-react';
 import { extractError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
+import AutoSyncPanel from './AutoSyncPanel';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -421,6 +422,8 @@ export default function Flujos() {
           <Plus className="w-4 h-4" /> Nueva Fuente
         </Link>
       </div>
+
+      {processes.length > 0 && <AutoSyncPanel />}
 
       {nothing && (
         <div className="text-center py-16 text-gray-400">

@@ -181,6 +181,21 @@ class ShopifySubscription(Base):
     connection = relationship("Connection")
 
 
+class ScheduleConfig(Base):
+    """Piloto automático (MEJORAS_TABLASK §5): correr todos los procesos activos
+    cada X horas, sin que nadie tenga la app abierta. Registro único
+    (get-or-create). Un thread de fondo compara next_run_at contra el reloj;
+    como vive en la DB, sobrevive reinicios del servidor."""
+    __tablename__ = "schedule_config"
+    id = Column(Integer, primary_key=True, index=True)
+    enabled = Column(Boolean, default=False)
+    interval_hours = Column(Integer, default=6)
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    last_summary = Column(Text, nullable=True)  # JSON del último corrido automático
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ExecutionLog(Base):
     """Registro detallado de ejecuciones y errores del sistema."""
     __tablename__ = "execution_logs"

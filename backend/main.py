@@ -200,7 +200,7 @@ _seed_default_master()
 # ██ ROUTERS (deben importarse DESPUÉS de las funciones internas)
 # ═══════════════════════════════════════════════════════════════════
 
-from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions, pipeline
+from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions, pipeline, schedule
 app.include_router(logs.router)
 app.include_router(staging.router)
 app.include_router(connections.router)
@@ -212,6 +212,12 @@ app.include_router(shopify_sync.router)
 app.include_router(shopify_master_sync.router)
 app.include_router(shopify_subscriptions.router)
 app.include_router(pipeline.router)
+app.include_router(schedule.router)
+
+# Piloto automático (sync programada §5): thread daemon que corre los procesos
+# activos cada X horas. Idempotente; el estado vive en la DB.
+from .scheduler import start_scheduler
+start_scheduler()
 
 
 # --- Reset DB (Solo Desarrollo) ---
