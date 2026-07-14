@@ -130,7 +130,12 @@ class ExportFormat(Base):
     source_connection_id = Column(Integer, ForeignKey("connections.id"))  # La Tabla Master
     source_sheet_name = Column(String, nullable=False)  # Hoja dentro de la Master
     # JSON string: {"Nombre_Final": "title", "Stock": "inventory_count"}
+    # (retrocompat: mapeo directo columna→columna, solo renombra)
     columns_mapping = Column(Text, nullable=False)
+    # JSON string (opcional): lista ordenada de columnas de salida con
+    # transformaciones (ver export_engine). Si está, el download la usa en vez
+    # de columns_mapping. Es lo que arman las plantillas predefinidas (§11).
+    transform_spec = Column(Text, nullable=True)
     # Tipo de salida: 'csv_download' o 'google_sheets'
     output_type = Column(String, default="csv_download")
     # Si output_type == 'google_sheets': sheet destino donde se escriben los datos

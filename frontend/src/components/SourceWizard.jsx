@@ -92,6 +92,10 @@ export default function SourceWizard() {
   const [destSkuCol, setDestSkuCol] = useState('');
   const [destMappings, setDestMappings] = useState([{ src: '', dst: '' }]);
   const [savingDest, setSavingDest] = useState(false);
+  // Plantillas de export predefinidas (§11): presets por canal con transformaciones
+  const [exportPresets, setExportPresets] = useState([]);
+  const [csvPreset, setCsvPreset] = useState(null);       // preset elegido, o null = mapeo manual
+  const [presetFieldMap, setPresetFieldMap] = useState({}); // {campo_del_preset: columna_real_de_la_Maestra}
   const [masterConnId, setMasterConnId] = useState(null); // conexión real de la Maestra global (para el CSV)
   const [masterSheetNameRef, setMasterSheetNameRef] = useState(null);
   const [masterSheetsAll, setMasterSheetsAll] = useState({}); // todas las pestañas de la Maestra (para push a Shopify)
@@ -127,15 +131,17 @@ export default function SourceWizard() {
   useEffect(() => {
     (async () => {
       try {
-        const [projsRes, masterRes] = await Promise.all([
+        const [projsRes, masterRes, presetsRes] = await Promise.all([
           fetch(`${API}/api/projects/`),
-          fetch(`${API}/api/master`)
+          fetch(`${API}/api/master`),
+          fetch(`${API}/api/exports/presets`)
         ]);
         const projs = await projsRes.json();
         if (projs.length > 0) setProjectId(projs[0].id);
         const masterData = await masterRes.json();
         setMasterConnId(masterData.master_connection_id || null);
         setMasterSheetNameRef(masterData.master_sheet_name || null);
+        if (presetsRes.ok) setExportPresets(await presetsRes.json());
       } catch (err) { console.error(err); }
     })();
   }, []);
@@ -366,8 +372,70 @@ export default function SourceWizard() {
     } catch (err) { console.error(err); }
   };
 
+  // Campos del núcleo que usa un preset (source/sources/refs de template)
+  const presetSourceFields = (preset) => {
+    const fields = new Set();
+    (preset?.spec || []).forEach(col => {
+      if (col.source) fields.add(col.source);
+      (col.sources || []).forEach(s => fields.add(s));
+      if (col.type === 'template') (col.template.match(/\{([^{}]+)\}/g) || []).forEach(m => fields.add(m.slice(1, -1)));
+    });
+    return [...fields];
+  };
+
+  // Al elegir una plantilla: auto-mapear sus campos contra las columnas reales de la Maestra
+  const applyCsvPreset = (preset) => {
+    setCsvPreset(preset);
+    if (!preset) { setPresetFieldMap({}); return; }
+    const fmap = {};
+    presetSourceFields(preset).forEach(f => {
+      const match = masterCols.find(c => c.toLowerCase() === f.toLowerCase());
+      fmap[f] = match || '';
+    });
+    setPresetFieldMap(fmap);
+    if (!destName) setDestName(preset.name);
+  };
+
+  // Reescribe el spec del preset con las columnas reales elegidas
+  const buildTransformSpec = (preset, fmap) => preset.spec.map(col => {
+    const nc = { ...col };
+    if (col.source) nc.source = fmap[col.source] || col.source;
+    if (col.sources) nc.sources = col.sources.map(s => fmap[s] || s);
+    if (col.type === 'template') nc.template = col.template.replace(/\{([^{}]+)\}/g, (m, f) => `{${fmap[f] || f}}`);
+    return nc;
+  });
+
   const handleCreateDestination = async (e) => {
     e.preventDefault();
+
+    // CSV con plantilla: se guarda transform_spec en vez de mapeo manual.
+    if (destType === 'csv' && csvPreset) {
+      if (!masterConnId) { alert('No hay una Tabla Maestra enlazada todavía.'); return; }
+      setSavingDest(true);
+      try {
+        const res = await fetch(`${API}/api/exports/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: destName || csvPreset.name,
+            project_id: projectId,
+            source_connection_id: masterConnId,
+            source_sheet_name: masterSheetNameRef,
+            columns_mapping: {},
+            transform_spec: buildTransformSpec(csvPreset, presetFieldMap),
+            output_type: 'csv_download'
+          })
+        });
+        if (!res.ok) throw new Error(await extractError(res));
+        setDestName(''); setCsvPreset(null); setPresetFieldMap({});
+        await loadDestinations(projectId);
+      } catch (err) {
+        alert(err.message || 'No se pudo crear la plantilla.');
+      }
+      setSavingDest(false);
+      return;
+    }
+
     const mappings = {};
     destMappings.forEach(({ src, dst }) => { if (src && dst) mappings[src] = dst; });
     if (Object.keys(mappings).length === 0) {
@@ -841,6 +909,26 @@ export default function SourceWizard() {
                     className="w-full border border-gray-300 rounded-lg p-2 text-sm max-w-md" />
                 </div>
 
+                {destType === 'csv' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Plantilla</label>
+                    <div className="flex flex-wrap gap-2">
+                      {exportPresets.map(p => (
+                        <button type="button" key={p.key} onClick={() => applyCsvPreset(p)}
+                          title={p.description}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${csvPreset?.key === p.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                          {p.name}
+                        </button>
+                      ))}
+                      <button type="button" onClick={() => applyCsvPreset(null)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${!csvPreset ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                        Mapeo manual
+                      </button>
+                    </div>
+                    {csvPreset && <p className="text-xs text-gray-500 mt-2">{csvPreset.description}</p>}
+                  </div>
+                )}
+
                 {destType === 'sheet' && (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -870,6 +958,35 @@ export default function SourceWizard() {
                   </div>
                 )}
 
+                {destType === 'csv' && csvPreset ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Columnas del archivo</label>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Estas columnas se generan solas (precio ×2, SKU embebido, slug…). Abajo confirmás de qué columna de la Maestra sale cada dato; lo que no coincida, elegilo a mano.
+                    </p>
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        {csvPreset.spec.map((col, i) => (
+                          <span key={i} className="text-xs bg-white border border-gray-200 rounded px-2 py-1 text-gray-600">{col.output}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">De qué columna de la Maestra sale cada dato</label>
+                    <div className="space-y-2">
+                      {presetSourceFields(csvPreset).map(field => (
+                        <div key={field} className="flex gap-2 items-center">
+                          <span className="text-sm text-gray-600 w-32 flex-shrink-0 font-mono">{field}</span>
+                          <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                          <select value={presetFieldMap[field] || ''} onChange={e => setPresetFieldMap({ ...presetFieldMap, [field]: e.target.value })}
+                            className={`flex-1 border rounded-md p-1.5 text-sm bg-white ${!presetFieldMap[field] ? 'border-amber-300' : 'border-gray-300'}`}>
+                            <option value="">— (queda vacío) —</option>
+                            {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
                 <div>
                   <div className="flex justify-between items-center mb-2">
                     <label className="block text-sm font-medium text-gray-700">Campos a enviar</label>
@@ -910,6 +1027,7 @@ export default function SourceWizard() {
                   <button type="button" onClick={() => setDestMappings([...destMappings, { src: '', dst: '' }])}
                     className="text-gray-600 text-sm font-medium hover:underline mt-1">+ Añadir campo</button>
                 </div>
+                )}
 
                 <button type="submit" disabled={savingDest}
                   className="bg-green-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 text-sm">
