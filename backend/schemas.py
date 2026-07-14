@@ -137,7 +137,10 @@ class ExportFormatBase(BaseModel):
     project_id: int
     source_connection_id: int
     source_sheet_name: str
-    columns_mapping: Dict[str, str]
+    columns_mapping: Dict[str, str] = {}
+    # Lista ordenada de columnas de salida con transformaciones (plantillas §11).
+    # Si viene, tiene prioridad sobre columns_mapping al exportar.
+    transform_spec: Optional[List[Dict[str, Any]]] = None
     output_type: str = "csv_download"
     output_spreadsheet_id: Optional[str] = None
     output_sheet_name: Optional[str] = None

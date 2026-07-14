@@ -50,6 +50,16 @@ try:
 except Exception as e:
     print("Migraciones omitidas para processes (ya existen las columnas o error benigno):", e)
 
+# Columna transform_spec en export_formats (plantillas con transformaciones §11).
+try:
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        conn.execute(text("ALTER TABLE export_formats ADD COLUMN transform_spec TEXT"))
+        conn.commit()
+        print("Migración transform_spec aplicada.")
+except Exception as e:
+    print("Migración transform_spec omitida (ya existe):", e)
+
 # Columnas Shopify (una conexión por tienda; cada ALTER en su propia transacción
 # para que si una columna ya existe no aborte la creación de las demás).
 for _col_sql in (
@@ -255,6 +265,7 @@ def create_export_format(fmt: schemas.ExportFormatCreate, db: Session = Depends(
         source_connection_id=fmt.source_connection_id,
         source_sheet_name=fmt.source_sheet_name,
         columns_mapping=json.dumps(fmt.columns_mapping, ensure_ascii=False),
+        transform_spec=json.dumps(fmt.transform_spec, ensure_ascii=False) if fmt.transform_spec else None,
         output_type=fmt.output_type,
         output_spreadsheet_id=output_spreadsheet_id,
         output_sheet_name=fmt.output_sheet_name
@@ -263,7 +274,14 @@ def create_export_format(fmt: schemas.ExportFormatCreate, db: Session = Depends(
     db.commit()
     db.refresh(db_fmt)
     db_fmt.columns_mapping = json.loads(db_fmt.columns_mapping)
+    db_fmt.transform_spec = json.loads(db_fmt.transform_spec) if db_fmt.transform_spec else None
     return db_fmt
+
+@app.get("/api/exports/presets")
+def list_export_presets():
+    """Plantillas de salida predefinidas por canal (Shopify/Kyte/Effi/Catálogo)."""
+    from .export_presets import get_presets
+    return get_presets()
 
 @app.get("/api/exports/", response_model=list[schemas.ExportFormat])
 def read_export_formats(project_id: int = None, db: Session = Depends(get_db)):
@@ -273,6 +291,7 @@ def read_export_formats(project_id: int = None, db: Session = Depends(get_db)):
     results = q.all()
     for r in results:
         r.columns_mapping = json.loads(r.columns_mapping)
+        r.transform_spec = json.loads(r.transform_spec) if r.transform_spec else None
     return results
 
 @app.delete("/api/exports/{export_id}")
@@ -290,7 +309,6 @@ def download_export_csv(export_id: int, db: Session = Depends(get_db)):
     if not fmt:
         raise HTTPException(status_code=404, detail="Formato de salida no encontrado")
 
-    col_map: dict = json.loads(fmt.columns_mapping)
     conn = db.query(models.Connection).filter(models.Connection.id == fmt.source_connection_id).first()
     if not conn:
         raise HTTPException(status_code=404, detail="Conexión de la Tabla Master no encontrada")
@@ -302,15 +320,26 @@ def download_export_csv(export_id: int, db: Session = Depends(get_db)):
     master_headers = raw_data[0]
     master_rows = raw_data[1:]
 
+    spec = json.loads(fmt.transform_spec) if fmt.transform_spec else None
+
     output = io.StringIO()
     writer = csv.writer(output)
-    csv_headers = list(col_map.values())
-    writer.writerow(csv_headers)
 
-    for row in master_rows:
-        row_dict = {master_headers[i]: (row[i] if i < len(row) else "") for i in range(len(master_headers))}
-        csv_row = [row_dict.get(master_col, "") for master_col in col_map.keys()]
-        writer.writerow(csv_row)
+    if spec:
+        # Plantilla con transformaciones (§11): cada columna de salida se calcula
+        # con su fórmula (field/concat/slug/price/const/template).
+        from .export_engine import transform_headers, transform_row
+        writer.writerow(transform_headers(spec))
+        for row in master_rows:
+            row_dict = {master_headers[i]: (row[i] if i < len(row) else "") for i in range(len(master_headers))}
+            writer.writerow(transform_row(row_dict, spec))
+    else:
+        # Retrocompat: mapeo directo columna→columna (solo renombra).
+        col_map: dict = json.loads(fmt.columns_mapping)
+        writer.writerow(list(col_map.values()))
+        for row in master_rows:
+            row_dict = {master_headers[i]: (row[i] if i < len(row) else "") for i in range(len(master_headers))}
+            writer.writerow([row_dict.get(master_col, "") for master_col in col_map.keys()])
 
     output.seek(0)
     filename = f"{fmt.name.replace(' ', '_').lower()}.csv"
