@@ -15,8 +15,8 @@ Este documento sirve como **memoria central** del proyecto. Contiene la arquitec
 ## 2. Flujo de Trabajo (El "Motor")
 El motor de datos son 4 pilares (Conexiones, Procesos, Tabla Maestra, Distribución/Suscripciones), pero **la interfaz (React) ya NO expone esas 4 pantallas por separado** (ver §3.1: simplificación de julio 2026). De cara al usuario todo pasa por:
 1. **"+ Nueva Fuente"** (`SourceWizard.jsx`, 3 pasos: Traer datos → Confirmar campos → Elegir destinos) para dar de alta una fuente y sus destinos.
-2. **"Mis Flujos"** (`Flujos.jsx`) para pausar/borrar lo ya creado.
-3. **"Tabla Maestra"** (home) con el botón **"⚡ Correr Procesos"**.
+2. **"Mis Flujos"** (`Flujos.jsx`) es el centro de operación: pausar/borrar/editar Y **correr cada flujo** (ver §3, "Correr por flujo"). Cada Fuente tiene su botón "Correr flujo"; arriba hay un "Correr todo" para los activos.
+3. **"Tabla Maestra"** (home): muestra los datos y enlaza un botón "Correr flujos" que lleva a Mis Flujos. Ya NO tiene el botón global "⚡ Correr Procesos" (retirado jul 2026).
 
 Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTTP / Shopify) → un Proceso que mapea su núcleo (sku/name/price/stock) hacia la Maestra → Suscripciones (Sheets) o Exportaciones CSV o un push puntual a Shopify como destinos.
    - *Lógica de Sincronización:* Si el SKU ya existe en la Maestra, **sólo se sobreescriben** las columnas mapeadas cuyos valores hayan cambiado. Si el SKU no existe, se **añade** como una fila nueva al final.
@@ -55,6 +55,11 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
     1. **Automático (diff quirúrgico):** al ejecutar un sync que escribe la Maestra, `propagation.py::_push_shopify_subscriptions` empuja SOLO los SKUs cuyo precio/stock cambió en esa corrida (usa `build_shopify_updates`, fijada por tests). Corre en el mismo background task que la propagación a hojas hijas; un fallo contra Shopify se loggea (`SHOPIFY_SUB_PUSH`) pero no aborta nada.
     2. **Manual ("Enviar ahora"):** `POST /api/shopify-subscriptions/{id}/push-now` manda la Maestra completa, con `dry_run` para previsualizar el cruce antes de escribir.
     Regla dura en ambos: NUNCA se crean productos en la tienda (los que no cruzan se reportan como `not_found`). Escritura vía `push_updates` del conector (`productVariantsBulkUpdate` para precio, `inventorySetQuantities` + `@idempotent` para stock). UI: guardar destino permanente en Paso 3 del Wizard; tarjetas en "Mis Flujos" (pausar/borrar/enviar ahora + último envío). Protección relacional: la conexión no se borra si una suscripción Shopify la usa.
+
+* **Correr por flujo (jul 2026): se retira el botón "correr todos" a favor de control individual.** Antes, la Tabla Maestra tenía un único botón "⚡ Correr Procesos" que stageaba y ejecutaba TODOS los procesos activos juntos. Ahora cada flujo se corre por separado desde **Mis Flujos** (`Flujos.jsx`): cada Fuente tiene su botón "Correr flujo" y hay un "Correr todo" para los activos.
+  - **`RunFlowModal.jsx`** (componente compartido): recibe uno o varios procesos, los pone en staging (`/api/processes/{id}/stage`), muestra la vista previa humana (nuevas / actualizaciones / lavadero / advertencia de baja coincidencia) y recién al confirmar ejecuta (`/api/staging/execute-bulk`). Es el mismo Guardián/staging de antes, expuesto por flujo.
+  - Los destinos Shopify (`ShopifySubscription`) ya tenían su propio "Enviar ahora" en Mis Flujos; ahora entradas y salidas se operan desde el mismo lugar.
+  - Backend intacto: no cambió ni `stage` ni `execute-bulk`; el rediseño es de UI (dónde se dispara). Se quitó de `MasterTable.jsx` toda la maquinaria de preview global (código muerto).
 
 * **El Lavadero (jul 2026): normalización + validación por campo en el intake.** `backend/lavadero.py`, invocado dentro de `_compute_master_sync` ANTES de comparar/escribir cada valor del núcleo. Principio: lo que no se puede limpiar NO se escribe sucio — se retiene y se reporta con motivo visible.
   - **Clasificación semántica** de las columnas mapeadas (reusa `intelligent_engine.get_semantic_group`): precio / stock / nombre. El SKU y el enriquecimiento NO se lavan.

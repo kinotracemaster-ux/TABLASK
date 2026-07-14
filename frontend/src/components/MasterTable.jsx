@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, Download, Eye, Trash2, ShieldAlert, Play, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, RefreshCw } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -28,34 +29,17 @@ export default function MasterTable() {
   const [activeMasterSheet, setActiveMasterSheet] = useState(null);
   const [activeMasterSkuColumn, setActiveMasterSkuColumn] = useState('');
 
-  // Run all state
-  const [runAllLoading, setRunAllLoading] = useState(false);
-  const [runAllResult, setRunAllResult] = useState(null);
-
   // Reflejo (sincronización manual maestra → hijas)
   const [reflectLoading, setReflectLoading] = useState(false);
   const [reflectResult, setReflectResult] = useState(null);
 
-  // Preview state (PASO 3)
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewData, setPreviewData] = useState(null);
-  
-  // Alerta de 0 Matches
-  const [lowMatchAcknowledged, setLowMatchAcknowledged] = useState(false);
-
-  // Detalle expandible de la vista previa (qué filas/campos entran)
-  const [previewDetailTab, setPreviewDetailTab] = useState(null); // null | 'nuevas' | 'actualizaciones'
-  const PREVIEW_DETAIL_LIMIT = 50;
-
-  // Processes & Exports lists for tabs
+  // Processes list for the "Entradas" tab
   const [processes, setProcesses] = useState([]);
-  const [exports, setExports] = useState([]);
 
   useEffect(() => {
     loadConnections();
     loadMasterData();
     loadProcesses();
-    loadExports();
   }, []);
 
   const loadConnections = async () => {
@@ -69,13 +53,6 @@ export default function MasterTable() {
     try {
       const res = await fetch(`${API}/api/processes/`);
       setProcesses(await res.json());
-    } catch (err) { console.error(err); }
-  };
-
-  const loadExports = async () => {
-    try {
-      const res = await fetch(`${API}/api/exports/`);
-      setExports(await res.json());
     } catch (err) { console.error(err); }
   };
 
@@ -161,104 +138,6 @@ export default function MasterTable() {
     loadMasterData();
   };
 
-  // --- PASO 3: Stage → Confirm → Run Bulk ---
-  const handlePreviewAll = async () => {
-    setPreviewLoading(true);
-    setPreviewData(null);
-    setRunAllResult(null);
-    setLowMatchAcknowledged(false);
-    setPreviewDetailTab(null);
-    try {
-      const activeProcesses = processes.filter(p => p.is_active);
-      const previews = await Promise.all(
-        activeProcesses.map(async (proc) => {
-          try {
-            const res = await fetch(`${API}/api/processes/${proc.id}/stage`, { method: 'POST' });
-            const data = await res.json();
-            if (res.ok) return { name: proc.name, ...data.diff, batch_id: data.batch_id, ok: true };
-            return { name: proc.name, ok: false, error: data.detail || 'Error' };
-          } catch (err) {
-            return { name: proc.name, ok: false, error: err.message };
-          }
-        })
-      );
-
-      const totalUpdated = previews.filter(p => p.ok).reduce((s, p) => s + (p.rows_to_update || 0), 0);
-      const totalAdded = previews.filter(p => p.ok).reduce((s, p) => s + (p.rows_to_add || 0), 0);
-      const totalOrigin = previews.filter(p => p.ok).reduce((s, p) => s + (p.total_origen || 0), 0);
-      const processesOk = previews.filter(p => p.ok).length;
-      const errors = previews.filter(p => !p.ok);
-      const batchIds = previews.filter(p => p.ok).map(p => p.batch_id);
-      
-      const matchPercentage = totalOrigin > 0 ? (totalUpdated / totalOrigin) : 1;
-
-      // Detalle plano: qué filas/campos concretos entran, para mostrarlo antes de confirmar
-      const newRowsDetail = previews.filter(p => p.ok).flatMap(p =>
-        (p.new_rows || []).map(r => ({ process: p.name, sku: r.sku, fields: r.fields || {} }))
-      );
-      const changesDetail = previews.filter(p => p.ok).flatMap(p =>
-        (p.changes || []).map(c => ({ process: p.name, ...c }))
-      );
-
-      // Lavadero: valores limpiados / retenidos (rechazados o a revisar) en el intake
-      const okPreviews = previews.filter(p => p.ok);
-      const lavCleaned = okPreviews.reduce((s, p) => s + (p.lavadero?.cleaned_count || 0), 0);
-      const lavEmpties = okPreviews.reduce((s, p) => s + (p.lavadero?.empties_skipped || 0), 0);
-      const lavRejectedCount = okPreviews.reduce((s, p) => s + (p.lavadero?.rejected_count || 0), 0);
-      const lavReviewCount = okPreviews.reduce((s, p) => s + (p.lavadero?.review_count || 0), 0);
-      const lavHeldDetail = okPreviews.flatMap(p => [
-        ...(p.lavadero?.rejected || []).map(r => ({ process: p.name, tipo: 'Rechazado', ...r })),
-        ...(p.lavadero?.review || []).map(r => ({ process: p.name, tipo: 'Revisar', ...r })),
-      ]);
-
-      // Se abre solo: si hay filas nuevas se ve esa tabla, si no hay pero sí actualizaciones, esa.
-      setPreviewDetailTab(newRowsDetail.length > 0 ? 'nuevas' : changesDetail.length > 0 ? 'actualizaciones' : null);
-
-      setPreviewData({
-        previews,
-        totalUpdated,
-        totalAdded,
-        totalOrigin,
-        matchPercentage,
-        batchIds,
-        processesOk,
-        exportsCount: exports.length,
-        errors,
-        newRowsDetail,
-        changesDetail,
-        lavCleaned,
-        lavEmpties,
-        lavRejectedCount,
-        lavReviewCount,
-        lavHeldDetail
-      });
-    } catch (err) {
-      setPreviewData({ error: err.message });
-    }
-    setPreviewLoading(false);
-  };
-
-  const handleConfirmRunAll = async () => {
-    if (!previewData?.batchIds || previewData.batchIds.length === 0) return;
-    
-    setPreviewData(null);
-    setRunAllLoading(true);
-    setRunAllResult(null);
-    try {
-      const res = await fetch(`${API}/api/staging/execute-bulk`, { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch_ids: previewData.batchIds })
-      });
-      const data = await res.json();
-      setRunAllResult(data);
-      if (res.ok) { loadMasterData(); loadProcesses(); }
-    } catch (err) {
-      setRunAllResult({ message: 'Fallo de conexión: ' + err.message, errors: [{ process: 'Red', error: err.message }] });
-    }
-    setRunAllLoading(false);
-  };
-
   // Reflejo: propaga ediciones manuales de la maestra a las hojas hijas
   const handleSyncReflection = async () => {
     setReflectLoading(true);
@@ -298,12 +177,12 @@ export default function MasterTable() {
           )}
         </div>
         <div className="flex gap-2 flex-wrap">
-          {activeMasterConnId && (
-            <button onClick={handlePreviewAll} disabled={previewLoading || runAllLoading || processes.length === 0}
-              className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:from-green-700 hover:to-emerald-700 transition shadow-sm text-sm disabled:opacity-50">
-              <Zap className={`w-4 h-4 ${previewLoading ? 'animate-pulse' : ''}`} />
-              {previewLoading ? 'Calculando...' : runAllLoading ? 'Ejecutando...' : '⚡ Correr Procesos'}
-            </button>
+          {activeMasterConnId && processes.length > 0 && (
+            <Link to="/flujos"
+              title="Corré cada flujo por separado desde Mis Flujos"
+              className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:from-green-700 hover:to-emerald-700 transition shadow-sm text-sm">
+              <Zap className="w-4 h-4" /> Correr flujos
+            </Link>
           )}
 
           {activeMasterConnId && (
@@ -344,278 +223,6 @@ export default function MasterTable() {
             )}
           </div>
           <button onClick={() => setReflectResult(null)} className="text-xs opacity-60 hover:opacity-100 font-medium">Cerrar</button>
-        </div>
-      )}
-
-      {/* Preview Confirmation (PASO 3) */}
-      {previewData && !previewData.error && (
-        <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm">
-          <h3 className="font-semibold text-indigo-800 mb-3">Vista previa de ejecución</h3>
-          <div className="grid grid-cols-4 gap-3 mb-4">
-            <div className="bg-white p-3 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Filas nuevas</p>
-              <p className="text-xl font-bold text-emerald-700">{previewData.totalAdded}</p>
-            </div>
-            <div className="bg-white p-3 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Actualizaciones</p>
-              <p className="text-xl font-bold text-blue-700">{previewData.totalUpdated}</p>
-            </div>
-            <div className="bg-white p-3 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Procesos</p>
-              <p className="text-xl font-bold text-indigo-700">{previewData.processesOk}</p>
-            </div>
-            <div className="bg-white p-3 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Salidas</p>
-              <p className="text-xl font-bold text-green-700">{previewData.exportsCount}</p>
-            </div>
-          </div>
-
-          {/* Detalle: qué filas/campos concretos van a entrar */}
-          {(previewData.totalAdded > 0 || previewData.totalUpdated > 0) && (
-            <div className="mb-4">
-              <div className="flex gap-2">
-                {previewData.totalAdded > 0 && (
-                  <button type="button"
-                    onClick={() => setPreviewDetailTab(previewDetailTab === 'nuevas' ? null : 'nuevas')}
-                    className="flex items-center gap-1 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50">
-                    {previewDetailTab === 'nuevas' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    Ver las {previewData.totalAdded} fila(s) nueva(s)
-                  </button>
-                )}
-                {previewData.totalUpdated > 0 && (
-                  <button type="button"
-                    onClick={() => setPreviewDetailTab(previewDetailTab === 'actualizaciones' ? null : 'actualizaciones')}
-                    className="flex items-center gap-1 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50">
-                    {previewDetailTab === 'actualizaciones' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    Ver las {previewData.totalUpdated} actualización(es)
-                  </button>
-                )}
-              </div>
-
-              {previewDetailTab === 'nuevas' && (
-                <div className="mt-2 bg-white border rounded-lg overflow-hidden">
-                  <div className="overflow-x-auto max-h-72 overflow-y-auto">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
-                        <tr>
-                          <th className="px-3 py-2 whitespace-nowrap">SKU</th>
-                          <th className="px-3 py-2">Campos que se van a cargar</th>
-                          {previewData.processesOk > 1 && <th className="px-3 py-2 whitespace-nowrap">Fuente</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {previewData.newRowsDetail.slice(0, PREVIEW_DETAIL_LIMIT).map((r, i) => (
-                          <tr key={i} className="border-t">
-                            <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{r.sku}</td>
-                            <td className="px-3 py-1.5 text-gray-600">
-                              {Object.entries(r.fields).filter(([, v]) => v !== r.sku).map(([k, v]) => `${k}: ${v || '-'}`).join(' · ')}
-                            </td>
-                            {previewData.processesOk > 1 && <td className="px-3 py-1.5 text-gray-400 whitespace-nowrap">{r.process}</td>}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {previewData.newRowsDetail.length > PREVIEW_DETAIL_LIMIT && (
-                    <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">
-                      Mostrando {PREVIEW_DETAIL_LIMIT} de {previewData.newRowsDetail.length} filas nuevas.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {previewDetailTab === 'actualizaciones' && (
-                <div className="mt-2 bg-white border rounded-lg overflow-hidden">
-                  <div className="overflow-x-auto max-h-72 overflow-y-auto">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
-                        <tr>
-                          <th className="px-3 py-2 whitespace-nowrap">SKU</th>
-                          <th className="px-3 py-2 whitespace-nowrap">Campo</th>
-                          <th className="px-3 py-2">Antes → Después</th>
-                          {previewData.processesOk > 1 && <th className="px-3 py-2 whitespace-nowrap">Fuente</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {previewData.changesDetail.slice(0, PREVIEW_DETAIL_LIMIT).map((c, i) => (
-                          <tr key={i} className="border-t">
-                            <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{c.sku}</td>
-                            <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{c.field}</td>
-                            <td className="px-3 py-1.5 text-gray-600">
-                              <span className="text-gray-400">{c.old || '-'}</span> → <span className="font-medium text-blue-700">{c.new || '-'}</span>
-                            </td>
-                            {previewData.processesOk > 1 && <td className="px-3 py-1.5 text-gray-400 whitespace-nowrap">{c.process}</td>}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {previewData.changesDetail.length > PREVIEW_DETAIL_LIMIT && (
-                    <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">
-                      Mostrando {PREVIEW_DETAIL_LIMIT} de {previewData.changesDetail.length} actualizaciones.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Lavadero: qué se limpió y qué se retuvo (nunca se escribe sucio) */}
-          {(previewData.lavCleaned > 0 || previewData.lavRejectedCount > 0 || previewData.lavReviewCount > 0 || previewData.lavEmpties > 0) && (
-            <div className="mb-4">
-              <div className={`rounded-lg border p-3 text-sm ${
-                (previewData.lavRejectedCount > 0 || previewData.lavReviewCount > 0)
-                  ? 'bg-amber-50 border-amber-200 text-amber-800'
-                  : 'bg-white border-indigo-100 text-gray-600'
-              }`}>
-                <span className="font-medium">🧼 Lavadero:</span>{' '}
-                {previewData.lavCleaned > 0 && <span>{previewData.lavCleaned} valor(es) limpiado(s) automáticamente</span>}
-                {previewData.lavCleaned > 0 && (previewData.lavRejectedCount > 0 || previewData.lavReviewCount > 0 || previewData.lavEmpties > 0) && ' · '}
-                {previewData.lavRejectedCount > 0 && <span className="font-medium">{previewData.lavRejectedCount} rechazado(s)</span>}
-                {previewData.lavRejectedCount > 0 && (previewData.lavReviewCount > 0 || previewData.lavEmpties > 0) && ' · '}
-                {previewData.lavReviewCount > 0 && <span className="font-medium">{previewData.lavReviewCount} para revisar</span>}
-                {previewData.lavReviewCount > 0 && previewData.lavEmpties > 0 && ' · '}
-                {previewData.lavEmpties > 0 && <span>{previewData.lavEmpties} vacío(s) que no pisaron datos existentes</span>}
-                {(previewData.lavRejectedCount > 0 || previewData.lavReviewCount > 0) && (
-                  <span className="block text-xs mt-1 opacity-80">Los valores retenidos NO se van a escribir: la Maestra conserva lo que tiene.</span>
-                )}
-              </div>
-
-              {previewData.lavHeldDetail.length > 0 && (
-                <>
-                  <button type="button"
-                    onClick={() => setPreviewDetailTab(previewDetailTab === 'lavadero' ? null : 'lavadero')}
-                    className="mt-2 flex items-center gap-1 text-xs font-medium text-amber-700 bg-white border border-amber-200 rounded-lg px-3 py-1.5 hover:bg-amber-50">
-                    {previewDetailTab === 'lavadero' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    Ver los {previewData.lavHeldDetail.length} valor(es) retenido(s) y sus motivos
-                  </button>
-
-                  {previewDetailTab === 'lavadero' && (
-                    <div className="mt-2 bg-white border rounded-lg overflow-hidden">
-                      <div className="overflow-x-auto max-h-72 overflow-y-auto">
-                        <table className="w-full text-xs text-left">
-                          <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
-                            <tr>
-                              <th className="px-3 py-2 whitespace-nowrap">SKU</th>
-                              <th className="px-3 py-2 whitespace-nowrap">Campo</th>
-                              <th className="px-3 py-2">Valor recibido</th>
-                              <th className="px-3 py-2">Motivo</th>
-                              {previewData.processesOk > 1 && <th className="px-3 py-2 whitespace-nowrap">Fuente</th>}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {previewData.lavHeldDetail.slice(0, PREVIEW_DETAIL_LIMIT).map((r, i) => (
-                              <tr key={i} className="border-t">
-                                <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{r.sku}</td>
-                                <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{r.field}</td>
-                                <td className="px-3 py-1.5 text-gray-600 font-mono">{r.value || '-'}</td>
-                                <td className="px-3 py-1.5">
-                                  <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium mr-1 ${r.tipo === 'Rechazado' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{r.tipo}</span>
-                                  <span className="text-gray-600">{r.reason}</span>
-                                </td>
-                                {previewData.processesOk > 1 && <td className="px-3 py-1.5 text-gray-400 whitespace-nowrap">{r.process}</td>}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      {previewData.lavHeldDetail.length > PREVIEW_DETAIL_LIMIT && (
-                        <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">
-                          Mostrando {PREVIEW_DETAIL_LIMIT} de {previewData.lavHeldDetail.length} valores retenidos.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {previewData.errors.length > 0 && (
-            <div className="mb-3 space-y-1">
-              {previewData.errors.map((e, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm text-red-700 bg-red-50 rounded p-2">
-                  <XCircle className="w-4 h-4 flex-shrink-0" /> <span className="font-medium">{e.name}:</span> {e.error}
-                </div>
-              ))}
-            </div>
-          )}
-          {/* Warning de baja coincidencia */}
-          {previewData.matchPercentage < 0.1 && previewData.totalAdded > 0 && (
-            <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
-              <div className="flex items-start gap-3">
-                <ShieldAlert className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <h4 className="text-sm font-bold text-orange-800">Advertencia: Baja Coincidencia de SKUs</h4>
-                  <p className="text-sm text-orange-700 mt-1">
-                    Menos del 10% de los productos del origen existen en la Tabla Maestra. 
-                    Se van a agregar <strong className="font-bold">{previewData.totalAdded} filas completamente nuevas</strong>, 
-                    lo cual podría indicar un formato incorrecto en la columna SKU.
-                  </p>
-                  <label className="flex items-center gap-2 mt-3 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      className="rounded border-orange-300 text-orange-600 focus:ring-orange-500 w-4 h-4"
-                      checked={lowMatchAcknowledged}
-                      onChange={(e) => setLowMatchAcknowledged(e.target.checked)}
-                    />
-                    <span className="text-sm font-medium text-orange-900">
-                      Entiendo que se agregarán como productos nuevos y el formato del SKU es correcto
-                    </span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <button onClick={() => setPreviewData(null)}
-              className="text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium">
-              Cancelar
-            </button>
-            <button 
-              onClick={handleConfirmRunAll} 
-              disabled={runAllLoading || (previewData.matchPercentage < 0.1 && previewData.totalAdded > 0 && !lowMatchAcknowledged)}
-              className="bg-green-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-green-700 text-sm disabled:opacity-50 flex items-center gap-2">
-              <Zap className="w-4 h-4" />
-              {runAllLoading ? 'Ejecutando...' : 'Confirmar y Ejecutar'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Run All Result */}
-      {runAllResult && (
-        <div className={`mb-6 rounded-xl border p-5 shadow-sm ${runAllResult.errors?.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
-          <h3 className="font-semibold text-gray-800 mb-3">{runAllResult.message}</h3>
-          <div className="grid grid-cols-4 gap-3 mb-3">
-            <div className="bg-white p-2 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Procesos OK</p>
-              <p className="text-lg font-bold text-indigo-700">{runAllResult.summary?.processes_ok || 0}</p>
-            </div>
-            <div className="bg-white p-2 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Formatos OK</p>
-              <p className="text-lg font-bold text-green-700">{runAllResult.summary?.exports_ok || 0}</p>
-            </div>
-            <div className="bg-white p-2 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Filas actualizadas</p>
-              <p className="text-lg font-bold text-blue-700">{runAllResult.summary?.total_rows_updated || 0}</p>
-            </div>
-            <div className="bg-white p-2 rounded-lg text-center border">
-              <p className="text-xs text-gray-500">Filas nuevas</p>
-              <p className="text-lg font-bold text-emerald-700">{runAllResult.summary?.total_rows_added || 0}</p>
-            </div>
-          </div>
-          {runAllResult.errors?.length > 0 && (
-            <div className="space-y-1">
-              {runAllResult.errors.map((e, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm text-red-700 bg-red-50 rounded p-2">
-                  <XCircle className="w-4 h-4 flex-shrink-0" /> <span className="font-medium flex-shrink-0">{e.process}:</span> <span className="break-words whitespace-normal min-w-0">{e.error}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <button onClick={() => setRunAllResult(null)} className="text-xs text-gray-400 mt-2 hover:text-gray-600 font-medium">Cerrar resumen</button>
         </div>
       )}
 
