@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send } from 'lucide-react';
+import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap } from 'lucide-react';
 import { extractError } from '../utils/errors';
+import RunFlowModal from './RunFlowModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -56,6 +57,7 @@ export default function Flujos() {
   const [connections, setConnections] = useState([]);
   const [testing, setTesting] = useState(null);
   const [pushingShopSub, setPushingShopSub] = useState(null);
+  const [runProcs, setRunProcs] = useState(null); // [{id, name}] a correr en el modal de vista previa
 
   // --- Edición: Fuente (Proceso) ---
   const [editProc, setEditProc] = useState(null);
@@ -430,9 +432,18 @@ export default function Flujos() {
 
       {processes.length > 0 && (
         <section>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-            <Settings2 className="w-4 h-4" /> Fuentes ({processes.length})
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+              <Settings2 className="w-4 h-4" /> Fuentes ({processes.length})
+            </h2>
+            {processes.filter(p => p.is_active).length > 1 && (
+              <button
+                onClick={() => setRunProcs(processes.filter(p => p.is_active).map(p => ({ id: p.id, name: p.name })))}
+                className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 hover:bg-green-100 transition">
+                <Zap className="w-3.5 h-3.5" /> Correr todo
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {processes.map(proc => (
               <div key={proc.id} className={`bg-white rounded-xl shadow-sm border p-4 ${!proc.is_active ? 'opacity-60 grayscale' : 'border-gray-200'}`}>
@@ -454,6 +465,13 @@ export default function Flujos() {
                 </div>
                 <p className="text-sm text-gray-500">{connName(proc.source_connection_id)} / "{proc.source_sheet_name}"</p>
                 <p className="text-xs text-gray-400 mt-1">Llave: {proc.sku_column_source} ↔ {proc.sku_column_master} · {Object.keys(proc.field_mappings || {}).length} campo(s)</p>
+                <button
+                  onClick={() => setRunProcs([{ id: proc.id, name: proc.name }])}
+                  disabled={!proc.is_active}
+                  title={proc.is_active ? 'Correr este flujo con vista previa' : 'Activá el flujo para poder correrlo'}
+                  className="mt-3 w-full flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:from-green-700 hover:to-emerald-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  <Zap className="w-4 h-4" /> Correr flujo
+                </button>
               </div>
             ))}
           </div>
@@ -774,6 +792,14 @@ export default function Flujos() {
             </div>
           </form>
         </ModalShell>
+      )}
+
+      {runProcs && (
+        <RunFlowModal
+          procs={runProcs}
+          onClose={() => setRunProcs(null)}
+          onDone={() => loadAll()}
+        />
       )}
     </div>
   );
