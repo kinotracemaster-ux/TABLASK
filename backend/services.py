@@ -371,6 +371,26 @@ def _compute_master_sync(project, req, db):
     matched_norms = set()  # SKUs normalizados de la Maestra que SÍ aparecen en BASE
     skipped_skus = []
 
+    # El Lavadero (MEJORAS_TABLASK §3): clasificar las columnas del núcleo y
+    # lavar cada valor ANTES de compararlo/escribirlo. Lo rechazado o sospechoso
+    # no se escribe: se retiene y se reporta con motivo en la vista previa.
+    from .lavadero import classify_columns, wash_value, WashReport
+    col_kinds = classify_columns(req.field_mappings)
+    wash_report = WashReport()
+
+    def _wash(dst_col, raw_val, sku_for_report):
+        """Devuelve (valor_a_usar, escribir: bool). Registra en el reporte."""
+        value, status, reason = wash_value(col_kinds.get(dst_col), raw_val)
+        if status == "rejected":
+            wash_report.add_rejected(sku_for_report, dst_col, raw_val, reason)
+            return None, False
+        if status == "review":
+            wash_report.add_review(sku_for_report, dst_col, raw_val, reason)
+            return None, False
+        if status == "cleaned":
+            wash_report.add_cleaned()
+        return value, True
+
     for src_row in src_raw[1:]:
         sku_val = (src_row[src_sku_idx] if src_sku_idx < len(src_row) else "").strip()
         if not sku_val:
@@ -412,8 +432,17 @@ def _compute_master_sync(project, req, db):
                 if src_col in src_headers and dst_col in master_headers:
                     s_idx = src_headers.index(src_col)
                     m_idx = master_headers.index(dst_col)
-                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
+                    raw_val = src_row[s_idx] if s_idx < len(src_row) else ""
                     old_val = mr_data[m_idx]
+
+                    new_val, writable = _wash(dst_col, raw_val, master_sku)
+                    if not writable:
+                        continue  # rechazado o en revisión: se conserva el valor actual
+                    if new_val == "" and str(old_val).strip() != "":
+                        # Un vacío del origen nunca borra núcleo existente en la Maestra.
+                        wash_report.add_empty_skipped()
+                        continue
+
                     if old_val != new_val:
                         granular_changes.append({
                             "sku": master_sku,
@@ -444,7 +473,10 @@ def _compute_master_sync(project, req, db):
             for src_col, dst_col in req.field_mappings.items():
                 if src_col in src_headers and dst_col in master_headers:
                     s_idx = src_headers.index(src_col)
-                    new_val = src_row[s_idx] if s_idx < len(src_row) else ""
+                    raw_val = src_row[s_idx] if s_idx < len(src_row) else ""
+                    new_val, writable = _wash(dst_col, raw_val, sku_val)
+                    if not writable:
+                        new_val = ""  # sucio/sospechoso: la celda queda vacía, no se escribe basura
                     new_mr_data[master_headers.index(dst_col)] = new_val
                     new_fields[dst_col] = new_val
 
@@ -487,6 +519,7 @@ def _compute_master_sync(project, req, db):
         "changes": granular_changes,
         "new_rows": granular_new_rows,     # se escriben (BASE debe existir en Master)
         "unchanged_skus": granular_unchanged_skus,
-        "orphans": granular_orphans
+        "orphans": granular_orphans,
+        "lavadero": wash_report.to_dict()  # limpiados / rechazados / a revisar
     }
 

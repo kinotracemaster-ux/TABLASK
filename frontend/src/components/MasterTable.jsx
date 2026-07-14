@@ -200,6 +200,17 @@ export default function MasterTable() {
         (p.changes || []).map(c => ({ process: p.name, ...c }))
       );
 
+      // Lavadero: valores limpiados / retenidos (rechazados o a revisar) en el intake
+      const okPreviews = previews.filter(p => p.ok);
+      const lavCleaned = okPreviews.reduce((s, p) => s + (p.lavadero?.cleaned_count || 0), 0);
+      const lavEmpties = okPreviews.reduce((s, p) => s + (p.lavadero?.empties_skipped || 0), 0);
+      const lavRejectedCount = okPreviews.reduce((s, p) => s + (p.lavadero?.rejected_count || 0), 0);
+      const lavReviewCount = okPreviews.reduce((s, p) => s + (p.lavadero?.review_count || 0), 0);
+      const lavHeldDetail = okPreviews.flatMap(p => [
+        ...(p.lavadero?.rejected || []).map(r => ({ process: p.name, tipo: 'Rechazado', ...r })),
+        ...(p.lavadero?.review || []).map(r => ({ process: p.name, tipo: 'Revisar', ...r })),
+      ]);
+
       // Se abre solo: si hay filas nuevas se ve esa tabla, si no hay pero sí actualizaciones, esa.
       setPreviewDetailTab(newRowsDetail.length > 0 ? 'nuevas' : changesDetail.length > 0 ? 'actualizaciones' : null);
 
@@ -214,7 +225,12 @@ export default function MasterTable() {
         exportsCount: exports.length,
         errors,
         newRowsDetail,
-        changesDetail
+        changesDetail,
+        lavCleaned,
+        lavEmpties,
+        lavRejectedCount,
+        lavReviewCount,
+        lavHeldDetail
       });
     } catch (err) {
       setPreviewData({ error: err.message });
@@ -440,6 +456,77 @@ export default function MasterTable() {
                     </div>
                   )}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Lavadero: qué se limpió y qué se retuvo (nunca se escribe sucio) */}
+          {(previewData.lavCleaned > 0 || previewData.lavRejectedCount > 0 || previewData.lavReviewCount > 0 || previewData.lavEmpties > 0) && (
+            <div className="mb-4">
+              <div className={`rounded-lg border p-3 text-sm ${
+                (previewData.lavRejectedCount > 0 || previewData.lavReviewCount > 0)
+                  ? 'bg-amber-50 border-amber-200 text-amber-800'
+                  : 'bg-white border-indigo-100 text-gray-600'
+              }`}>
+                <span className="font-medium">🧼 Lavadero:</span>{' '}
+                {previewData.lavCleaned > 0 && <span>{previewData.lavCleaned} valor(es) limpiado(s) automáticamente</span>}
+                {previewData.lavCleaned > 0 && (previewData.lavRejectedCount > 0 || previewData.lavReviewCount > 0 || previewData.lavEmpties > 0) && ' · '}
+                {previewData.lavRejectedCount > 0 && <span className="font-medium">{previewData.lavRejectedCount} rechazado(s)</span>}
+                {previewData.lavRejectedCount > 0 && (previewData.lavReviewCount > 0 || previewData.lavEmpties > 0) && ' · '}
+                {previewData.lavReviewCount > 0 && <span className="font-medium">{previewData.lavReviewCount} para revisar</span>}
+                {previewData.lavReviewCount > 0 && previewData.lavEmpties > 0 && ' · '}
+                {previewData.lavEmpties > 0 && <span>{previewData.lavEmpties} vacío(s) que no pisaron datos existentes</span>}
+                {(previewData.lavRejectedCount > 0 || previewData.lavReviewCount > 0) && (
+                  <span className="block text-xs mt-1 opacity-80">Los valores retenidos NO se van a escribir: la Maestra conserva lo que tiene.</span>
+                )}
+              </div>
+
+              {previewData.lavHeldDetail.length > 0 && (
+                <>
+                  <button type="button"
+                    onClick={() => setPreviewDetailTab(previewDetailTab === 'lavadero' ? null : 'lavadero')}
+                    className="mt-2 flex items-center gap-1 text-xs font-medium text-amber-700 bg-white border border-amber-200 rounded-lg px-3 py-1.5 hover:bg-amber-50">
+                    {previewDetailTab === 'lavadero' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    Ver los {previewData.lavHeldDetail.length} valor(es) retenido(s) y sus motivos
+                  </button>
+
+                  {previewDetailTab === 'lavadero' && (
+                    <div className="mt-2 bg-white border rounded-lg overflow-hidden">
+                      <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
+                            <tr>
+                              <th className="px-3 py-2 whitespace-nowrap">SKU</th>
+                              <th className="px-3 py-2 whitespace-nowrap">Campo</th>
+                              <th className="px-3 py-2">Valor recibido</th>
+                              <th className="px-3 py-2">Motivo</th>
+                              {previewData.processesOk > 1 && <th className="px-3 py-2 whitespace-nowrap">Fuente</th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {previewData.lavHeldDetail.slice(0, PREVIEW_DETAIL_LIMIT).map((r, i) => (
+                              <tr key={i} className="border-t">
+                                <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{r.sku}</td>
+                                <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{r.field}</td>
+                                <td className="px-3 py-1.5 text-gray-600 font-mono">{r.value || '-'}</td>
+                                <td className="px-3 py-1.5">
+                                  <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium mr-1 ${r.tipo === 'Rechazado' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{r.tipo}</span>
+                                  <span className="text-gray-600">{r.reason}</span>
+                                </td>
+                                {previewData.processesOk > 1 && <td className="px-3 py-1.5 text-gray-400 whitespace-nowrap">{r.process}</td>}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {previewData.lavHeldDetail.length > PREVIEW_DETAIL_LIMIT && (
+                        <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">
+                          Mostrando {PREVIEW_DETAIL_LIMIT} de {previewData.lavHeldDetail.length} valores retenidos.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
