@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, RefreshCw } from 'lucide-react';
 import { extractError } from '../utils/errors';
+import PipelineBar from './PipelineBar';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -207,6 +208,9 @@ export default function MasterTable() {
           )}
         </div>
       </div>
+
+      {/* Pipeline visual: [Fuentes] → [MAESTRA] → [Destinos] con semáforos */}
+      <PipelineBar />
 
       {/* Resultado del reflejo (maestra → hijas) */}
       {reflectResult && (
