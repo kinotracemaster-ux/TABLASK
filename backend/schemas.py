@@ -78,54 +78,8 @@ class Project(ProjectBase):
     class Config:
         from_attributes = True
 
-# Tables & Mappings
-class FieldMappingBase(BaseModel):
-    source_field: str
-    target_field: str
-    is_key: bool
-
-class FieldMappingCreate(FieldMappingBase):
-    source_table_id: int
-    target_table_id: int
-
-class FieldMapping(FieldMappingBase):
-    id: int
-    project_id: int
-    
-    class Config:
-        from_attributes = True
-
-# Sync Rules
-class SyncRuleBase(BaseModel):
-    rule_type: str
-
-class SyncRuleCreate(SyncRuleBase):
-    pass
-
-class SyncRule(SyncRuleBase):
-    id: int
-    project_id: int
-    
-    class Config:
-        from_attributes = True
-
-# Sync Logs
-class SyncLogBase(BaseModel):
-    rows_changed: int = 0
-    rows_added: int = 0
-    errors: int = 0
-    status: str
-
-class SyncLogCreate(SyncLogBase):
-    pass
-
-class SyncLog(SyncLogBase):
-    id: int
-    project_id: int
-    executed_at: datetime
-    
-    class Config:
-        from_attributes = True
+# NOTA: los schemas FieldMapping, SyncRule y SyncLog (arquitectura vieja
+# per-proyecto) se retiraron en jul 2026 junto con sus modelos. Ver §6.
 
 # Export Formats
 from typing import Dict, Any

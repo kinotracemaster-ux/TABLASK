@@ -60,68 +60,18 @@ class Project(Base):
     owner = relationship("User", back_populates="projects")
     connection = relationship("Connection", foreign_keys=[connection_id], back_populates="projects")
     master_connection = relationship("Connection", foreign_keys=[master_connection_id])
-    mappings = relationship("FieldMapping", back_populates="project", cascade="all, delete-orphan")
-    source_tables = relationship("SourceTable", back_populates="project", cascade="all, delete-orphan")
-    target_tables = relationship("TargetTable", back_populates="project", cascade="all, delete-orphan")
-    sync_rules = relationship("SyncRule", back_populates="project", cascade="all, delete-orphan")
-    sync_logs = relationship("SyncLog", back_populates="project", cascade="all, delete-orphan")
     export_formats = relationship("ExportFormat", back_populates="project", cascade="all, delete-orphan")
     field_subscriptions = relationship("FieldSubscription", back_populates="project", cascade="all, delete-orphan")
 
-class SourceTable(Base):
-    __tablename__ = "source_tables"
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"))
-    sheet_name = Column(String, nullable=False)
-    
-    project = relationship("Project", back_populates="source_tables")
-    mappings = relationship("FieldMapping", back_populates="source_table")
-
-class TargetTable(Base):
-    __tablename__ = "target_tables"
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"))
-    sheet_name = Column(String, nullable=False)
-    
-    project = relationship("Project", back_populates="target_tables")
-    mappings = relationship("FieldMapping", back_populates="target_table")
-
-class FieldMapping(Base):
-    __tablename__ = "field_mappings"
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"))
-    source_table_id = Column(Integer, ForeignKey("source_tables.id"))
-    source_field = Column(String, nullable=False)
-    target_table_id = Column(Integer, ForeignKey("target_tables.id"))
-    target_field = Column(String, nullable=False)
-    is_key = Column(Boolean, default=False)
-    
-    project = relationship("Project", back_populates="mappings")
-    source_table = relationship("SourceTable", back_populates="mappings")
-    target_table = relationship("TargetTable", back_populates="mappings")
-
-class SyncRule(Base):
-    __tablename__ = "sync_rules"
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"))
-    rule_type = Column(String, nullable=False) # e.g. 'update_always', 'only_if_empty'
-    
-    project = relationship("Project", back_populates="sync_rules")
-
-class SyncLog(Base):
-    __tablename__ = "sync_logs"
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"))
-    executed_at = Column(DateTime, default=datetime.utcnow)
-    rows_changed = Column(Integer, default=0)
-    rows_added = Column(Integer, default=0)
-    errors = Column(Integer, default=0)
-    status = Column(String, nullable=False) # 'success', 'error'
-    
-    project = relationship("Project", back_populates="sync_logs")
+# NOTA: SourceTable, TargetTable, FieldMapping, SyncRule y SyncLog (arquitectura
+# vieja per-proyecto) se retiraron en jul 2026: no tenían ningún uso en el flujo
+# real Base→Master→Distribución. Sus tablas quedan huérfanas en Postgres pero no
+# estorban (no se crean nuevas en SQLite nuevo). Ver MEMORIA_PROYECTO §6.
 
 class ExportFormat(Base):
-    """[DEPRECADO] Usar FieldSubscription. Plantilla de salida: define qué columnas de la Tabla Master se exportan y con qué nombre."""
+    """Plantilla de salida a CSV: define las columnas de salida y cómo se generan
+    desde la Maestra (renombrado directo en columns_mapping, o transformaciones en
+    transform_spec — ver export_engine/export_presets, §11). Es un Destino más."""
     __tablename__ = "export_formats"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)              # Ej: "Página Web", "Visor", "Effi Inventario"
