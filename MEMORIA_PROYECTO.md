@@ -56,6 +56,12 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
     2. **Manual ("Enviar ahora"):** `POST /api/shopify-subscriptions/{id}/push-now` manda la Maestra completa, con `dry_run` para previsualizar el cruce antes de escribir.
     Regla dura en ambos: NUNCA se crean productos en la tienda (los que no cruzan se reportan como `not_found`). Escritura vía `push_updates` del conector (`productVariantsBulkUpdate` para precio, `inventorySetQuantities` + `@idempotent` para stock). UI: guardar destino permanente en Paso 3 del Wizard; tarjetas en "Mis Flujos" (pausar/borrar/enviar ahora + último envío). Protección relacional: la conexión no se borra si una suscripción Shopify la usa.
 
+* **El Lavadero (jul 2026): normalización + validación por campo en el intake.** `backend/lavadero.py`, invocado dentro de `_compute_master_sync` ANTES de comparar/escribir cada valor del núcleo. Principio: lo que no se puede limpiar NO se escribe sucio — se retiene y se reporta con motivo visible.
+  - **Clasificación semántica** de las columnas mapeadas (reusa `intelligent_engine.get_semantic_group`): precio / stock / nombre. El SKU y el enriquecimiento NO se lavan.
+  - **Limpiezas:** precio (quita `$`, separa miles/decimal según formato real de Kino: `$ 45.000`→`45000`, `38000,00`→`38000`); stock (fuerza entero, acepta `5.0`/`5,00`, rechaza `5 unid` y fracciones reales); nombre (colapsa espacios, respeta mayúsculas de marca).
+  - **Estados por valor:** `ok`/`cleaned` se escriben; `empty` nunca pisa un valor existente de la Maestra; `rejected` (texto en precio, `gratis`) y `review` (precio 0, stock negativo) NO se escriben y van al reporte. En filas nuevas, un valor retenido deja la celda vacía (no escribe basura).
+  - **Reporte (`WashReport`)** viaja en el diff del staging → la vista previa muestra "🧼 Lavadero: N limpiados · M rechazados · K a revisar" con tabla expandible (SKU / campo / valor recibido / motivo). Fijado por `tests/test_lavadero.py`.
+
 ## 4. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):
 - Suscripciones a hijas con la regla de negocio "Sobreescribir SOLO si la celda hija está vacía". Actualmente, la distribución siempre sobreescribe con el valor de la Maestra.

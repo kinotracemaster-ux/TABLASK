@@ -114,7 +114,8 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
             "detail_added": result.get("detail_added", []),
             "detail_orphan": result.get("detail_orphan", []),
             "total_rows_before": result.get("total_rows_before", 0),
-            "total_origen": result.get("total_origen", 0)
+            "total_origen": result.get("total_origen", 0),
+            "lavadero": result.get("lavadero", {})
         }
         batch = models.StagingBatch(
             process_id=process_id,
