@@ -91,6 +91,9 @@ class ExportFormat(Base):
     # Si output_type == 'google_sheets': sheet destino donde se escriben los datos
     output_spreadsheet_id = Column(String, nullable=True)
     output_sheet_name = Column(String, nullable=True)
+    # Token del link fijo de descarga: permite que un sistema externo baje el
+    # CSV del canal sin abrir la app (/api/exports/{id}/download?token=...).
+    public_token = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="export_formats")
@@ -181,6 +184,32 @@ class ShopifySubscription(Base):
     connection = relationship("Connection")
 
 
+class ApiSubscription(Base):
+    """Destino permanente 'Maestra → API genérica' (canal API). Igual que las
+    suscripciones Shopify pero contra cualquier endpoint HTTP del cliente:
+    al ejecutarse un sync que escribe la Maestra, se empujan en background las
+    filas de los SKUs afectados (diff quirúrgico); además hay "Enviar ahora"
+    (Maestra completa, con dry_run). El payload por fila se arma con la
+    plantilla del canal (transform_spec, mismas transformaciones del export
+    engine §11); sin plantilla, la fila va con todas las columnas tal cual."""
+    __tablename__ = "api_subscriptions"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)              # Ej: "Effi API"
+    url = Column(String, nullable=False)               # Endpoint destino
+    http_method = Column(String, default="POST")       # POST o PUT
+    # Auth simple por header: {auth_header_name: auth_token}. El token es
+    # write-only (nunca se devuelve; el response expone solo has_token).
+    auth_header_name = Column(String, default="Authorization")
+    auth_token = Column(Text, nullable=True)           # Sensible
+    extra_headers = Column(Text, nullable=True)        # JSON stringificado
+    # Plantilla del canal (lista ordenada de columnas de salida, export_engine).
+    transform_spec = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_pushed_at = Column(DateTime, nullable=True)
+    last_push_summary = Column(Text, nullable=True)    # JSON del último envío
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ScheduleConfig(Base):
     """Piloto automático (MEJORAS_TABLASK §5): correr todos los procesos activos
     cada X horas, sin que nadie tenga la app abierta. Registro único
@@ -244,6 +273,9 @@ class ConnectedApp(Base):
     
     # Mapeo por defecto o proyecto asociado (opcional, para ingesta directa a la maestra)
     target_project_id = Column(Integer, nullable=True)
+    # Fuente (Process) cuyo mapeo se usa al empujar datos: si está, el push
+    # entra por el túnel real (Lavadero → Guardián → escritura quirúrgica).
+    target_process_id = Column(Integer, nullable=True)
 
 
 class MasterSnapshot(Base):

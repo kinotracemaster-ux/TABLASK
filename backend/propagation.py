@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from typing import List, Dict, Any
-from .models import FieldSubscription, Connection, ShopifySubscription
+from .models import FieldSubscription, Connection, ShopifySubscription, ApiSubscription, Project, Process
 from .services import get_sheet_data, write_sheet_data_surgical
 from .database import SessionLocal
 
@@ -10,7 +10,8 @@ def propagate_changes(project_id: int, changes: List[Dict[str, Any]], new_rows: 
     Función para ejecutarse en background (BackgroundTasks).
     Revisa si algún campo cambiado o nueva fila afecta a alguna suscripción activa,
     y propaga los cambios a las hojas hijas. Después empuja precio/stock de los
-    SKUs afectados a las suscripciones Shopify activas (fase B).
+    SKUs afectados a las suscripciones Shopify activas (fase B), y las filas
+    afectadas a los canales API genéricos suscritos.
 
     IMPORTANTE: abre su propia sesión de DB. La sesión del request que originó
     la tarea ya está cerrada cuando esto corre, por lo que no debe reutilizarse.
@@ -22,6 +23,7 @@ def propagate_changes(project_id: int, changes: List[Dict[str, Any]], new_rows: 
     try:
         _propagate_changes(db, project_id, changes, new_rows)
         _push_shopify_subscriptions(db, changes, new_rows)
+        _push_api_subscriptions(db, changes, new_rows)
     finally:
         db.close()
 
@@ -231,3 +233,92 @@ def _push_shopify_subscriptions(db, changes: List[Dict[str, Any]], new_rows: Lis
                 )
             except Exception:
                 print(f"Error empujando a Shopify '{sub.name}': {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ██ Maestra → API genérica: empujar el diff a los canales API suscritos
+# ═══════════════════════════════════════════════════════════════════
+
+def _master_context_or_none(db):
+    """(master_conn, master_sheet, sku_column) de la Maestra global, o None si
+    falta algo. Versión para background: no lanza HTTPException, solo desiste."""
+    project = db.query(Project).filter(Project.master_connection_id.isnot(None)).first()
+    if not project:
+        return None
+    master_conn = db.query(Connection).filter(Connection.id == project.master_connection_id).first()
+    if not master_conn:
+        return None
+    sku_column = project.master_sku_column
+    if not sku_column:
+        # Mismo fallback que el push-now: inferir desde los procesos activos.
+        counts = {}
+        for p in db.query(Process).filter(Process.is_active == True).all():
+            if p.sku_column_master:
+                counts[p.sku_column_master] = counts.get(p.sku_column_master, 0) + 1
+        sku_column = max(counts, key=counts.get) if counts else None
+    if not sku_column:
+        return None
+    return master_conn, project.master_sheet_name, sku_column
+
+
+def _push_api_subscriptions(db, changes: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]):
+    """Empuja a cada canal API activo SOLO las filas de los SKUs tocados en
+    esta corrida (diff quirúrgico, mismo principio que Shopify). Lee la Maestra
+    una sola vez (recién escrita, caché ya invalidada) y arma el payload de
+    cada canal con su plantilla. Un fallo se loggea y no aborta nada."""
+    subs = db.query(ApiSubscription).filter(ApiSubscription.is_active == True).all()
+    if not subs:
+        return
+
+    from .api_push import affected_skus_from_diff, rows_from_master, send_rows
+    from .routers.logs import log_event
+
+    skus = affected_skus_from_diff(changes, new_rows)
+    if not skus:
+        return
+
+    ctx = _master_context_or_none(db)
+    if not ctx:
+        return
+    master_conn, master_sheet, sku_column = ctx
+
+    try:
+        master_raw = get_sheet_data(master_conn, f"{master_sheet}!A1:Z")
+    except Exception as e:
+        print(f"No se pudo leer la Maestra para el push API: {e}")
+        return
+
+    for sub in subs:
+        try:
+            spec = json.loads(sub.transform_spec) if sub.transform_spec else None
+            rows = rows_from_master(master_raw, transform_spec=spec,
+                                    only_skus=skus, sku_column=sku_column)
+            if not rows:
+                continue
+
+            summary = send_rows(sub, rows)
+            sub.last_pushed_at = datetime.utcnow()
+            sub.last_push_summary = json.dumps(summary, ensure_ascii=False)
+            db.commit()
+
+            log_event(
+                db=db,
+                event_type="API_SUB_PUSH",
+                status="success" if summary.get("ok") else "error",
+                message=(f"Canal API '{sub.name}': {summary.get('sent', 0)} filas enviadas "
+                         f"(HTTP {summary.get('status_code')})." if summary.get("ok")
+                         else f"Canal API '{sub.name}' falló: {summary.get('error') or summary.get('response_excerpt', '')}"),
+                rows_affected=summary.get("sent", 0),
+            )
+        except Exception as e:
+            import traceback
+            try:
+                log_event(
+                    db=db,
+                    event_type="API_SUB_PUSH",
+                    status="error",
+                    message=f"Canal API '{sub.name}' falló: {str(e)[:200]}",
+                    technical_detail=traceback.format_exc(),
+                )
+            except Exception:
+                print(f"Error empujando al canal API '{sub.name}': {e}")
