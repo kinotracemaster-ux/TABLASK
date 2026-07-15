@@ -131,6 +131,31 @@ def get_pipeline(db: Session = Depends(get_db)):
             "message": message,
         })
 
+    # Canales API genéricos: mismo criterio de semáforo que Shopify
+    # (last_pushed_at + errores del último resumen).
+    for sub in db.query(models.ApiSubscription).all():
+        if not sub.is_active:
+            status, last_iso, message = "paused", (sub.last_pushed_at.isoformat() if sub.last_pushed_at else None), "Pausado"
+        elif not sub.last_pushed_at:
+            status, last_iso, message = "amber", None, "Sin enviar todavía"
+        else:
+            try:
+                ok = (json.loads(sub.last_push_summary) or {}).get("ok", True) if sub.last_push_summary else True
+            except (ValueError, TypeError):
+                ok = True
+            if ok:
+                status, last_iso, message = "green", sub.last_pushed_at.isoformat(), "Enviado"
+            else:
+                status, last_iso, message = "red", sub.last_pushed_at.isoformat(), "El último envío falló"
+        destinations.append({
+            "id": f"api-{sub.id}",
+            "name": sub.name,
+            "kind": "api",
+            "status": status,
+            "last_run": last_iso,
+            "message": message,
+        })
+
     if project:
         for exp in db.query(models.ExportFormat).filter(
             models.ExportFormat.project_id == project.id

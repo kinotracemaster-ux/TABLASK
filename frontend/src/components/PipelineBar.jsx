@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Database, ArrowRight, Settings2, Store, FileDown, Table2, RefreshCw } from 'lucide-react';
+import { Database, ArrowRight, Settings2, Store, FileDown, Table2, RefreshCw, Globe } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -34,6 +34,7 @@ function timeAgo(iso) {
 function KindIcon({ kind, type, className }) {
   if (kind === 'shopify') return <Store className={className} />;
   if (kind === 'csv') return <FileDown className={className} />;
+  if (kind === 'api') return <Globe className={className} />;
   if (kind === 'sheet') return <Table2 className={className} />;
   if (type === 'shopify') return <Store className={className} />;
   return <Settings2 className={className} />;
@@ -94,16 +95,14 @@ export default function PipelineBar() {
 
   const master = data.master;
 
-  return (
-    <div className="mb-6 rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-gray-700">Tu pipeline de un vistazo</h2>
-        <button onClick={load} title="Actualizar estado"
-          className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
-          <RefreshCw className="w-4 h-4" />
-        </button>
-      </div>
+  // Leyenda solo de los estados que realmente están presentes (menos ruido).
+  const LEGEND = { green: 'sincronizado', amber: 'pendiente', red: 'error', paused: 'pausado' };
+  const present = [...new Set([...data.sources, ...data.destinations].map(i => i.status || 'amber'))]
+    .filter(s => LEGEND[s]);
+  const allGreen = present.length === 1 && present[0] === 'green';
 
+  return (
+    <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
       <div className="flex items-stretch gap-3 overflow-x-auto pb-1">
         {/* Fuentes */}
         <Column title="Fuentes" icon={Settings2} items={data.sources}
@@ -116,14 +115,11 @@ export default function PipelineBar() {
           <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
             <Database className="w-3.5 h-3.5" /> Maestra
           </div>
-          <div className="bg-white border-2 border-purple-200 rounded-lg px-3 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-purple-500 flex-shrink-0" />
-              <p className="text-sm font-semibold text-gray-800 truncate">{master.sheet_name || 'Maestra'}</p>
-            </div>
+          <div className="bg-indigo-50/50 border border-indigo-200 rounded-lg px-3 py-2.5">
+            <p className="text-sm font-semibold text-gray-800 truncate">{master.sheet_name || 'Maestra'}</p>
             <p className="text-[11px] text-gray-400 mt-0.5">
               {master.total_rows != null ? `${master.total_rows} filas` : 'enlazada'}
-              {master.sku_column && <span className="text-indigo-400"> · 🔑 {master.sku_column}</span>}
+              {master.sku_column && ` · llave: ${master.sku_column}`}
             </p>
           </div>
         </div>
@@ -136,11 +132,22 @@ export default function PipelineBar() {
       </div>
 
       <div className="mt-3 flex items-center gap-4 text-[11px] text-gray-400">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> sincronizado</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> pendiente</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> error</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300" /> pausado</span>
-        <Link to="/flujos" className="ml-auto text-indigo-600 font-medium hover:underline">Operar flujos →</Link>
+        {allGreen ? (
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> todo sincronizado</span>
+        ) : (
+          present.map(s => (
+            <span key={s} className="flex items-center gap-1">
+              <span className={`w-2 h-2 rounded-full ${DOT[s]}`} /> {LEGEND[s]}
+            </span>
+          ))
+        )}
+        <span className="ml-auto flex items-center gap-3">
+          <button onClick={load} title="Actualizar estado"
+            className="text-gray-400 hover:text-gray-600 flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" /> actualizar
+          </button>
+          <Link to="/flujos" className="text-indigo-600 font-medium hover:underline">Operar flujos →</Link>
+        </span>
       </div>
     </div>
   );

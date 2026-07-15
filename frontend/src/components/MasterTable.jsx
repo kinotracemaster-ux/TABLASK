@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Table2, Link2, Zap, CheckCircle2, XCircle, Settings2, RefreshCw } from 'lucide-react';
+import { Table2, Link2, Zap, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import { extractError } from '../utils/errors';
 import PipelineBar from './PipelineBar';
 
@@ -8,7 +8,6 @@ const API = import.meta.env.VITE_API_URL || '';
 
 export default function MasterTable() {
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('datos');
 
   // Data state
   const [columns, setColumns] = useState([]);
@@ -55,11 +54,6 @@ export default function MasterTable() {
       const res = await fetch(`${API}/api/processes/`);
       setProcesses(await res.json());
     } catch (err) { console.error(err); }
-  };
-
-  const connName = (id) => {
-    const c = connections.find(c => c.id === id);
-    return c ? c.name : `Conexión #${id}`;
   };
 
   const loadMasterData = async () => {
@@ -161,49 +155,41 @@ export default function MasterTable() {
 
   return (
     <div className="p-8 max-w-full mx-auto">
-      {/* Header */}
+      {/* Header: una sola acción primaria; lo secundario, discreto */}
       <div className="mb-6 flex flex-wrap justify-between items-start gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <Table2 className="w-6 h-6 text-purple-600" />
-            Tabla Maestra
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-800">Tabla Maestra</h1>
           {activeMasterConnId ? (
             <p className="text-gray-500 text-sm mt-1">
-              Enlazada a Google Sheet • Hoja "{activeMasterSheet}" • {totalRows} filas
-              {activeMasterSkuColumn && <span className="ml-2 text-indigo-500 font-medium">🔑 {activeMasterSkuColumn}</span>}
+              Hoja "{activeMasterSheet}" · {totalRows} filas
+              {activeMasterSkuColumn && <span className="text-gray-400"> · llave: {activeMasterSkuColumn}</span>}
             </p>
           ) : (
             <p className="text-gray-500 text-sm mt-1">Ninguna tabla maestra enlazada</p>
           )}
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {activeMasterConnId && processes.length > 0 && (
-            <Link to="/flujos"
-              title="Corré cada flujo por separado desde Mis Flujos"
-              className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:from-green-700 hover:to-emerald-700 transition shadow-sm text-sm">
-              <Zap className="w-4 h-4" /> Correr flujos
-            </Link>
-          )}
-
+        <div className="flex items-center gap-2 flex-wrap">
           {activeMasterConnId && (
             <button onClick={handleSyncReflection} disabled={reflectLoading}
-              title="Detecta ediciones manuales en la maestra y las refleja en las hojas hijas suscritas"
-              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm disabled:opacity-50">
+              title="Detecta ediciones manuales en la Maestra y las refleja en las hojas hijas suscritas"
+              className="flex items-center gap-2 border border-gray-300 text-gray-600 px-4 py-2.5 rounded-xl font-medium hover:bg-gray-50 transition text-sm disabled:opacity-50">
               <RefreshCw className={`w-4 h-4 ${reflectLoading ? 'animate-spin' : ''}`} />
               {reflectLoading ? 'Sincronizando...' : 'Sincronizar reflejo'}
             </button>
           )}
 
-          {!activeMasterConnId ? (
+          {activeMasterConnId && processes.length > 0 && (
+            <Link to="/flujos"
+              title="Corré cada flujo por separado desde Mis Flujos"
+              className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition text-sm">
+              <Zap className="w-4 h-4" /> Correr flujos
+            </Link>
+          )}
+
+          {!activeMasterConnId && (
             <button onClick={() => setShowLink(!showLink)}
-              className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-purple-700 transition text-sm">
+              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm">
               <Link2 className="w-4 h-4" /> Enlazar Tabla Maestra
-            </button>
-          ) : (
-            <button onClick={handleUnlink}
-              className="flex items-center gap-2 bg-red-500 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-red-600 transition text-sm">
-              <Link2 className="w-4 h-4" /> Desvincular Tabla
             </button>
           )}
         </div>
@@ -232,9 +218,9 @@ export default function MasterTable() {
 
       {/* Link Panel */}
       {showLink && !activeMasterConnId && (
-        <div className="bg-purple-50 border border-purple-200 rounded-xl p-5 mb-6">
-          <h3 className="font-semibold text-purple-800 mb-3">Enlazar Tabla Maestra</h3>
-          <p className="text-sm text-purple-600 mb-4">Esta tabla será la base de datos central. Aquí se guardará todo.</p>
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5 mb-6">
+          <h3 className="font-semibold text-indigo-800 mb-3">Enlazar Tabla Maestra</h3>
+          <p className="text-sm text-indigo-600 mb-4">Esta tabla será la base de datos central. Aquí se guardará todo.</p>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Conexión a Google Sheets</label>
@@ -263,7 +249,7 @@ export default function MasterTable() {
           </div>
           <div className="flex gap-2">
             <button onClick={handleLink} disabled={linking || !masterConnId || !masterSheet || !masterSkuColumn}
-              className="bg-purple-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 text-sm">
+              className="bg-indigo-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 text-sm">
               {linking ? 'Enlazando...' : 'Enlazar'}
             </button>
             <button onClick={() => setShowLink(false)} className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm">Cancelar</button>
@@ -271,32 +257,8 @@ export default function MasterTable() {
         </div>
       )}
 
-      {/* Tabs */}
-      {activeMasterConnId && (
-        <div className="flex gap-1 mb-4 border-b border-gray-200">
-          {[
-            { key: 'datos', label: 'Datos', icon: Table2 },
-            { key: 'entradas', label: 'Entradas', icon: Settings2, count: processes.length },
-          ].map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition -mb-px ${
-                activeTab === tab.key
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}>
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
-              {tab.count !== undefined && (
-                <span className="bg-gray-100 text-gray-600 text-xs px-1.5 py-0.5 rounded-full">{tab.count}</span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Tab Content */}
-      {activeTab === 'datos' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* Datos de la Maestra (la gestión de Fuentes/Destinos vive en Mis Flujos) */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           {totalRows === 0 ? (
             <div className="p-12 text-center">
               <Table2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -318,7 +280,7 @@ export default function MasterTable() {
                 </thead>
                 <tbody>
                   {rows.slice(0, 100).map((row, i) => (
-                    <tr key={i} className="border-b hover:bg-purple-50/30">
+                    <tr key={i} className="border-b hover:bg-gray-50">
                       <td className="px-4 py-2 bg-gray-50 border-r text-center text-gray-400 text-xs">{i + 1}</td>
                       {columns.map((_, colIndex) => (
                         <td key={colIndex} className="px-4 py-2 truncate max-w-xs" title={row[colIndex] || ''}>
@@ -338,44 +300,14 @@ export default function MasterTable() {
             </div>
           )}
         </div>
-      )}
 
-      {/* Entradas Tab */}
-      {activeTab === 'entradas' && (
-        <div className="space-y-3">
-          {processes.length === 0 ? (
-            <div className="bg-white rounded-xl border p-12 text-center text-gray-400">
-              <Settings2 className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="font-medium">No hay procesos configurados</p>
-              <p className="text-sm mt-1">Usá "+ Nueva Fuente" en el menú lateral para crear uno.</p>
-            </div>
-          ) : (
-            processes.map(proc => (
-              <div key={proc.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-                    <Settings2 className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-800">{proc.name}</h3>
-                    <p className="text-xs text-gray-500">
-                      <span className="font-medium text-gray-600">Origen:</span> {connName(proc.source_connection_id)} / "{proc.source_sheet_name}"
-                      <span className="mx-2">→</span>
-                      <span className="font-medium text-indigo-600">Destino:</span> {proc.target_connection_id ? `${connName(proc.target_connection_id)} / "${proc.target_sheet_name}"` : `Tabla Maestra / "${activeMasterSheet}"`}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      🔑 {proc.sku_column_source} → {proc.sku_column_master} • {Object.keys(proc.field_mappings || {}).length} campo(s)
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className={`text-xs px-2 py-1 rounded-full ${proc.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                    {proc.is_active ? 'Activo' : 'Inactivo'}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
+      {/* Acción destructiva y rara: al final, discreta */}
+      {activeMasterConnId && (
+        <div className="mt-6 text-center">
+          <button onClick={handleUnlink}
+            className="text-xs text-gray-400 hover:text-red-600 hover:underline transition">
+            Desvincular Tabla Maestra
+          </button>
         </div>
       )}
 
