@@ -18,7 +18,8 @@ destinos), nunca los datos duros.
   - `models.py` / `schemas.py` — SQLAlchemy / Pydantic
   - `connectors/` — `google_sheets.py`, `local_file.py`, `http_api.py`, `shopify.py` (base común en `base.py`)
   - `lavadero.py` — limpieza/validación por campo en el intake
-  - `propagation.py` — distribución a hojas hijas + push a Shopify (background)
+  - `propagation.py` — distribución a hojas hijas + push a Shopify y canales API (background)
+  - `api_push.py` — payload Maestra → API genérica (plantilla del canal, diff por SKU)
   - `scheduler.py` — piloto automático (thread daemon, estado en DB)
   - `export_engine.py` / `export_presets.py` — plantillas CSV con transformaciones
   - `intelligent_engine.py` — auto-detección de SKU y mapeo semántico
@@ -53,6 +54,10 @@ pytest -q
   la normalización es solo para comparar — el SKU guardado no se altera.
 - **Nunca se crean productos en Shopify.** Los SKUs que no cruzan se reportan como
   `not_found`. El push solo actualiza precio/stock de variantes existentes.
+- **Modelo simétrico de canales:** entra por archivo o API (pull o push con `api-key`
+  por el túnel real) → Maestra → cada canal sale por API (`ApiSubscription`, diff
+  quirúrgico) o archivo (CSV con link fijo `?token=`). El túnel (Lavadero → Guardián →
+  escritura quirúrgica) es el mismo venga de donde venga.
 - **El Guardián:** si un sync cruza <10% de SKUs, se bloquea (manual) o se salta
   (automático, log `AUTO_SYNC_SKIP`). No contaminar la Maestra.
 - **El Lavadero** limpia precio/stock/nombre antes de escribir; lo que no se puede

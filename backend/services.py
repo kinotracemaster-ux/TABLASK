@@ -301,13 +301,19 @@ def _get_master_info(db):
     master_conn = db.query(Connection).filter(Connection.id == project.master_connection_id).first()
     return project, master_conn, project.master_sheet_name
 
-def _compute_master_sync(project, req, db):
+def _compute_master_sync(project, req, db, src_raw_override=None):
+    """src_raw_override: matriz [[headers], [fila]...] ya en memoria que
+    reemplaza la lectura del origen (la usa el intake API empujado: los datos
+    llegan en el request, no se leen de una conexión). El resto del túnel
+    (Lavadero, Guardián, cruce por SKU normalizado) es idéntico."""
     from fastapi import HTTPException
-    src_conn = db.query(Connection).filter(Connection.id == req.source_connection_id).first()
-    if not src_conn:
-        raise HTTPException(status_code=404, detail="Conexión origen no encontrada")
-        
-    src_raw = get_sheet_data(src_conn, f"{req.source_sheet_name}!A1:Z")
+    if src_raw_override is not None:
+        src_raw = src_raw_override
+    else:
+        src_conn = db.query(Connection).filter(Connection.id == req.source_connection_id).first()
+        if not src_conn:
+            raise HTTPException(status_code=404, detail="Conexión origen no encontrada")
+        src_raw = get_sheet_data(src_conn, f"{req.source_sheet_name}!A1:Z")
     if not src_raw or len(src_raw) < 2:
         raise HTTPException(status_code=400, detail="La tabla origen está vacía")
     

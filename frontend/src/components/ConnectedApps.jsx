@@ -3,9 +3,10 @@ import { Network, Key, Trash2, Plus, AlertCircle, Copy, Check } from 'lucide-rea
 const API = import.meta.env.VITE_API_URL || '';
 export default function ConnectedApps() {
   const [apps, setApps] = useState([]);
+  const [processes, setProcesses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newAppName, setNewAppName] = useState("");
   const [copiedKey, setCopiedKey] = useState(null);
@@ -16,14 +17,39 @@ export default function ConnectedApps() {
 
   const fetchApps = async () => {
     try {
-      const res = await fetch(`${API}/api/intake/apps`);
+      const [res, procsRes] = await Promise.all([
+        fetch(`${API}/api/intake/apps`),
+        fetch(`${API}/api/processes/`)
+      ]);
       if (!res.ok) throw new Error("Error al obtener las apps");
-      const data = await res.json();
-      setApps(data);
+      setApps(await res.json());
+      setProcesses(procsRes.ok ? await procsRes.json() : []);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Vincular la app a una Fuente: sus push entran por el túnel real
+  // (Lavadero → Guardián → escritura quirúrgica) usando el mapeo de esa Fuente.
+  const linkProcess = async (app, processId) => {
+    try {
+      const res = await fetch(`${API}/api/intake/apps/${app.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: app.name,
+          target_project_id: app.target_project_id,
+          target_process_id: processId ? parseInt(processId) : null,
+          is_active: app.is_active
+        })
+      });
+      if (!res.ok) throw new Error("Error en el servidor");
+      const updated = await res.json();
+      setApps(apps.map(a => a.id === app.id ? updated : a));
+    } catch (err) {
+      alert("Error vinculando la Fuente: " + err.message);
     }
   };
 
@@ -97,13 +123,18 @@ export default function ConnectedApps() {
           ¿Cómo funciona la integración?
         </h3>
         <p className="text-gray-600 text-sm mb-3">
-          Envía una petición POST con tu payload JSON a:
+          El sistema externo envía su catálogo (JSON: un objeto o un array de objetos) a:
         </p>
         <code className="bg-gray-100 px-3 py-2 rounded text-sm text-pink-600 border border-gray-200 block mb-3">
           POST {window.location.origin}/api/intake/push
         </code>
+        <p className="text-gray-600 text-sm mb-3">
+          Con su API Key en el header <code className="bg-gray-100 px-1 py-0.5 rounded text-indigo-600">api-key: tu_api_key_aqui</code>
+        </p>
         <p className="text-gray-600 text-sm">
-          Debes incluir tu API Key en los headers: <code className="bg-gray-100 px-1 py-0.5 rounded text-indigo-600">X-API-Key: tu_api_key_aqui</code>
+          <strong>Vinculá cada app a una Fuente</strong> para que lo que empuje entre por el túnel de siempre
+          (Lavadero → Guardián → escritura a la Maestra → distribución a los canales). Las llaves del JSON deben
+          llamarse como las columnas que espera esa Fuente. Sin Fuente vinculada, lo recibido solo queda encolado para revisión.
         </p>
       </div>
 
@@ -132,6 +163,24 @@ export default function ConnectedApps() {
               </button>
             </div>
             
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Fuente vinculada (túnel de entrada)</label>
+              <select
+                value={app.target_process_id || ''}
+                onChange={e => linkProcess(app, e.target.value)}
+                className="w-full max-w-md border border-gray-300 rounded-lg p-2 text-sm bg-white mb-1">
+                <option value="">— Sin vincular (lo recibido queda en revisión) —</option>
+                {processes.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} (llave: {p.sku_column_source})</option>
+                ))}
+              </select>
+              {app.target_process_id ? (
+                <p className="text-xs text-green-600">✓ Lo que empuje esta app se escribe solo, pasando por Lavadero y Guardián.</p>
+              ) : (
+                <p className="text-xs text-amber-600">Sin Fuente vinculada, los datos solo se encolan para revisión manual.</p>
+              )}
+            </div>
+
             <div className="mt-4 pt-4 border-t border-gray-100">
               <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-1">
                 <Key className="w-3 h-3" /> API Key

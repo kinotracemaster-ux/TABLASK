@@ -105,6 +105,8 @@ class ExportFormatCreate(ExportFormatBase):
 class ExportFormat(ExportFormatBase):
     id: int
     created_at: datetime
+    # Token del link fijo de descarga (para sistemas externos). Se genera solo.
+    public_token: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -245,6 +247,33 @@ class ShopifySubscriptionOut(ShopifySubscriptionBase):
         from_attributes = True
 
 
+# Suscripciones Maestra → API genérica (canal API: Effi u otros endpoints)
+class ApiSubscriptionBase(BaseModel):
+    name: str
+    url: str
+    http_method: str = "POST"
+    auth_header_name: str = "Authorization"
+    extra_headers: Optional[Dict[str, str]] = None
+    # Plantilla del canal (export_engine §11). Sin plantilla, la fila va con
+    # todas las columnas de la Maestra tal cual.
+    transform_spec: Optional[List[Dict[str, Any]]] = None
+    is_active: bool = True
+
+class ApiSubscriptionCreate(ApiSubscriptionBase):
+    # Solo de entrada: nunca se devuelve en las respuestas (write-only).
+    auth_token: Optional[str] = None
+
+class ApiSubscriptionOut(ApiSubscriptionBase):
+    id: int
+    has_token: bool = False
+    last_pushed_at: Optional[datetime] = None
+    last_push_summary: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # Módulo Shopify → Maestra (sync de precio/stock, independiente de los Flujos)
 class ShopifyMasterSyncConfigUpdate(BaseModel):
     connection_id: int
@@ -268,6 +297,8 @@ class ShopifyMasterSyncConfigOut(BaseModel):
 class ConnectedAppBase(BaseModel):
     name: str
     target_project_id: Optional[int] = None
+    # Fuente (Process) cuyo mapeo se usa al empujar datos por el intake API.
+    target_process_id: Optional[int] = None
     is_active: bool = True
 
 class ConnectedAppCreate(ConnectedAppBase):

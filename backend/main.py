@@ -60,6 +60,20 @@ try:
 except Exception as e:
     print("Migración transform_spec omitida (ya existe):", e)
 
+# Columna public_token en export_formats (link fijo de descarga por canal) y
+# target_process_id en connected_apps (intake API por el túnel real).
+for _col_sql in (
+    "ALTER TABLE export_formats ADD COLUMN public_token VARCHAR",
+    "ALTER TABLE connected_apps ADD COLUMN target_process_id INTEGER",
+):
+    try:
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            conn.execute(text(_col_sql))
+            conn.commit()
+    except Exception as e:
+        print(f"Migración omitida ({_col_sql.split('ADD COLUMN ')[1]}):", e)
+
 # Columnas Shopify (una conexión por tienda; cada ALTER en su propia transacción
 # para que si una columna ya existe no aborte la creación de las demás).
 for _col_sql in (
@@ -196,12 +210,33 @@ def _seed_default_master():
 _seed_default_master()
 
 
+def _backfill_export_tokens():
+    """Asigna token de descarga a los exports viejos que no lo tengan (los
+    nuevos lo reciben al crearse). Idempotente: solo toca los null."""
+    import secrets
+    db = next(get_db())
+    try:
+        pending = db.query(models.ExportFormat).filter(models.ExportFormat.public_token.is_(None)).all()
+        for fmt in pending:
+            fmt.public_token = secrets.token_urlsafe(24)
+        if pending:
+            db.commit()
+            print(f"Backfill: token de descarga asignado a {len(pending)} export(s).")
+    except Exception as e:
+        print("Backfill de tokens de export omitido (error benigno):", e)
+    finally:
+        db.close()
+
+_backfill_export_tokens()
+
+
 # ═══════════════════════════════════════════════════════════════════
 # ██ ROUTERS (deben importarse DESPUÉS de las funciones internas)
 # ═══════════════════════════════════════════════════════════════════
 
-from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions, pipeline, schedule
+from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions, api_subscriptions, pipeline, schedule
 app.include_router(logs.router)
+app.include_router(api_subscriptions.router)
 app.include_router(staging.router)
 app.include_router(connections.router)
 app.include_router(processes.router)
@@ -264,6 +299,7 @@ def create_export_format(fmt: schemas.ExportFormatCreate, db: Session = Depends(
         match = re.search(r'/d/([a-zA-Z0-9-_]+)', output_spreadsheet_id)
         output_spreadsheet_id = match.group(1) if match else output_spreadsheet_id
 
+    import secrets
     db_fmt = models.ExportFormat(
         name=fmt.name,
         description=fmt.description,
@@ -274,7 +310,9 @@ def create_export_format(fmt: schemas.ExportFormatCreate, db: Session = Depends(
         transform_spec=json.dumps(fmt.transform_spec, ensure_ascii=False) if fmt.transform_spec else None,
         output_type=fmt.output_type,
         output_spreadsheet_id=output_spreadsheet_id,
-        output_sheet_name=fmt.output_sheet_name
+        output_sheet_name=fmt.output_sheet_name,
+        # Link fijo de descarga: cada canal nace con su token propio.
+        public_token=secrets.token_urlsafe(24)
     )
     db.add(db_fmt)
     db.commit()
@@ -309,11 +347,32 @@ def delete_export_format(export_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Formato de salida eliminado"}
 
-@app.get("/api/exports/{export_id}/download")
-def download_export_csv(export_id: int, db: Session = Depends(get_db)):
+@app.post("/api/exports/{export_id}/regenerate-token")
+def regenerate_export_token(export_id: int, db: Session = Depends(get_db)):
+    """Rota el token del link fijo de descarga (invalida el link anterior)."""
+    import secrets
     fmt = db.query(models.ExportFormat).filter(models.ExportFormat.id == export_id).first()
     if not fmt:
         raise HTTPException(status_code=404, detail="Formato de salida no encontrado")
+    fmt.public_token = secrets.token_urlsafe(24)
+    db.commit()
+    return {"public_token": fmt.public_token}
+
+@app.get("/api/exports/{export_id}/download")
+def download_export_csv(export_id: int, token: str = None, db: Session = Depends(get_db)):
+    """Descarga el CSV del canal. Es también el LINK FIJO para sistemas
+    externos: /api/exports/{id}/download?token=... — el token viaja en la URL
+    para que el canal (o un IMPORTDATA) lo baje solo, sin abrir la app."""
+    fmt = db.query(models.ExportFormat).filter(models.ExportFormat.id == export_id).first()
+    if not fmt:
+        raise HTTPException(status_code=404, detail="Formato de salida no encontrado")
+
+    # Candado del link: si el export tiene token (todos, tras el backfill),
+    # la descarga lo exige. Comparación en tiempo constante.
+    if fmt.public_token:
+        import secrets as _secrets
+        if not token or not _secrets.compare_digest(str(token), fmt.public_token):
+            raise HTTPException(status_code=403, detail="Token de descarga inválido o ausente. Usa el link fijo del canal.")
 
     conn = db.query(models.Connection).filter(models.Connection.id == fmt.source_connection_id).first()
     if not conn:

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UploadCloud, Link2, Server, Store, ChevronRight, CheckCircle2, ArrowRight, Sparkles, Download, FileDown, Eye, Send, XCircle, AlertTriangle } from 'lucide-react';
+import { UploadCloud, Link2, Server, Store, ChevronRight, CheckCircle2, ArrowRight, Sparkles, Download, FileDown, Eye, Send, XCircle, AlertTriangle, Globe } from 'lucide-react';
 import { extractError, formatError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -83,7 +83,7 @@ export default function SourceWizard() {
 
   // --- Paso 3: Destinos ---
   const [destinations, setDestinations] = useState([]); // suscripciones + csv exports ya existentes
-  const [destType, setDestType] = useState('sheet'); // 'sheet' | 'csv' | 'shopify'
+  const [destType, setDestType] = useState('sheet'); // 'sheet' | 'csv' | 'apipush' | 'shopify'
   const [destName, setDestName] = useState('');
   const [destConnId, setDestConnId] = useState('');
   const [connections, setConnections] = useState([]);
@@ -96,6 +96,10 @@ export default function SourceWizard() {
   const [exportPresets, setExportPresets] = useState([]);
   const [csvPreset, setCsvPreset] = useState(null);       // preset elegido, o null = mapeo manual
   const [presetFieldMap, setPresetFieldMap] = useState({}); // {campo_del_preset: columna_real_de_la_Maestra}
+  // Canal API genérica como destino (Maestra → endpoint del cliente)
+  const [apiDestUrl, setApiDestUrl] = useState('');
+  const [apiDestMethod, setApiDestMethod] = useState('POST');
+  const [apiDestToken, setApiDestToken] = useState('');
   const [masterConnId, setMasterConnId] = useState(null); // conexión real de la Maestra global (para el CSV)
   const [masterSheetNameRef, setMasterSheetNameRef] = useState(null);
   const [masterSheetsAll, setMasterSheetsAll] = useState({}); // todas las pestañas de la Maestra (para push a Shopify)
@@ -148,17 +152,20 @@ export default function SourceWizard() {
 
   const loadDestinations = async (pid) => {
     try {
-      const [subsRes, expRes, connsRes] = await Promise.all([
+      const [subsRes, expRes, connsRes, apiSubsRes] = await Promise.all([
         fetch(`${API}/api/subscriptions/?project_id=${pid}`),
         fetch(`${API}/api/exports/?project_id=${pid}`),
-        fetch(`${API}/api/connections/`)
+        fetch(`${API}/api/connections/`),
+        fetch(`${API}/api/api-subscriptions/`)
       ]);
       const subs = await subsRes.json();
       const exps = await expRes.json();
+      const apiSubs = apiSubsRes.ok ? await apiSubsRes.json() : [];
       setConnections(await connsRes.json());
       setDestinations([
         ...subs.map(s => ({ id: `sub-${s.id}`, name: s.name, kind: 'Google Sheet' })),
         ...exps.map(e => ({ id: `exp-${e.id}`, name: e.name, kind: 'CSV' })),
+        ...apiSubs.map(a => ({ id: `apisub-${a.id}`, name: a.name, kind: 'API' })),
       ]);
     } catch (err) { console.error(err); }
   };
@@ -407,6 +414,35 @@ export default function SourceWizard() {
 
   const handleCreateDestination = async (e) => {
     e.preventDefault();
+
+    // Canal API genérica: TablasK empuja las filas de la Maestra al endpoint
+    // del cliente (diff automático tras cada sync + "Enviar ahora" en Flujos).
+    if (destType === 'apipush') {
+      if (!apiDestUrl.trim()) { alert('Falta la URL del endpoint destino.'); return; }
+      setSavingDest(true);
+      try {
+        const res = await fetch(`${API}/api/api-subscriptions/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: destName || (csvPreset ? `${csvPreset.name} (API)` : 'Canal API'),
+            url: apiDestUrl.trim(),
+            http_method: apiDestMethod,
+            auth_token: apiDestToken || null,
+            transform_spec: csvPreset ? buildTransformSpec(csvPreset, presetFieldMap) : null,
+            is_active: true
+          })
+        });
+        if (!res.ok) throw new Error(await extractError(res));
+        setDestName(''); setApiDestUrl(''); setApiDestToken(''); setCsvPreset(null); setPresetFieldMap({});
+        await loadDestinations(projectId);
+        alert('✅ Canal API guardado. Se actualizará solo con cada sync; también podés "Enviar ahora" desde Mis Flujos.');
+      } catch (err) {
+        alert(err.message || 'No se pudo crear el canal API.');
+      }
+      setSavingDest(false);
+      return;
+    }
 
     // CSV con plantilla: se guarda transform_spec en vez de mapeo manual.
     if (destType === 'csv' && csvPreset) {
@@ -885,14 +921,18 @@ export default function SourceWizard() {
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Agregar un destino</h3>
-            <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="grid grid-cols-4 gap-2 mb-4">
               <button type="button" onClick={() => handleSelectDestType('sheet')}
                 className={`flex items-center justify-center gap-2 p-2.5 rounded-lg text-sm font-medium border transition ${destType === 'sheet' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
                 <Download className="w-4 h-4" /> Google Sheet
               </button>
               <button type="button" onClick={() => handleSelectDestType('csv')}
                 className={`flex items-center justify-center gap-2 p-2.5 rounded-lg text-sm font-medium border transition ${destType === 'csv' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-                <FileDown className="w-4 h-4" /> Descarga CSV
+                <FileDown className="w-4 h-4" /> Archivo CSV
+              </button>
+              <button type="button" onClick={() => handleSelectDestType('apipush')}
+                className={`flex items-center justify-center gap-2 p-2.5 rounded-lg text-sm font-medium border transition ${destType === 'apipush' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                <Globe className="w-4 h-4" /> API externa
               </button>
               <button type="button" onClick={() => handleSelectDestType('shopify')}
                 className={`flex items-center justify-center gap-2 p-2.5 rounded-lg text-sm font-medium border transition ${destType === 'shopify' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
@@ -909,7 +949,30 @@ export default function SourceWizard() {
                     className="w-full border border-gray-300 rounded-lg p-2 text-sm max-w-md" />
                 </div>
 
-                {destType === 'csv' && (
+                {destType === 'apipush' && (
+                  <div className="space-y-3">
+                    <p className="text-xs text-gray-500">
+                      TablasK va a <strong>empujar</strong> las filas de la Maestra a este endpoint: automáticamente tras cada
+                      sync (solo lo que cambió) y completo con "Enviar ahora" desde Mis Flujos. Nunca borra nada en el destino.
+                    </p>
+                    <div className="flex gap-2">
+                      <select value={apiDestMethod} onChange={e => setApiDestMethod(e.target.value)}
+                        className="w-24 border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                        <option>POST</option>
+                        <option>PUT</option>
+                        <option>PATCH</option>
+                      </select>
+                      <input value={apiDestUrl} onChange={e => setApiDestUrl(e.target.value)} required
+                        placeholder="https://api.cliente.com/catalogo"
+                        className="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+                    </div>
+                    <input type="password" value={apiDestToken} onChange={e => setApiDestToken(e.target.value)}
+                      placeholder='Token de autenticación (opcional), ej: Bearer abc123'
+                      className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+                  </div>
+                )}
+
+                {(destType === 'csv' || destType === 'apipush') && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Plantilla</label>
                     <div className="flex flex-wrap gap-2">
@@ -922,7 +985,7 @@ export default function SourceWizard() {
                       ))}
                       <button type="button" onClick={() => applyCsvPreset(null)}
                         className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${!csvPreset ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-                        Mapeo manual
+                        {destType === 'apipush' ? 'Todas las columnas' : 'Mapeo manual'}
                       </button>
                     </div>
                     {csvPreset && <p className="text-xs text-gray-500 mt-2">{csvPreset.description}</p>}
@@ -958,9 +1021,9 @@ export default function SourceWizard() {
                   </div>
                 )}
 
-                {destType === 'csv' && csvPreset ? (
+                {(destType === 'csv' || destType === 'apipush') && csvPreset ? (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Columnas del archivo</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{destType === 'apipush' ? 'Campos que se envían' : 'Columnas del archivo'}</label>
                     <p className="text-xs text-gray-500 mb-3">
                       Estas columnas se generan solas (precio ×2, SKU embebido, slug…). Abajo confirmás de qué columna de la Maestra sale cada dato; lo que no coincida, elegilo a mano.
                     </p>
@@ -986,6 +1049,11 @@ export default function SourceWizard() {
                       ))}
                     </div>
                   </div>
+                ) : destType === 'apipush' ? (
+                  <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    Sin plantilla, cada fila se envía con <strong>todas las columnas de la Maestra</strong> tal cual
+                    (JSON: una fila = un objeto columna→valor).
+                  </p>
                 ) : (
                 <div>
                   <div className="flex justify-between items-center mb-2">
