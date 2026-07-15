@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap } from 'lucide-react';
+import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap, Globe, Copy, Check } from 'lucide-react';
 import { extractError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
 import AutoSyncPanel from './AutoSyncPanel';
@@ -54,11 +54,22 @@ export default function Flujos() {
   const [processes, setProcesses] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   const [shopifySubs, setShopifySubs] = useState([]);
+  const [apiSubs, setApiSubs] = useState([]);
   const [exports, setExports] = useState([]);
   const [connections, setConnections] = useState([]);
   const [testing, setTesting] = useState(null);
   const [pushingShopSub, setPushingShopSub] = useState(null);
+  const [pushingApiSub, setPushingApiSub] = useState(null);
+  const [copiedLink, setCopiedLink] = useState(null);
   const [runProcs, setRunProcs] = useState(null); // [{id, name}] a correr en el modal de vista previa
+
+  // --- Edición: Destino API genérica ---
+  const [editApiSub, setEditApiSub] = useState(null);
+  const [editApiSaving, setEditApiSaving] = useState(false);
+  const [eaName, setEaName] = useState('');
+  const [eaUrl, setEaUrl] = useState('');
+  const [eaMethod, setEaMethod] = useState('POST');
+  const [eaToken, setEaToken] = useState('');
 
   // --- Edición: Fuente (Proceso) ---
   const [editProc, setEditProc] = useState(null);
@@ -107,18 +118,20 @@ export default function Flujos() {
       const projs = await projsRes.json();
       const pid = projs[0]?.id;
 
-      const [procsRes, connsRes, subsRes, expRes, shopSubsRes] = await Promise.all([
+      const [procsRes, connsRes, subsRes, expRes, shopSubsRes, apiSubsRes] = await Promise.all([
         fetch(`${API}/api/processes/`),
         fetch(`${API}/api/connections/`),
         pid ? fetch(`${API}/api/subscriptions/?project_id=${pid}`) : Promise.resolve(null),
         pid ? fetch(`${API}/api/exports/?project_id=${pid}`) : Promise.resolve(null),
         fetch(`${API}/api/shopify-subscriptions/`),
+        fetch(`${API}/api/api-subscriptions/`),
       ]);
       setProcesses(await procsRes.json());
       setConnections(await connsRes.json());
       setSubscriptions(subsRes ? await subsRes.json() : []);
       setExports(expRes ? await expRes.json() : []);
       setShopifySubs(shopSubsRes.ok ? await shopSubsRes.json() : []);
+      setApiSubs(apiSubsRes.ok ? await apiSubsRes.json() : []);
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -220,6 +233,107 @@ export default function Flujos() {
     } catch {
       return `Último envío: ${new Date(sub.last_pushed_at).toLocaleString()}`;
     }
+  };
+
+  // --- Destinos (Canales API genéricos: Maestra → endpoint del cliente) ---
+  const toggleApiSub = async (sub) => {
+    const res = await fetch(`${API}/api/api-subscriptions/${sub.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...sub, is_active: !sub.is_active })
+    });
+    if (res.ok) loadAll();
+    else alert(await extractError(res));
+  };
+
+  const deleteApiSub = async (id) => {
+    if (!window.confirm('¿Eliminar este canal API? (No borra nada en el sistema destino)')) return;
+    const res = await fetch(`${API}/api/api-subscriptions/${id}`, { method: 'DELETE' });
+    if (res.ok) loadAll();
+    else alert(await extractError(res));
+  };
+
+  const pushNowApiSub = async (sub) => {
+    setPushingApiSub(sub.id);
+    try {
+      // 1) Preview (dry run): cuántas filas y con qué columnas
+      let res = await fetch(`${API}/api/api-subscriptions/${sub.id}/push-now?dry_run=true`, { method: 'POST' });
+      if (!res.ok) { alert(await extractError(res)); return; }
+      const prev = await res.json();
+      const ok = window.confirm(
+        `Se enviarán ${prev.rows_total} filas de la Maestra a "${prev.channel}"\n` +
+        `(${prev.url})\nColumnas: ${(prev.columns || []).join(', ')}\n\n¿Enviar ahora?`
+      );
+      if (!ok) return;
+      // 2) Envío real
+      res = await fetch(`${API}/api/api-subscriptions/${sub.id}/push-now?dry_run=false`, { method: 'POST' });
+      if (!res.ok) { alert(await extractError(res)); return; }
+      const result = await res.json();
+      alert(result.ok
+        ? `✅ Enviadas ${result.sent} filas a "${result.channel}" (HTTP ${result.status_code}).`
+        : `❌ El envío a "${result.channel}" falló: ${result.error || result.response_excerpt || `HTTP ${result.status_code}`}`);
+      loadAll();
+    } catch (err) {
+      alert(err.message || 'Error enviando al canal API.');
+    } finally {
+      setPushingApiSub(null);
+    }
+  };
+
+  const apiSubLastPush = (sub) => {
+    if (!sub.last_pushed_at) return 'Aún sin envíos';
+    try {
+      const s = JSON.parse(sub.last_push_summary || '{}');
+      return `Último envío: ${new Date(sub.last_pushed_at).toLocaleString()} · ${s.sent ?? 0} filas` +
+        (s.ok === false ? ' · ⚠️ falló' : '');
+    } catch {
+      return `Último envío: ${new Date(sub.last_pushed_at).toLocaleString()}`;
+    }
+  };
+
+  const openEditApiSub = (sub) => {
+    setEditApiSub(sub);
+    setEaName(sub.name);
+    setEaUrl(sub.url);
+    setEaMethod(sub.http_method || 'POST');
+    setEaToken('');
+  };
+
+  const saveEditApiSub = async (e) => {
+    e.preventDefault();
+    setEditApiSaving(true);
+    try {
+      const res = await fetch(`${API}/api/api-subscriptions/${editApiSub.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: eaName || editApiSub.name,
+          url: eaUrl,
+          http_method: eaMethod,
+          auth_header_name: editApiSub.auth_header_name || 'Authorization',
+          auth_token: eaToken || null,   // en blanco = mantener el guardado
+          extra_headers: editApiSub.extra_headers,
+          transform_spec: editApiSub.transform_spec,
+          is_active: editApiSub.is_active
+        })
+      });
+      if (!res.ok) throw new Error(await extractError(res));
+      setEditApiSub(null);
+      loadAll();
+    } catch (err) { alert(err.message || 'No se pudo guardar.'); }
+    setEditApiSaving(false);
+  };
+
+  // --- Link fijo de descarga por canal CSV ---
+  const exportLink = (exp) => {
+    const base = API && API.startsWith('http') ? API : `${window.location.origin}${API}`;
+    return `${base}/api/exports/${exp.id}/download${exp.public_token ? `?token=${exp.public_token}` : ''}`;
+  };
+
+  const copyExportLink = (exp) => {
+    navigator.clipboard.writeText(exportLink(exp));
+    setCopiedLink(exp.id);
+    setTimeout(() => setCopiedLink(null), 2000);
   };
 
   const deleteExport = async (id) => {
@@ -408,7 +522,7 @@ export default function Flujos() {
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando...</div>;
 
-  const nothing = processes.length === 0 && subscriptions.length === 0 && shopifySubs.length === 0 && exports.length === 0 && connections.length === 0;
+  const nothing = processes.length === 0 && subscriptions.length === 0 && shopifySubs.length === 0 && apiSubs.length === 0 && exports.length === 0 && connections.length === 0;
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-8">
@@ -481,10 +595,10 @@ export default function Flujos() {
         </section>
       )}
 
-      {(subscriptions.length > 0 || shopifySubs.length > 0 || exports.length > 0) && (
+      {(subscriptions.length > 0 || shopifySubs.length > 0 || apiSubs.length > 0 || exports.length > 0) && (
         <section>
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-            <Download className="w-4 h-4" /> Destinos ({subscriptions.length + shopifySubs.length + exports.length})
+            <Download className="w-4 h-4" /> Destinos ({subscriptions.length + shopifySubs.length + apiSubs.length + exports.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {shopifySubs.map(sub => (
@@ -515,6 +629,39 @@ export default function Flujos() {
                 </p>
               </div>
             ))}
+            {apiSubs.map(sub => (
+              <div key={`apisub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${!sub.is_active ? 'opacity-60 grayscale' : 'border-sky-200'}`}>
+                <div className="flex justify-between items-start mb-1">
+                  <h3 className="font-semibold text-gray-800 flex items-center gap-1.5">
+                    <Globe className="w-4 h-4 text-sky-600" /> {sub.name}
+                  </h3>
+                  <div className="flex gap-1">
+                    <button onClick={() => pushNowApiSub(sub)} title="Enviar toda la Maestra ahora (con vista previa)"
+                      disabled={pushingApiSub === sub.id}
+                      className="p-1.5 rounded-lg text-sky-600 hover:bg-sky-50 transition disabled:opacity-50">
+                      <Send className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => openEditApiSub(sub)} title="Editar"
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => toggleApiSub(sub)} title={sub.is_active ? 'Pausar' : 'Activar'}
+                      className={`p-1.5 rounded-lg transition ${sub.is_active ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100'}`}>
+                      <Power className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => deleteApiSub(sub.id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded-lg">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500 truncate" title={sub.url}>API · {sub.http_method || 'POST'} {sub.url}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {pushingApiSub === sub.id ? 'Enviando…' : apiSubLastPush(sub)}
+                  {sub.is_active ? ' · se actualiza con cada sync' : ' · pausado'}
+                  {sub.transform_spec ? ' · con plantilla' : ' · todas las columnas'}
+                </p>
+              </div>
+            ))}
             {subscriptions.map(sub => (
               <div key={`sub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${!sub.is_active ? 'opacity-60 grayscale' : 'border-gray-200'}`}>
                 <div className="flex justify-between items-start mb-1">
@@ -542,17 +689,25 @@ export default function Flujos() {
                 <div className="flex justify-between items-start mb-1">
                   <h3 className="font-semibold text-gray-800">{exp.name}</h3>
                   <div className="flex gap-1">
-                    <a href={`${API}/api/exports/${exp.id}/download`} title="Descargar CSV"
+                    <a href={exportLink(exp)} title="Descargar CSV"
                       className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 transition">
                       <FileDown className="w-4 h-4" />
                     </a>
+                    <button onClick={() => copyExportLink(exp)}
+                      title="Copiar link fijo: cualquier sistema puede bajar este CSV con esa URL, sin abrir la app"
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-sky-600 hover:bg-sky-50 transition">
+                      {copiedLink === exp.id ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                    </button>
                     <button onClick={() => deleteExport(exp.id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded-lg">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
-                <p className="text-sm text-gray-500">Descarga CSV</p>
-                <p className="text-xs text-gray-400 mt-1">{Object.keys(exp.columns_mapping || {}).length} campo(s)</p>
+                <p className="text-sm text-gray-500">Descarga CSV · link fijo disponible</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {exp.transform_spec ? `Plantilla (${exp.transform_spec.length} columnas)` : `${Object.keys(exp.columns_mapping || {}).length} campo(s)`}
+                  {copiedLink === exp.id && <span className="text-green-600 font-medium"> · ¡Link copiado!</span>}
+                </p>
               </div>
             ))}
           </div>
@@ -791,6 +946,44 @@ export default function Flujos() {
                 {editConnSaving ? 'Guardando...' : 'Guardar cambios'}
               </button>
               <button type="button" onClick={() => setEditConn(null)}
+                className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium">Cancelar</button>
+            </div>
+          </form>
+        </ModalShell>
+      )}
+
+      {editApiSub && (
+        <ModalShell title={`Editar canal API: ${editApiSub.name}`} onClose={() => setEditApiSub(null)}>
+          <form onSubmit={saveEditApiSub} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+              <input value={eaName} onChange={e => setEaName(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+            </div>
+            <div className="flex gap-2">
+              <select value={eaMethod} onChange={e => setEaMethod(e.target.value)}
+                className="w-24 border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                <option>POST</option>
+                <option>PUT</option>
+                <option>PATCH</option>
+              </select>
+              <input value={eaUrl} onChange={e => setEaUrl(e.target.value)} required
+                placeholder="https://api.cliente.com/catalogo"
+                className="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Token de autenticación</label>
+              <input type="password" value={eaToken} onChange={e => setEaToken(e.target.value)}
+                placeholder={editApiSub.has_token ? 'Ya hay uno guardado (en blanco lo mantiene)' : 'Ej: Bearer abc123 (opcional)'}
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+              <p className="text-xs text-gray-400 mt-1">Se envía tal cual en el header "{editApiSub.auth_header_name || 'Authorization'}".</p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button type="submit" disabled={editApiSaving}
+                className="bg-sky-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-sky-700 disabled:opacity-50 text-sm">
+                {editApiSaving ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+              <button type="button" onClick={() => setEditApiSub(null)}
                 className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium">Cancelar</button>
             </div>
           </form>
