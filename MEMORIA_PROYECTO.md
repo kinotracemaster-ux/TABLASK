@@ -3,7 +3,7 @@
 Este documento sirve como **memoria central** del proyecto. Contiene la arquitectura, la filosofía de diseño y el estado actual del desarrollo. 
 
 ## 🤖 PROTOCOLO DE INICIO (Para la IA)
-**Cuando inicies una nueva sesión de chat o un nuevo agente para este proyecto, el usuario te indicará que leas este archivo. DEBES LEER este documento (`MEMORIA_PROYECTO.md`) en su totalidad antes de proponer cambios arquitectónicos o escribir código nuevo.**
+**Para el arranque rápido de cada sesión usa `CLAUDE.md` (estructura, comandos y reglas duras); se carga solo y es corto.** Lee este documento (`MEMORIA_PROYECTO.md`) **bajo demanda**, cuando la tarea toque el motor, la arquitectura o el historial de decisiones —no en cada sesión, porque es largo y encarece el contexto. Antes de un cambio arquitectónico o de reescribir el motor, léelo completo.
 
 ---
 

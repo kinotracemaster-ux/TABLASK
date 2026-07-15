@@ -1,0 +1,35 @@
+# Archivos que Claude no necesita leer — reducen el contexto por sesión.
+
+# Dependencias y builds
+node_modules/
+frontend/node_modules/
+dist/
+build/
+frontend/dist/
+frontend/build/
+
+# Entornos virtuales Python
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# Lockfiles y autogenerados (enormes, poco útiles para razonar)
+frontend/package-lock.json
+
+# Bases de datos locales
+*.db
+*.sqlite3
+backend/tablask.db
+
+# Archivos subidos por usuarios y temporales
+backend/uploads/
+temp_backup/
+temp_sheet.csv
+*.tmp
+*.log
+
+# Secretos (por si acaso; ya en .gitignore)
+.env
+credentials.json
