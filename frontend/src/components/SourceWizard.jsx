@@ -69,6 +69,9 @@ export default function SourceWizard() {
   const [shopToken, setShopToken] = useState('');
   const [creatingSource, setCreatingSource] = useState(false);
   const [sourceConn, setSourceConn] = useState(null); // conexión creada
+  // Reusar algo ya conectado en la app (archivo subido, API, hoja, tienda)
+  // en vez de crear una conexión nueva cada vez.
+  const [existingConnId, setExistingConnId] = useState('');
 
   // --- Paso 2: Mapeo ---
   const [sourceSheets, setSourceSheets] = useState({});
@@ -137,11 +140,13 @@ export default function SourceWizard() {
   useEffect(() => {
     (async () => {
       try {
-        const [projsRes, masterRes, presetsRes] = await Promise.all([
+        const [projsRes, masterRes, presetsRes, connsRes] = await Promise.all([
           fetch(`${API}/api/projects/`),
           fetch(`${API}/api/master`),
-          fetch(`${API}/api/exports/presets`)
+          fetch(`${API}/api/exports/presets`),
+          fetch(`${API}/api/connections/`)
         ]);
+        if (connsRes.ok) setConnections(await connsRes.json());
         const projs = await projsRes.json();
         if (projs.length > 0) setProjectId(projs[0].id);
         const masterData = await masterRes.json();
@@ -198,11 +203,32 @@ export default function SourceWizard() {
     pickFile(e.dataTransfer.files?.[0]);
   };
 
-  // ── Paso 1: crear la conexión origen ──
+  // Conexiones existentes que sirven como origen para el tipo elegido.
+  const ORIGIN_CONN_TYPE = { sheets: 'google_sheets', upload: 'local_file', api: 'http_api', shopify: 'shopify' };
+  const existingForType = connections.filter(c => c.connection_type === ORIGIN_CONN_TYPE[originType]);
+
+  const pickOriginType = (t) => {
+    setOriginType(t);
+    setExistingConnId(''); // al cambiar de tipo, volver a "conectar nueva"
+  };
+
+  // ── Paso 1: crear la conexión origen (o reusar una existente) ──
   const handleCreateSource = async (e) => {
     e.preventDefault();
     setCreatingSource(true);
     try {
+      // Reuso: la conexión ya existe en la app, no se crea ni se sube nada.
+      if (existingConnId) {
+        const conn = connections.find(c => c.id === parseInt(existingConnId));
+        if (!conn) throw new Error('No se encontró la conexión elegida.');
+        setSourceConn(conn);
+        setProcessName(`Traer ${conn.name} → Maestra`);
+        await loadMappingData(conn.id);
+        setStep('mapeo');
+        setCreatingSource(false);
+        return;
+      }
+
       let conn;
       if (originType === 'upload') {
         if (!file) { alert('Elegí un archivo primero.'); setCreatingSource(false); return; }
@@ -706,33 +732,58 @@ export default function SourceWizard() {
       {step === 'origen' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
-            <button type="button" onClick={() => setOriginType('sheets')}
+            <button type="button" onClick={() => pickOriginType('sheets')}
               className={`flex flex-col items-center justify-center gap-1 p-3 rounded-lg text-xs font-medium border transition ${originType === 'sheets' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
               <Link2 className="w-4 h-4" /> Google Sheet
             </button>
-            <button type="button" onClick={() => setOriginType('upload')}
+            <button type="button" onClick={() => pickOriginType('upload')}
               className={`flex flex-col items-center justify-center gap-1 p-3 rounded-lg text-xs font-medium border transition ${originType === 'upload' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
               <UploadCloud className="w-4 h-4" /> Subir archivo
             </button>
-            <button type="button" onClick={() => setOriginType('api')}
+            <button type="button" onClick={() => pickOriginType('api')}
               className={`flex flex-col items-center justify-center gap-1 p-3 rounded-lg text-xs font-medium border transition ${originType === 'api' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
               <Server className="w-4 h-4" /> API externa
             </button>
-            <button type="button" onClick={() => setOriginType('shopify')}
+            <button type="button" onClick={() => pickOriginType('shopify')}
               className={`flex flex-col items-center justify-center gap-1 p-3 rounded-lg text-xs font-medium border transition ${originType === 'shopify' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
               <Store className="w-4 h-4" /> Shopify
             </button>
           </div>
 
           <form onSubmit={handleCreateSource} className="space-y-4">
+            {/* Reusar lo ya conectado o subido en la app (no vuelve a crear nada) */}
+            {existingForType.length > 0 && (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Ya tenés {existingForType.length} conexión(es) de este tipo — ¿usar una?
+                </label>
+                <select value={existingConnId} onChange={e => setExistingConnId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white max-w-md">
+                  <option value="">— No, conectar una nueva —</option>
+                  {existingForType.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}{c.connection_type === 'shopify' && c.shopify_domain ? ` (${c.shopify_domain})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {existingConnId && (
+                  <p className="text-xs text-green-600 mt-1.5">
+                    ✓ Se reusa tal cual está conectada: pasás directo a confirmar los campos.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {!existingConnId && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre (referencia)</label>
               <input value={sourceName} onChange={e => setSourceName(e.target.value)}
                 placeholder="Ej: Proveedor X, Base semanal"
                 className="w-full border border-gray-300 rounded-lg p-2 text-sm max-w-md" />
             </div>
+            )}
 
-            {originType === 'sheets' && (
+            {!existingConnId && originType === 'sheets' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">URL del Google Sheet</label>
                 <input key="sheetUrl" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} required
@@ -741,7 +792,7 @@ export default function SourceWizard() {
               </div>
             )}
 
-            {originType === 'upload' && (
+            {!existingConnId && originType === 'upload' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Archivo base (.csv, .xls, .xlsx)</label>
                 <p className="text-xs text-gray-500 mb-2">Este archivo se usará para actualizar el sistema: arrastralo o hacé click para elegirlo.</p>
@@ -792,7 +843,7 @@ export default function SourceWizard() {
               </div>
             )}
 
-            {originType === 'api' && (
+            {!existingConnId && originType === 'api' && (
               <div key="apiFields" className="space-y-3">
                 <div className="flex gap-2">
                   <select value={apiMethod} onChange={e => setApiMethod(e.target.value)}
@@ -810,7 +861,7 @@ export default function SourceWizard() {
               </div>
             )}
 
-            {originType === 'shopify' && (
+            {!existingConnId && originType === 'shopify' && (
               <div key="shopifyFields">
                 <ShopifyConnectFields
                   domain={shopDomain} setDomain={setShopDomain}
@@ -824,7 +875,8 @@ export default function SourceWizard() {
 
             <button type="submit" disabled={creatingSource}
               className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 text-sm">
-              {creatingSource ? 'Conectando...' : <>Siguiente <ArrowRight className="w-4 h-4" /></>}
+              {creatingSource ? (existingConnId ? 'Leyendo columnas...' : 'Conectando...')
+                : <>{existingConnId ? 'Usar esta conexión' : 'Siguiente'} <ArrowRight className="w-4 h-4" /></>}
             </button>
           </form>
         </div>
