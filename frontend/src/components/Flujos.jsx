@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap, Globe, Copy, Check } from 'lucide-react';
+import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap, Globe, Copy, Check, Database, AlertTriangle } from 'lucide-react';
 import { extractError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
 import AutoSyncPanel from './AutoSyncPanel';
@@ -63,6 +63,10 @@ export default function Flujos() {
   const [copiedLink, setCopiedLink] = useState(null);
   const [runProcs, setRunProcs] = useState(null); // [{id, name}] a correr en el modal de vista previa
 
+  // Maestra enlazada (para el banner "a dónde va todo")
+  const [masterInfo, setMasterInfo] = useState(null);   // {sheet, rows} o null
+  const [masterChecked, setMasterChecked] = useState(false);
+
   // --- Edición: Destino API genérica ---
   const [editApiSub, setEditApiSub] = useState(null);
   const [editApiSaving, setEditApiSaving] = useState(false);
@@ -117,6 +121,16 @@ export default function Flujos() {
       const projsRes = await fetch(`${API}/api/projects/`);
       const projs = await projsRes.json();
       const pid = projs[0]?.id;
+
+      // Maestra enlazada (para el banner). Tolerante a fallo: no rompe la pantalla.
+      try {
+        const masterRes = await fetch(`${API}/api/master`);
+        const m = await masterRes.json();
+        setMasterInfo(masterRes.ok && m.master_connection_id
+          ? { sheet: m.master_sheet_name, rows: m.total_rows ?? null }
+          : null);
+      } catch { setMasterInfo(null); }
+      setMasterChecked(true);
 
       const [procsRes, connsRes, subsRes, expRes, shopSubsRes, apiSubsRes] = await Promise.all([
         fetch(`${API}/api/processes/`),
@@ -536,6 +550,25 @@ export default function Flujos() {
           <Plus className="w-4 h-4" /> Nueva Fuente
         </Link>
       </div>
+
+      {/* A dónde va todo: la Maestra ya enlazada (o el aviso si falta) */}
+      {masterChecked && (masterInfo ? (
+        <div className="flex items-center gap-2 text-sm bg-indigo-50/60 border border-indigo-100 rounded-xl px-4 py-2.5 text-gray-600">
+          <Database className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+          <span>
+            Todos los flujos pasan por tu Maestra:&nbsp;
+            <span className="font-semibold text-gray-800">"{masterInfo.sheet}"</span>
+            {masterInfo.rows != null && <span className="text-gray-400"> · {masterInfo.rows} filas</span>}
+          </span>
+          <Link to="/" className="ml-auto text-indigo-600 font-medium hover:underline flex-shrink-0">Ver Maestra →</Link>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-sm bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-amber-800">
+          <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+          <span>No hay una Tabla Maestra enlazada: los flujos no tienen a dónde escribir.</span>
+          <Link to="/" className="ml-auto text-amber-700 font-semibold hover:underline flex-shrink-0">Enlazarla primero →</Link>
+        </div>
+      ))}
 
       {processes.length > 0 && <AutoSyncPanel />}
 
