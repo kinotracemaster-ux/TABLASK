@@ -365,6 +365,10 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
                 master_norm_index.setdefault(norm, sku_val)
                 master_len_buckets.setdefault(len(norm), []).append((norm, sku_val))
 
+    # Filas de la Maestra ANTES de crear nuevas (para el diagnóstico: distinguir
+    # SKUs preexistentes de los recién agregados en esta corrida).
+    master_rows_before = len(master_raw) - 1
+
     rows_updated = 0
     rows_added = 0
     rows_unchanged = 0
@@ -505,6 +509,26 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
     ya_estaban = rows_updated + rows_unchanged
     coherence_index = round(100.0 * ya_estaban / total_base, 1) if total_base else 100.0
 
+    # Diagnóstico de SKU: cuando muchos no cruzan, mostrar para una muestra el SKU
+    # del origen vs. el MÁS PARECIDO de la Maestra, para ver la diferencia real
+    # (guion, prefijo, columna equivocada…). También una muestra cruda de SKUs de
+    # la Maestra para eyeball del formato. Solo lectura, no cambia el cruce.
+    import difflib
+    # Solo SKUs que ya existían en la Maestra ANTES de esta corrida: así el "más
+    # parecido" no matchea contra otro SKU recién agregado (sería engañoso).
+    original_norms = [norm for norm, info in master_by_norm.items() if info["index"] <= master_rows_before]
+    orig_norm_to_sku = {norm: master_by_norm[norm]["sku"] for norm in original_norms}
+    master_sku_samples = list(orig_norm_to_sku.values())[:12]
+    sku_diagnosis = []
+    for nr in granular_new_rows[:12]:
+        src_sku = nr["sku"]
+        src_norm = normalize_sku_for_match(src_sku)
+        close = difflib.get_close_matches(src_norm, original_norms, n=1, cutoff=0.4)
+        sku_diagnosis.append({
+            "source_sku": src_sku,
+            "closest_master_sku": orig_norm_to_sku[close[0]] if close else None,
+        })
+
     return {
         "master_raw": master_raw,
         "master_conn": master_conn,
@@ -526,6 +550,8 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
         "new_rows": granular_new_rows,     # se escriben (BASE debe existir en Master)
         "unchanged_skus": granular_unchanged_skus,
         "orphans": granular_orphans,
-        "lavadero": wash_report.to_dict()  # limpiados / rechazados / a revisar
+        "lavadero": wash_report.to_dict(),  # limpiados / rechazados / a revisar
+        "sku_diagnosis": sku_diagnosis,       # muestra: SKU origen vs. más parecido en Maestra
+        "master_sku_samples": master_sku_samples,  # muestra de SKUs reales de la Maestra
     }
 
