@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, DateTime, Text, func
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, DateTime, Text, LargeBinary, func
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -23,7 +23,11 @@ class Connection(Base):
     
     # Campos para Archivos Locales
     file_path = Column(String, nullable=True)
-    
+    # Contenido del archivo subido, persistido en la DB. En Railway el disco es
+    # efímero (se borra en cada redeploy), así que la ruta sola no basta: guardar
+    # los bytes hace que la fuente subida sobreviva a los redeploys.
+    file_content = Column(LargeBinary, nullable=True)
+
     # Campos para HTTP API
     http_url = Column(String, nullable=True)
     http_method = Column(String, default="GET")

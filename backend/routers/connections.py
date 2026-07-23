@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List
 import os
-import shutil
 from .. import models, schemas
 from ..database import get_db
 
@@ -134,15 +133,22 @@ def upload_file_connection(
 ):
     upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
     os.makedirs(upload_dir, exist_ok=True)
-    
+
     file_path = os.path.join(upload_dir, file.filename)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
+    # Leemos el contenido a memoria: se persiste en la DB (sobrevive redeploys de
+    # Railway) y, como respaldo, se escribe a disco para lecturas del mismo proceso.
+    content = file.file.read()
+    try:
+        with open(file_path, "wb") as buffer:
+            buffer.write(content)
+    except Exception as e:
+        print(f"No se pudo escribir el archivo en disco (se usará el guardado en DB): {e}")
+
     db_conn = models.Connection(
         name=name,
         connection_type="local_file",
-        file_path=file_path
+        file_path=file_path,
+        file_content=content,
     )
     db.add(db_conn)
     db.commit()

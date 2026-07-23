@@ -40,6 +40,17 @@ try:
 except Exception as e:
     print("Migraciones omitidas para connections (ya existen las columnas o error benigno):", e)
 
+# Contenido del archivo subido persistido en DB (Railway borra el disco en cada
+# redeploy; sin esto las fuentes de tipo archivo se rompen tras cada deploy).
+try:
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        conn.execute(text("ALTER TABLE connections ADD COLUMN file_content BYTEA"))
+        conn.commit()
+        print("Migración file_content aplicada.")
+except Exception as e:
+    print("Migración file_content omitida (ya existe o dialecto sin BYTEA):", e)
+
 try:
     with engine.connect() as conn:
         from sqlalchemy import text

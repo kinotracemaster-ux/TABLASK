@@ -88,6 +88,8 @@ def _create_connector(connection):
     config = {
         "spreadsheet_id": connection.spreadsheet_id,
         "file_path": connection.file_path,
+        "file_content": getattr(connection, "file_content", None),
+        "file_name": connection.file_path,
         "http_url": connection.http_url,
         "http_method": connection.http_method,
         "http_headers": connection.http_headers,
@@ -102,15 +104,29 @@ def _create_connector(connection):
 def get_sheet_metadata(connection):
     """Obtiene los nombres de las hojas y sus encabezados usando conectores modulares."""
     if connection.connection_type == "local_file":
-        # Simular comportamiento antiguo para compatibilidad
+        # Leer los encabezados desde los bytes guardados en la DB (persisten a los
+        # redeploys de Railway); si no hay bytes, caer al archivo en disco.
+        import io
+        content = getattr(connection, "file_content", None)
+        name = (connection.file_path or "").lower()
+        if content:
+            src = io.BytesIO(content)
+        elif connection.file_path and os.path.exists(connection.file_path):
+            src = connection.file_path
+        else:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail=(
+                "El archivo subido ya no está disponible (probablemente se perdió "
+                "tras un redeploy del servidor). Volvé a subirlo para actualizar la fuente."
+            ))
         result = {}
-        if connection.file_path.endswith('.csv'):
-            df = pd.read_csv(connection.file_path, nrows=0)
+        if name.endswith('.csv'):
+            df = pd.read_csv(src, nrows=0)
             result["CSV Data"] = df.columns.tolist()
-        elif connection.file_path.endswith(('.xls', '.xlsx')):
-            xls = pd.ExcelFile(connection.file_path)
+        elif name.endswith(('.xls', '.xlsx')):
+            xls = pd.ExcelFile(src)
             for sheet_name in xls.sheet_names:
-                df = pd.read_excel(connection.file_path, sheet_name=sheet_name, nrows=0)
+                df = pd.read_excel(xls, sheet_name=sheet_name, nrows=0)
                 result[sheet_name] = df.columns.tolist()
         return result
 
