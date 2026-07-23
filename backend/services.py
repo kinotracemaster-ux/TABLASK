@@ -38,25 +38,9 @@ def invalidate_read_cache(spreadsheet_id=None, sheet_name=None):
             _READ_CACHE.pop(key, None)
 
 
-def normalize_sku_for_match(s: str) -> str:
-    """Forma normalizada de un SKU/codigo SOLO para comparar (no para escribir).
-    Unifica las diferencias más comunes que rompen el cruce exacto:
-    - mayúsculas/minúsculas y espacios
-    - decimales de Sheets: '1203.0' -> '1203'
-    - ceros a la izquierda en numéricos: '01203' -> '1203'
-    El valor real que se escribe en Sheets NUNCA se altera; esto es solo
-    para detectar posibles typos/variantes del mismo producto.
-    """
-    s = (s or "").strip().lower()
-    if not s:
-        return ""
-    # '1203.0' / '1203.00' -> '1203'
-    if re.fullmatch(r"\d+\.0+", s):
-        s = s.split(".")[0]
-    # ceros a la izquierda en numéricos puros: '01203' -> '1203'
-    if s.isdigit():
-        s = s.lstrip("0") or "0"
-    return s
+# La normalización de SKU vive en sku_utils (única fuente de verdad, compartida
+# con el conector de Shopify). Se re-exporta acá para no romper imports previos.
+from .sku_utils import normalize_sku_for_match
 
 
 # Configuración de credenciales (Service Account)
