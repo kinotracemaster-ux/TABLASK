@@ -51,6 +51,11 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
       const newRowsDetail = ok.flatMap(p => (p.new_rows || []).map(r => ({ process: p.name, sku: r.sku, fields: r.fields || {} })));
       const changesDetail = ok.flatMap(p => (p.changes || []).map(c => ({ process: p.name, ...c })));
 
+      // Diagnóstico de por qué no cruzan: SKU del origen vs. el más parecido en la
+      // Maestra, y una muestra de SKUs reales de la Maestra (para ver el formato).
+      const skuDiagnosis = ok.flatMap(p => (p.sku_diagnosis || []).map(d => ({ process: p.name, ...d })));
+      const masterSkuSamples = ok.length ? (ok[0].master_sku_samples || []) : [];
+
       const lavCleaned = ok.reduce((s, p) => s + (p.lavadero?.cleaned_count || 0), 0);
       const lavEmpties = ok.reduce((s, p) => s + (p.lavadero?.empties_skipped || 0), 0);
       const lavRejectedCount = ok.reduce((s, p) => s + (p.lavadero?.rejected_count || 0), 0);
@@ -66,6 +71,7 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
         processesOk: ok.length,
         matchPercentage: totalOrigin > 0 ? (totalUpdated / totalOrigin) : 1,
         newRowsDetail, changesDetail,
+        skuDiagnosis, masterSkuSamples,
         lavCleaned, lavEmpties, lavRejectedCount, lavReviewCount, lavHeldDetail,
       });
     } catch (err) {
@@ -289,6 +295,37 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
                   <div>
                     <h4 className="text-sm font-bold text-orange-800">Advertencia: baja coincidencia de SKUs</h4>
                     <p className="text-sm text-orange-700 mt-1">Menos del 10% de los productos del origen existen en la Maestra. Se van a agregar <strong>{preview.totalAdded} filas nuevas</strong>, lo que podría indicar un formato incorrecto en la columna SKU.</p>
+
+                    {/* Diagnóstico: por qué no cruza (SKU origen vs. más parecido en Maestra) */}
+                    {preview.skuDiagnosis?.length > 0 && (
+                      <div className="mt-3 bg-white/70 border border-orange-200 rounded-lg p-2.5">
+                        <p className="text-xs font-semibold text-orange-800 mb-1.5">🔍 Por qué no cruzan (muestra): SKU del origen vs. el más parecido en tu Maestra</p>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs text-left">
+                            <thead className="text-gray-500 uppercase">
+                              <tr><th className="px-2 py-1">SKU del origen</th><th className="px-2 py-1">Más parecido en la Maestra</th></tr>
+                            </thead>
+                            <tbody>
+                              {preview.skuDiagnosis.slice(0, 10).map((d, i) => (
+                                <tr key={i} className="border-t border-orange-100">
+                                  <td className="px-2 py-1 font-mono text-gray-800 whitespace-nowrap">{d.source_sku}</td>
+                                  <td className="px-2 py-1 font-mono whitespace-nowrap">{d.closest_master_sku
+                                    ? <span className="text-blue-700">{d.closest_master_sku}</span>
+                                    : <span className="text-gray-400 italic">— nada parecido —</span>}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {preview.masterSkuSamples?.length > 0 && (
+                          <p className="text-[11px] text-gray-500 mt-2">
+                            Ejemplos de SKU que ya hay en tu Maestra: <span className="font-mono text-gray-700">{preview.masterSkuSamples.slice(0, 8).join(' · ')}</span>
+                          </p>
+                        )}
+                        <p className="text-[11px] text-orange-700 mt-1.5">Si el "más parecido" es casi igual, es un tema de formato (guion, prefijo, espacios). Si dice "nada parecido" o los ejemplos son de otra cosa, revisá qué columna elegiste como SKU en la Maestra.</p>
+                      </div>
+                    )}
+
                     <label className="flex items-center gap-2 mt-3 cursor-pointer">
                       <input type="checkbox" className="rounded border-orange-300 text-orange-600 focus:ring-orange-500 w-4 h-4" checked={acknowledged} onChange={e => setAcknowledged(e.target.checked)} />
                       <span className="text-sm font-medium text-orange-900">Entiendo que se agregarán como productos nuevos y el SKU es correcto</span>
