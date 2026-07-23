@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { UploadCloud, Link2, Server, Store, ChevronRight, CheckCircle2, ArrowRight, Sparkles, Download, FileDown, Eye, Send, XCircle, AlertTriangle, Globe, Database } from 'lucide-react';
+import { UploadCloud, Link2, Server, Store, ChevronRight, CheckCircle2, ArrowRight, Sparkles, Download, FileDown, Eye, Send, XCircle, AlertTriangle, Globe, Database, Trash2 } from 'lucide-react';
 import { extractError, formatError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -68,6 +68,7 @@ export default function SourceWizard() {
   const [shopClientSecret, setShopClientSecret] = useState('');
   const [shopToken, setShopToken] = useState('');
   const [creatingSource, setCreatingSource] = useState(false);
+  const [deletingConn, setDeletingConn] = useState(false); // borrando una conexión existente
   const [sourceConn, setSourceConn] = useState(null); // conexión creada
   // Reusar algo ya conectado en la app (archivo subido, API, hoja, tienda)
   // en vez de crear una conexión nueva cada vez.
@@ -219,6 +220,25 @@ export default function SourceWizard() {
   const pickOriginType = (t) => {
     setOriginType(t);
     setExistingConnId(''); // al cambiar de tipo, volver a "conectar nueva"
+  };
+
+  // Borrar una conexión que ya no se usa (limpia el listado de "usar una?"). El
+  // backend valida que no esté en uso por un proceso/suscripción/Maestra y, si es
+  // un archivo, borra también el guardado. Devuelve un mensaje claro si no se puede.
+  const handleDeleteConnection = async (connId) => {
+    const conn = connections.find(c => String(c.id) === String(connId));
+    if (!conn) return;
+    if (!window.confirm(`¿Eliminar "${conn.name}"? Esta conexión y su archivo subido se borran. No se puede deshacer.`)) return;
+    setDeletingConn(true);
+    try {
+      const res = await fetch(`${API}/api/connections/${connId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await extractError(res));
+      setConnections(prev => prev.filter(c => String(c.id) !== String(connId)));
+      if (String(existingConnId) === String(connId)) setExistingConnId('');
+    } catch (err) {
+      alert(err.message || 'No se pudo eliminar la conexión.');
+    }
+    setDeletingConn(false);
   };
 
   // ── Paso 1: crear la conexión origen (o reusar una existente) ──
@@ -808,15 +828,25 @@ export default function SourceWizard() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Ya tenés {existingForType.length} conexión(es) de este tipo — ¿usar una?
                 </label>
-                <select value={existingConnId} onChange={e => setExistingConnId(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white max-w-md">
-                  <option value="">— No, conectar una nueva —</option>
-                  {existingForType.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}{c.connection_type === 'shopify' && c.shopify_domain ? ` (${c.shopify_domain})` : ''}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2 max-w-md">
+                  <select value={existingConnId} onChange={e => setExistingConnId(e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                    <option value="">— No, conectar una nueva —</option>
+                    {existingForType.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{c.connection_type === 'shopify' && c.shopify_domain ? ` (${c.shopify_domain})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {/* Eliminar la conexión elegida (limpia duplicados/archivos que ya no se usan) */}
+                  {existingConnId && (
+                    <button type="button" onClick={() => handleDeleteConnection(existingConnId)} disabled={deletingConn}
+                      title="Eliminar esta conexión"
+                      className="flex items-center gap-1 text-red-600 border border-red-200 hover:bg-red-50 rounded-lg px-2.5 py-2 text-xs font-medium disabled:opacity-50 flex-shrink-0">
+                      <Trash2 className="w-4 h-4" /> {deletingConn ? 'Eliminando...' : 'Eliminar'}
+                    </button>
+                  )}
+                </div>
                 {existingConnId && (
                   <p className="text-xs text-green-600 mt-1.5">
                     ✓ Se reusa tal cual está conectada: pasás directo a confirmar los campos.
