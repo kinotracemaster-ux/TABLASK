@@ -78,6 +78,10 @@ export default function SourceWizard() {
   const [sourceSheet, setSourceSheet] = useState('');
   const [masterCols, setMasterCols] = useState([]);
   const [masterSkuCol, setMasterSkuCol] = useState('');
+  // Hoja destino DENTRO de la misma Maestra: por defecto la principal, pero se
+  // puede elegir otra pestaña de la planilla para descargar ahí los datos.
+  const [masterDestSheet, setMasterDestSheet] = useState('');
+  const [masterDestSheets, setMasterDestSheets] = useState({}); // {pestaña: [columnas]}
   const [skuColSource, setSkuColSource] = useState('');
   const [fieldMappings, setFieldMappings] = useState([{ src: '', dst: '' }]);
   const [processName, setProcessName] = useState('');
@@ -133,6 +137,11 @@ export default function SourceWizard() {
   const [shopSubSaved, setShopSubSaved] = useState(null);
 
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
+  // Columnas de la Maestra según la pestaña destino elegida. Si es la principal
+  // (o no tenemos aún sus columnas), caemos a las de /api/master-columns.
+  const masterDestCols = masterDestSheet && masterDestSheets[masterDestSheet]
+    ? masterDestSheets[masterDestSheet]
+    : masterCols;
   const destCols = destType === 'sheet' && destSheet && destSheets[destSheet] ? destSheets[destSheet] : [];
   const shopStoreConns = connections.filter(c => c.connection_type === 'shopify');
   const shopTabCols = shopTab && masterSheetsAll[shopTab] ? masterSheetsAll[shopTab] : [];
@@ -303,6 +312,21 @@ export default function SourceWizard() {
       const masterInfo = await masterRes.json();
       setMasterSkuCol(masterRes.ok ? (masterInfo.master_sku_column || '') : '');
 
+      // Pestañas de la propia planilla Maestra: la principal queda por defecto,
+      // pero se puede elegir otra para descargar la fuente ahí.
+      const mainSheet = masterRes.ok ? (masterInfo.master_sheet_name || '') : '';
+      setMasterDestSheet(mainSheet);
+      const masterConn = masterRes.ok ? masterInfo.master_connection_id : null;
+      if (masterConn) {
+        try {
+          const mMetaRes = await fetch(`${API}/api/connections/${masterConn}/metadata`);
+          if (mMetaRes.ok) {
+            const mMeta = await mMetaRes.json();
+            setMasterDestSheets(mMeta.sheets || {});
+          }
+        } catch (e) { console.error('No se pudieron leer las pestañas de la Maestra', e); }
+      }
+
       if (firstSheet && sheets[firstSheet]) {
         await autoDetect(connId, firstSheet, sheets[firstSheet], mCols);
       }
@@ -337,7 +361,29 @@ export default function SourceWizard() {
   const handleSheetChange = async (sheetName) => {
     setSourceSheet(sheetName);
     const headers = sourceSheets[sheetName] || [];
-    await autoDetect(sourceConn.id, sheetName, headers, masterCols);
+    await autoDetect(sourceConn.id, sheetName, headers, masterDestCols);
+  };
+
+  // Cambiar la pestaña destino dentro de la Maestra: las columnas de destino
+  // pasan a ser las de esa hoja, así que re-mapeamos campos y ajustamos la SKU.
+  const handleMasterDestChange = async (sheetName) => {
+    setMasterDestSheet(sheetName);
+    const destHeaders = masterDestSheets[sheetName] || [];
+    // Si la SKU elegida ya no existe en la nueva hoja, la limpiamos.
+    if (masterSkuCol && !destHeaders.includes(masterSkuCol)) setMasterSkuCol('');
+    // Re-sugerir el mapeo de campos contra las columnas de la nueva hoja.
+    try {
+      const res = await fetch(`${API}/api/intelligence/auto-map`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_headers: sourceCols, target_headers: destHeaders })
+      });
+      const data = await res.json();
+      const mapped = Object.entries(data.mapping || {})
+        .filter(([src]) => src !== skuColSource)
+        .map(([src, dst]) => ({ src, dst }));
+      setFieldMappings(mapped.length > 0 ? mapped : [{ src: '', dst: '' }]);
+    } catch (err) { console.error('Re-mapeo por hoja destino falló', err); }
   };
 
   const handleSaveProcess = async (e) => {
@@ -364,6 +410,11 @@ export default function SourceWizard() {
           sku_column_source: skuColSource,
           sku_column_master: masterSkuCol,
           field_mappings: mappings,
+          // Hoja destino dentro de la Maestra. Si es la principal el motor la
+          // resuelve igual; mandarla explícita permite elegir otra pestaña.
+          ...(masterConnId && masterDestSheet
+            ? { target_connection_id: masterConnId, target_sheet_name: masterDestSheet }
+            : {}),
           add_new_rows: true,
           is_active: true
         })
@@ -905,6 +956,19 @@ export default function SourceWizard() {
                 </div>
               )}
 
+              {/* Hoja destino dentro de la Maestra: por defecto la principal,
+                  pero se puede elegir otra pestaña de la misma planilla. */}
+              {Object.keys(masterDestSheets).length > 1 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja destino en la Maestra</label>
+                  <select value={masterDestSheet} onChange={e => handleMasterDestChange(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg p-2 text-sm max-w-sm bg-white">
+                    {Object.keys(masterDestSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">La pestaña de tu Maestra donde se descargan estos datos.</p>
+                </div>
+              )}
+
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
@@ -920,7 +984,7 @@ export default function SourceWizard() {
                     <select value={masterSkuCol} onChange={e => setMasterSkuCol(e.target.value)}
                       className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
                       <option value="">Seleccionar...</option>
-                      {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
+                      {masterDestCols.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                 </div>
@@ -944,7 +1008,7 @@ export default function SourceWizard() {
                       const n = [...fieldMappings]; n[i].dst = e.target.value; setFieldMappings(n);
                     }} className="flex-1 border border-indigo-200 rounded-md p-1.5 text-sm bg-white">
                       <option value="">[Maestra] Columna...</option>
-                      {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
+                      {masterDestCols.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                     {fieldMappings.length > 1 && (
                       <button type="button" onClick={() => setFieldMappings(fieldMappings.filter((_, idx) => idx !== i))}
