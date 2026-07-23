@@ -26,6 +26,22 @@ CASES = [
     ("1203.5", "1203.5"),     # decimal real NO se colapsa (solo \d+\.0+)
     ("12O3", "12o3"),         # la 'O' es letra, no cero: no se toca salvo minúscula
     ("  MiXeD-Code_9 ", "mixed-code_9"),
+    # Guiones unicode: Excel/diseño "autocorrigen" el guion normal. Todos deben
+    # colapsar al guion ASCII '-' para que crucen con el guion normal. Se escriben
+    # con escape \u para que el caso sea inequívoco (no depende del editor).
+    ("726B-4", "726b-4"),               # guion ASCII de referencia
+    ("726B–4", "726b-4"),          # en dash –
+    ("726B—4", "726b-4"),          # em dash —
+    ("726B‒4", "726b-4"),          # figure dash ‒
+    ("726B−4", "726b-4"),          # signo menos −
+    ("726B－4", "726b-4"),          # guion de ancho completo －
+    ("726B‑4", "726b-4"),          # guion sin salto ‑
+    # Espacios / caracteres invisibles pegados al SKU (nbsp, ancho cero, BOM,
+    # guion suave). Rompen el cruce exacto aunque "se vean iguales".
+    (" 726B-4 ", "726b-4"),   # espacio duro (nbsp) en los extremos
+    ("726B-4​", "726b-4"),         # espacio de ancho cero al final
+    ("﻿726B-4", "726b-4"),         # BOM al inicio
+    ("726­B-4", "726b-4"),         # guion suave (invisible) interno se elimina
 ]
 
 

@@ -1,9 +1,9 @@
-import re
 import time
 import uuid
 import requests
 from typing import List, Dict, Any, Tuple
 from .base import BaseConnector
+from ..sku_utils import normalize_sku_for_match
 
 
 def _chunks(seq, size):
@@ -228,15 +228,10 @@ class ShopifyConnector(BaseConnector):
     # --------------------------------------------------------------- writing
     @staticmethod
     def _normalize_sku(s: str) -> str:
-        """Mismas reglas que services.normalize_sku_for_match (solo para cruzar)."""
-        s = (s or "").strip().lower()
-        if not s:
-            return ""
-        if re.fullmatch(r"\d+\.0+", s):
-            s = s.split(".")[0]
-        if s.isdigit():
-            s = s.lstrip("0") or "0"
-        return s
+        """Mismas reglas que services.normalize_sku_for_match (única fuente en
+        sku_utils): unifica guiones/espacios unicode, invisibles, decimales y
+        ceros a la izquierda. Solo para cruzar, no altera el SKU guardado."""
+        return normalize_sku_for_match(s)
 
     def get_primary_location_id(self) -> str:
         """
