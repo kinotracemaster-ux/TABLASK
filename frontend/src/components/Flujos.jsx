@@ -87,6 +87,10 @@ export default function Flujos() {
   const [epSkuMaster, setEpSkuMaster] = useState('');
   const [epMappings, setEpMappings] = useState([{ src: '', dst: '' }]);
   const [epAddNewRows, setEpAddNewRows] = useState(true);
+  // Hoja de la Maestra donde escribe esta fuente (target). Se puede re-apuntar.
+  const [epTargetSheet, setEpTargetSheet] = useState('');
+  const [editProcMasterSheets, setEditProcMasterSheets] = useState({}); // {hoja: [columnas]}
+  const [editProcMasterConnId, setEditProcMasterConnId] = useState(null);
 
   // --- Edición: Destino (Suscripción) ---
   const [editSub, setEditSub] = useState(null);
@@ -391,16 +395,48 @@ export default function Flujos() {
     setEpAddNewRows(proc.add_new_rows);
     setEditProcLoading(true);
     try {
-      const [metaRes, colsRes] = await Promise.all([
+      const [metaRes, colsRes, masterRes] = await Promise.all([
         fetch(`${API}/api/connections/${proc.source_connection_id}/metadata`),
-        fetch(`${API}/api/master-columns`)
+        fetch(`${API}/api/master-columns`),
+        fetch(`${API}/api/master`)
       ]);
       const meta = await metaRes.json();
       setEditProcSheets(metaRes.ok ? (meta.sheets || {}) : {});
       const cols = await colsRes.json();
-      setEditProcMasterCols(colsRes.ok && Array.isArray(cols) ? cols : []);
+      const masterColsMain = colsRes.ok && Array.isArray(cols) ? cols : [];
+
+      // Hojas de la propia Maestra, para poder re-apuntar a qué hoja escribe.
+      const masterInfo = masterRes.ok ? await masterRes.json() : {};
+      const mainSheet = masterInfo.master_sheet_name || '';
+      const masterConn = masterInfo.master_connection_id || null;
+      setEditProcMasterConnId(masterConn);
+      // La hoja destino actual: la explícita del proceso, o la principal de la Maestra.
+      const currentTarget = proc.target_sheet_name || mainSheet;
+      setEpTargetSheet(currentTarget);
+
+      let masterSheets = {};
+      if (masterConn) {
+        try {
+          const mMetaRes = await fetch(`${API}/api/connections/${masterConn}/metadata`);
+          if (mMetaRes.ok) masterSheets = (await mMetaRes.json()).sheets || {};
+        } catch (e) { console.error('No se pudieron leer las hojas de la Maestra', e); }
+      }
+      setEditProcMasterSheets(masterSheets);
+      // Columnas de la maestra según la hoja destino elegida (fallback: las de la principal).
+      setEditProcMasterCols(masterSheets[currentTarget] || masterColsMain);
     } catch (err) { console.error(err); }
     setEditProcLoading(false);
+  };
+
+  // Cambiar la hoja destino de la Maestra en el modal de edición: las columnas de la
+  // maestra pasan a ser las de esa hoja (para re-elegir SKU y campos si hiciera falta).
+  const handleEpTargetChange = (sheetName) => {
+    setEpTargetSheet(sheetName);
+    const cols = editProcMasterSheets[sheetName];
+    if (cols && cols.length) {
+      setEditProcMasterCols(cols);
+      if (epSkuMaster && !cols.includes(epSkuMaster)) setEpSkuMaster('');
+    }
   };
 
   const saveEditProcess = async (e) => {
@@ -419,8 +455,10 @@ export default function Flujos() {
           description: editProc.description,
           source_connection_id: editProc.source_connection_id,
           source_sheet_name: epSheet,
-          target_connection_id: editProc.target_connection_id,
-          target_sheet_name: editProc.target_sheet_name,
+          // Para apuntar a una hoja concreta de la Maestra hay que fijar también su
+          // conexión (si no, el motor cae a la hoja principal global).
+          target_connection_id: editProc.target_connection_id || editProcMasterConnId,
+          target_sheet_name: epTargetSheet || editProc.target_sheet_name,
           sku_column_source: epSkuSrc,
           sku_column_master: epSkuMaster,
           field_mappings: mappings,
@@ -794,11 +832,23 @@ export default function Flujos() {
 
               {Object.keys(editProcSheets).length > 1 && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Pestaña / hoja</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Pestaña / hoja del origen</label>
                   <select value={epSheet} onChange={e => setEpSheet(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
                     {Object.keys(editProcSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
                   </select>
+                  <p className="text-xs text-gray-500 mt-1">De qué hoja del archivo/origen se leen los datos.</p>
+                </div>
+              )}
+
+              {Object.keys(editProcMasterSheets).length > 1 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja destino en la Maestra</label>
+                  <select value={epTargetSheet} onChange={e => handleEpTargetChange(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                    {Object.keys(editProcMasterSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">La pestaña de tu Maestra donde esta fuente escribe los datos.</p>
                 </div>
               )}
 

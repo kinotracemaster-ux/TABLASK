@@ -113,6 +113,7 @@ export default function SourceWizard() {
   const [masterRowsRef, setMasterRowsRef] = useState(null);   // filas de la Maestra (para el banner)
   const [masterChecked, setMasterChecked] = useState(false);  // ya se consultó si hay Maestra
   const [masterSheetsAll, setMasterSheetsAll] = useState({}); // todas las pestañas de la Maestra (para push a Shopify)
+  const [csvSourceSheet, setCsvSourceSheet] = useState('');   // hoja de la Maestra de la que se saca el export CSV
 
   // Shopify como destino: push ahora y/o guardado como destino permanente (fase B)
   const [newShopDomain, setNewShopDomain] = useState('');
@@ -557,7 +558,7 @@ export default function SourceWizard() {
             name: destName || csvPreset.name,
             project_id: projectId,
             source_connection_id: masterConnId,
-            source_sheet_name: masterSheetNameRef,
+            source_sheet_name: csvSourceSheet || masterSheetNameRef,
             columns_mapping: {},
             transform_spec: buildTransformSpec(csvPreset, presetFieldMap),
             output_type: 'csv_download'
@@ -595,7 +596,7 @@ export default function SourceWizard() {
             name: destName || 'Nueva exportación CSV',
             project_id: projectId,
             source_connection_id: masterConnId,
-            source_sheet_name: masterSheetNameRef,
+            source_sheet_name: csvSourceSheet || masterSheetNameRef,
             columns_mapping: mappings,
             output_type: 'csv_download'
           })
@@ -647,6 +648,11 @@ export default function SourceWizard() {
       // Preseleccionar la pestaña principal de la Maestra: es la que se
       // actualiza con cada sync y la que alimenta el destino permanente.
       if (!shopTab && masterSheetNameRef) setShopTab(masterSheetNameRef);
+    }
+    if (t === 'csv') {
+      if (Object.keys(masterSheetsAll).length === 0) loadMasterSheetsAll();
+      // De qué hoja de la Maestra se saca el CSV: por defecto la principal.
+      if (!csvSourceSheet && masterSheetNameRef) setCsvSourceSheet(masterSheetNameRef);
     }
   };
 
@@ -1158,6 +1164,17 @@ export default function SourceWizard() {
                       </button>
                     </div>
                     {csvPreset && <p className="text-xs text-gray-500 mt-2">{csvPreset.description}</p>}
+                  </div>
+                )}
+
+                {destType === 'csv' && Object.keys(masterSheetsAll).length > 1 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Hoja de la Maestra de la que se saca</label>
+                    <select value={csvSourceSheet} onChange={e => setCsvSourceSheet(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white max-w-sm">
+                      {Object.keys(masterSheetsAll).map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">La pestaña de tu Maestra que alimenta este archivo CSV.</p>
                   </div>
                 )}
 
