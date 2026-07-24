@@ -58,10 +58,24 @@ def execute_bulk_batches(req: BulkExecuteRequest, background_tasks: BackgroundTa
 
             changes = diff_summary.get("changes", [])
             new_rows = diff_summary.get("new_rows", [])
+            held_new_rows = diff_summary.get("held_new_rows", [])
 
             # Recuperar target explícito si el proceso lo tenía, si no, global
             target_sheet_name = process.target_sheet_name if (process and process.target_sheet_name) else project.master_sheet_name
             target_conn = db.query(models.Connection).filter(models.Connection.id == process.target_connection_id).first() if (process and process.target_connection_id) else master_conn
+
+            # add_new_rows=False: los SKUs nuevos no se crean ahora; van a la Bandeja
+            # de Nuevos para que el usuario los revise y apruebe por registro.
+            if held_new_rows and process:
+                from ..services import park_new_records
+                park_new_records(
+                    db, held_new_rows,
+                    target_connection_id=target_conn.id,
+                    target_sheet_name=target_sheet_name,
+                    sku_column_master=process.sku_column_master,
+                    process_id=process.id,
+                    source_label=process.name,
+                )
 
             total_rows_before = len(master_raw) - 1 - len(new_rows)
 

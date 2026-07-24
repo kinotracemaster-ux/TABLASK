@@ -133,6 +133,23 @@ def _run_pushed_sync(db, app, proc, raw_table, background_tasks):
     new_rows = result.get("new_rows", [])
     coherence = result.get("coherence_index", 100)
 
+    # add_new_rows=False: los SKUs nuevos no se escriben, van a la Bandeja de Nuevos.
+    held = result.get("held_new_rows", [])
+    rows_parked = 0
+    if held:
+        from ..services import park_new_records
+        rows_parked = park_new_records(
+            db, held,
+            target_connection_id=result["master_conn"].id,
+            target_sheet_name=result["target_sheet_name"],
+            sku_column_master=proc.sku_column_master,
+            process_id=proc.id, source_label=app.name,
+        )
+        if rows_parked:
+            log_event(db, "INTAKE_PUSH_PARKED", "info",
+                      f"Push de '{app.name}': {rows_parked} SKU(s) nuevo(s) a la Bandeja de Nuevos.",
+                      proc.id, None, None, rows_parked)
+
     # Guardián en automático (mismo umbral que el scheduler).
     if new_rows and coherence < LOW_MATCH_THRESHOLD:
         log_event(db, "INTAKE_PUSH_SKIP", "warning",
@@ -171,6 +188,7 @@ def _run_pushed_sync(db, app, proc, raw_table, background_tasks):
         "written": bool(changes or new_rows),
         "rows_updated": result.get("rows_updated", 0),
         "rows_added": result.get("rows_added", 0),
+        "rows_held": rows_parked,
         "rows_unchanged": result.get("rows_unchanged", 0),
         "coherence_index": coherence,
         "lavadero": result.get("lavadero"),

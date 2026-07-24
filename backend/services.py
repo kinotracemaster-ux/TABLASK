@@ -374,9 +374,17 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
     rows_unchanged = 0
     rows_skipped = 0  # filas de origen descartadas por SKU vacío o inválido
 
+    # ¿Se crean los nuevos automáticamente, o se retienen para la Bandeja de Nuevos?
+    # add_new_rows=True (default): se escriben, como siempre.
+    # add_new_rows=False: no se escriben; se devuelven en held_new_rows para que el
+    # llamador los deje en la cuarentena (PendingNewRecord) y un humano decida.
+    add_new = getattr(req, 'add_new_rows', True)
+
     # Formato granular (El Guardián)
     granular_changes = []
     granular_new_rows = []
+    granular_held_new_rows = []   # nuevos retenidos (add_new_rows=False): no se escriben
+    held_norms = set()            # dedup de retenidos si BASE trae el mismo SKU 2 veces
     granular_unchanged_skus = []
     matched_norms = set()  # SKUs normalizados de la Maestra que SÍ aparecen en BASE
     skipped_skus = []
@@ -472,11 +480,9 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
                 granular_unchanged_skus.append(master_sku)
 
         else:
-            # NO está en la Maestra: como "todo lo de BASE debe estar en Master",
-            # se CREA con los datos de núcleo (el enriquecimiento queda vacío para
-            # llenarse luego). Se indexa para no duplicar si BASE lo trae 2 veces.
-            # El SKU va dentro de fields para que la escritura quirúrgica
-            # (que arma la fila nueva desde fields) escriba el código.
+            # NO está en la Maestra. El núcleo se lava igual (el enriquecimiento queda
+            # vacío para llenarse luego). El SKU va dentro de fields para que la
+            # escritura quirúrgica (que arma la fila nueva desde fields) escriba el código.
             new_fields = {req.sku_column_master: sku_val}
             new_mr_data = [""] * len(master_headers)
             new_mr_data[master_sku_idx] = sku_val
@@ -490,12 +496,20 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
                     new_mr_data[master_headers.index(dst_col)] = new_val
                     new_fields[dst_col] = new_val
 
-            master_raw.append(new_mr_data)
-            new_index = len(master_raw) - 1
-            master_by_norm[norm] = {"index": new_index, "data": new_mr_data, "sku": sku_val}
-            matched_norms.add(norm)
-            rows_added += 1
-            granular_new_rows.append({"sku": sku_val, "fields": new_fields})
+            if add_new:
+                # Se CREA: "todo lo de BASE debe estar en Master". Se indexa para no
+                # duplicar si BASE lo trae 2 veces.
+                master_raw.append(new_mr_data)
+                new_index = len(master_raw) - 1
+                master_by_norm[norm] = {"index": new_index, "data": new_mr_data, "sku": sku_val}
+                matched_norms.add(norm)
+                rows_added += 1
+                granular_new_rows.append({"sku": sku_val, "fields": new_fields})
+            else:
+                # Se RETIENE para la Bandeja de Nuevos: no se escribe en esta corrida.
+                if norm not in held_norms:
+                    held_norms.add(norm)
+                    granular_held_new_rows.append({"sku": sku_val, "fields": new_fields})
 
     # Coherencia: SKUs que están en la Maestra pero NO llegaron desde BASE (huérfanos).
     granular_orphans = []
@@ -535,6 +549,7 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
         "target_sheet_name": target_sheet_name,
         "rows_updated": rows_updated,
         "rows_added": rows_added,          # faltaban en Master y se crearon
+        "rows_held": len(granular_held_new_rows),  # nuevos retenidos para la Bandeja
         "rows_unchanged": rows_unchanged,
         "rows_skipped": rows_skipped,
         "rows_orphan": rows_orphan,        # en Master pero no en BASE (revisar)
@@ -548,10 +563,60 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
         "detail_orphan": granular_orphans,
         "changes": granular_changes,
         "new_rows": granular_new_rows,     # se escriben (BASE debe existir en Master)
+        "held_new_rows": granular_held_new_rows,  # NO se escriben: van a la Bandeja de Nuevos
+        "detail_held": granular_held_new_rows,
         "unchanged_skus": granular_unchanged_skus,
         "orphans": granular_orphans,
         "lavadero": wash_report.to_dict(),  # limpiados / rechazados / a revisar
         "sku_diagnosis": sku_diagnosis,       # muestra: SKU origen vs. más parecido en Maestra
         "master_sku_samples": master_sku_samples,  # muestra de SKUs reales de la Maestra
     }
+
+
+def park_new_records(db, held_new_rows, *, target_connection_id, target_sheet_name,
+                     sku_column_master, process_id=None, source_label=None):
+    """Estaciona en la Bandeja de Nuevos (PendingNewRecord) los SKUs retenidos por
+    add_new_rows=False. Deduplica: si ya hay un registro 'pending' para el mismo SKU
+    y el mismo destino, se refrescan sus campos en vez de crear otro (evita inundar
+    la bandeja cuando la fuente se vuelve a correr). Devuelve cuántos quedaron nuevos
+    en la bandeja."""
+    import json as _json
+    from . import models
+    if not held_new_rows:
+        return 0
+
+    parked = 0
+    for nr in held_new_rows:
+        sku = nr.get("sku")
+        if not sku:
+            continue
+        fields_json = _json.dumps(nr.get("fields", {}), ensure_ascii=False)
+        existing = (
+            db.query(models.PendingNewRecord)
+            .filter(
+                models.PendingNewRecord.sku == sku,
+                models.PendingNewRecord.target_connection_id == target_connection_id,
+                models.PendingNewRecord.target_sheet_name == target_sheet_name,
+                models.PendingNewRecord.status == "pending",
+            )
+            .first()
+        )
+        if existing:
+            existing.fields = fields_json          # refrescar a lo último que trajo la fuente
+            existing.source_label = source_label or existing.source_label
+            continue
+        db.add(models.PendingNewRecord(
+            process_id=process_id,
+            source_label=source_label,
+            sku=sku,
+            fields=fields_json,
+            target_connection_id=target_connection_id,
+            target_sheet_name=target_sheet_name,
+            sku_column_master=sku_column_master,
+            status="pending",
+        ))
+        parked += 1
+
+    db.commit()
+    return parked
 

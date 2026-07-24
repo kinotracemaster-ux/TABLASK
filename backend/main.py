@@ -245,10 +245,11 @@ _backfill_export_tokens()
 # ██ ROUTERS (deben importarse DESPUÉS de las funciones internas)
 # ═══════════════════════════════════════════════════════════════════
 
-from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions, api_subscriptions, pipeline, schedule
+from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions, api_subscriptions, pipeline, schedule, tray
 app.include_router(logs.router)
 app.include_router(api_subscriptions.router)
 app.include_router(staging.router)
+app.include_router(tray.router)
 app.include_router(connections.router)
 app.include_router(processes.router)
 app.include_router(intake.router)

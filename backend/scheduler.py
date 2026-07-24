@@ -72,6 +72,23 @@ def run_scheduled_sync(db) -> dict:
             new_rows = result.get("new_rows", [])
             coherence = result.get("coherence_index", 100)
 
+            # add_new_rows=False: los SKUs nuevos no se escriben, van a la Bandeja
+            # de Nuevos para revisión humana (no se contamina la Maestra en automático).
+            held = result.get("held_new_rows", [])
+            if held:
+                from .services import park_new_records
+                parked = park_new_records(
+                    db, held,
+                    target_connection_id=result["master_conn"].id,
+                    target_sheet_name=result["target_sheet_name"],
+                    sku_column_master=proc.sku_column_master,
+                    process_id=proc.id, source_label=proc.name,
+                )
+                if parked:
+                    log_event(db, "AUTO_SYNC_PARKED", "info",
+                              f"Auto-sync '{proc.name}': {parked} SKU(s) nuevo(s) a la Bandeja de Nuevos.",
+                              proc.id, None, None, parked)
+
             # Guardián en automático: baja coincidencia + muchas filas nuevas → saltar.
             if new_rows and coherence < LOW_MATCH_THRESHOLD:
                 log_event(db, "AUTO_SYNC_SKIP", "warning",
@@ -101,7 +118,7 @@ def run_scheduled_sync(db) -> dict:
             log_event(db, "AUTO_SYNC_OK", "success",
                       f"Auto-sync '{proc.name}': {len(changes)} cambios, {len(new_rows)} filas nuevas.",
                       proc.id, None, None, len(changes) + len(new_rows))
-            results.append({"process": proc.name, "rows_updated": len(changes), "rows_added": len(new_rows)})
+            results.append({"process": proc.name, "rows_updated": len(changes), "rows_added": len(new_rows), "rows_held": len(held)})
 
         except Exception as e:
             log_event(db, "AUTO_SYNC_ERROR", "error",
@@ -117,6 +134,7 @@ def run_scheduled_sync(db) -> dict:
         "processes": len(processes),
         "rows_updated": sum(r.get("rows_updated", 0) for r in results),
         "rows_added": sum(r.get("rows_added", 0) for r in results),
+        "rows_held": sum(r.get("rows_held", 0) for r in results),
         "results": results,
     }
 

@@ -148,6 +148,27 @@ class Process(Base):
     target_connection = relationship("Connection", foreign_keys=[target_connection_id])
 
 
+class PendingNewRecord(Base):
+    """Bandeja de Nuevos (cuarentena de altas). Cuando una fuente trae un SKU que
+    NO cruza con la Maestra y el proceso tiene add_new_rows=False, el registro no
+    se escribe: se retiene aquí para revisión humana. Desde la bandeja se aprueba
+    (se crea en la Maestra por el mismo túnel quirúrgico) o se rechaza. Guarda a
+    dónde escribir para poder crearlo luego sin recomputar el sync completo."""
+    __tablename__ = "pending_new_records"
+    id = Column(Integer, primary_key=True, index=True)
+    process_id = Column(Integer, ForeignKey("processes.id", ondelete="SET NULL"), nullable=True)
+    source_label = Column(String, nullable=True)   # nombre del proceso/app, para mostrar
+    sku = Column(String, nullable=False, index=True)
+    fields = Column(Text, nullable=False)          # JSON del núcleo ya lavado {col_master: valor}
+    # A dónde escribir cuando se apruebe (se resuelve al retener, no al aprobar):
+    target_connection_id = Column(Integer, ForeignKey("connections.id"), nullable=True)
+    target_sheet_name = Column(String, nullable=True)
+    sku_column_master = Column(String, nullable=True)
+    status = Column(String, default="pending", index=True)  # pending | approved | rejected
+    created_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+
+
 class ShopifyMasterSyncConfig(Base):
     """Configuración del módulo independiente 'Shopify → Maestra': trae precio/stock
     de una tienda Shopify y actualiza (no crea filas) los SKU que ya están en la

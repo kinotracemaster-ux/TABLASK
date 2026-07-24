@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import MasterTable from './components/MasterTable';
 import ActivityLogs from './components/ActivityLogs';
@@ -6,7 +6,10 @@ import ConnectedApps from './components/ConnectedApps';
 import SourceWizard from './components/SourceWizard';
 import Flujos from './components/Flujos';
 import ShopifyMasterSync from './components/ShopifyMasterSync';
-import { Database, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Sparkles, ListChecks, Store } from 'lucide-react';
+import NewRecordsTray from './components/NewRecordsTray';
+import { Database, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Sparkles, ListChecks, Store, Inbox } from 'lucide-react';
+
+const API = import.meta.env.VITE_API_URL || '';
 
 // Detecta si estamos en un entorno de PREVIEW (no producción).
 // Railway nombra los previews como "...-pr-<n>.up.railway.app".
@@ -15,6 +18,20 @@ const IS_PREVIEW = typeof window !== 'undefined' && /-pr-\d+\./.test(window.loca
 function Sidebar() {
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [trayCount, setTrayCount] = useState(0);
+
+  // Badge de la Bandeja de Nuevos: sondea el conteo de pendientes. Se refresca al
+  // cambiar de ruta (tras aprobar/rechazar) y cada 60s por si entran automáticos.
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch(`${API}/api/tray/count`)
+      .then(r => r.ok ? r.json() : { pending_count: 0 })
+      .then(d => { if (alive) setTrayCount(d.pending_count || 0); })
+      .catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, [location.pathname]);
 
   const isActive = (path) => location.pathname === path;
 
@@ -52,6 +69,14 @@ function Sidebar() {
         </Link>
         <Link to="/flujos" className={linkClass('/flujos')}>
           <ListChecks className="w-5 h-5" /> Mis Flujos
+        </Link>
+        <Link to="/bandeja" className={linkClass('/bandeja')}>
+          <Inbox className="w-5 h-5" /> Bandeja de Nuevos
+          {trayCount > 0 && (
+            <span className="ml-auto text-[11px] font-bold bg-amber-400 text-amber-900 px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+              {trayCount}
+            </span>
+          )}
         </Link>
         <Link to="/shopify-sync" className={linkClass('/shopify-sync')}>
           <Store className="w-5 h-5" /> Shopify → Maestra
@@ -95,6 +120,7 @@ function App() {
             <Route path="/" element={<MasterTable />} />
             <Route path="/nueva-fuente" element={<SourceWizard />} />
             <Route path="/flujos" element={<Flujos />} />
+            <Route path="/bandeja" element={<NewRecordsTray />} />
             <Route path="/shopify-sync" element={<ShopifyMasterSync />} />
             <Route path="/intake" element={<ConnectedApps />} />
             <Route path="/logs" element={<ActivityLogs />} />
