@@ -10,7 +10,11 @@ Shopify) hacia una **Tabla Maestra** que vive en Google Sheets, usando el **SKU*
 como llave universal. Postgres solo guarda configuración (conexiones, procesos,
 destinos), nunca los datos duros.
 
+**Prioridad #1:** que sea muy sencillo de ejecutar y entender para el usuario
+final. Si una feature complica el uso, no va.
+
 ## Estructura
+> Mapa para ubicarte sin abrir nada. Abrí solo el archivo que vas a tocar.
 - `backend/` — FastAPI (Python 3.11)
   - `main.py` — app + arranque (monta routers, `start_scheduler()`)
   - `routers/` — endpoints por dominio (connections, intake, pipeline, schedule, shopify_*, staging…)
