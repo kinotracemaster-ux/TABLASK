@@ -6,9 +6,9 @@ import secrets
 from .. import models, schemas
 from ..database import get_db
 
-# Mismo umbral del Guardián que usa el scheduler: sin humano que confirme,
-# baja coincidencia + filas nuevas = probable formato de SKU roto → no escribir.
-LOW_MATCH_THRESHOLD = 10.0
+# El Guardián inteligente (mismo criterio que el scheduler): sin humano que
+# confirme, se bloquea SOLO si las filas nuevas parecen un formato de SKU roto
+# (casi-idénticas a SKUs existentes). Los productos genuinamente nuevos se crean.
 
 router = APIRouter(
     prefix="/api/intake",
@@ -133,16 +133,21 @@ def _run_pushed_sync(db, app, proc, raw_table, background_tasks):
     new_rows = result.get("new_rows", [])
     coherence = result.get("coherence_index", 100)
 
-    # Guardián en automático (mismo umbral que el scheduler).
-    if new_rows and coherence < LOW_MATCH_THRESHOLD:
+    # Guardián inteligente en automático (mismo criterio que el scheduler): se
+    # bloquea SOLO si las filas nuevas parecen un formato de SKU roto (casi-idénticas
+    # a SKUs existentes), no por baja coherencia a secas.
+    if new_rows and result.get("new_rows_look_broken"):
+        suspect = result.get("new_rows_suspect_ratio", 0)
         log_event(db, "INTAKE_PUSH_SKIP", "warning",
-                  f"Push de '{app.name}' saltado: coincidencia {coherence}% con "
-                  f"{len(new_rows)} filas nuevas (posible formato de SKU incorrecto). No se escribió nada.",
+                  f"Push de '{app.name}' saltado: {len(new_rows)} filas nuevas y "
+                  f"{int(suspect * 100)}% son casi-idénticas a SKUs existentes "
+                  f"(probable formato de SKU roto). No se escribió nada.",
                   proc.id)
         return {
-            "message": "Push recibido pero NO escrito: el Guardián detectó baja coincidencia de SKUs.",
+            "message": "Push recibido pero NO escrito: el Guardián detectó SKUs nuevos casi-idénticos a existentes (probable formato roto).",
             "written": False,
             "coherence_index": coherence,
+            "new_rows_suspect_ratio": suspect,
             "rows_would_add": len(new_rows),
             "lavadero": result.get("lavadero"),
         }
@@ -173,6 +178,7 @@ def _run_pushed_sync(db, app, proc, raw_table, background_tasks):
         "rows_added": result.get("rows_added", 0),
         "rows_unchanged": result.get("rows_unchanged", 0),
         "coherence_index": coherence,
+        "new_rows_suspect_ratio": result.get("new_rows_suspect_ratio", 0),
         "lavadero": result.get("lavadero"),
     }
 

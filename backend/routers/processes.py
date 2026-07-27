@@ -108,6 +108,8 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
             "rows_unchanged": result["rows_unchanged"],
             "rows_orphan": result.get("rows_orphan", 0),
             "coherence_index": result.get("coherence_index", 100),
+            "new_rows_suspect_ratio": result.get("new_rows_suspect_ratio", 0),
+            "new_rows_look_broken": result.get("new_rows_look_broken", False),
             "warnings": [],
             "changes": result.get("changes", []),
             "new_rows": result.get("new_rows", []),

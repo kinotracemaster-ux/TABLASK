@@ -91,10 +91,11 @@ def test_push_vinculado_escribe_por_el_tunel(client, monkeypatch):
         cleanup()
 
 
-def test_guardian_salta_push_con_baja_coincidencia(client, monkeypatch):
-    # Maestra con AAA; el push trae DOS SKUs que no cruzan (0%) → NO escribir.
+def test_guardian_salta_push_formato_roto(client, monkeypatch):
+    # Maestra con 726B-4; el push trae dos CASI-IDÉNTICOS (guion/dígito) que no
+    # cruzan exacto → el Guardián inteligente los ve como formato roto → NO escribir.
     api_key, _, cleanup = _make_app_linked_to_process(
-        client, "sku,name,price\nAAA,Producto,100\n", app_name="Guardian")
+        client, "sku,name,price\n726B-4,Reloj,100\n", app_name="GuardianRoto")
 
     def no_debe_escribir(**kw):
         raise AssertionError("el Guardián debía saltar este push sin escribir")
@@ -104,12 +105,35 @@ def test_guardian_salta_push_con_baja_coincidencia(client, monkeypatch):
                         lambda **kw: no_debe_escribir(**kw))
     try:
         resp = client.post("/api/intake/push",
-                           json=[{"Codigo": "ZZZ1", "PRECIO": "10"},
-                                 {"Codigo": "ZZZ2", "PRECIO": "20"}],
+                           json=[{"Codigo": "726B4", "PRECIO": "10"},
+                                 {"Codigo": "726B-04", "PRECIO": "20"}],
                            headers={"api-key": api_key}).json()
         assert resp["written"] is False
-        assert resp["coherence_index"] < 10
+        assert resp["new_rows_suspect_ratio"] >= 0.5  # mayoría casi-idénticos a existentes
         assert resp["rows_would_add"] == 2
+    finally:
+        cleanup()
+
+
+def test_guardian_deja_pasar_altas_legitimas_push(client, monkeypatch):
+    # Maestra con AAA; el push trae dos productos GENUINAMENTE nuevos (no se
+    # parecen a nada existente). Coherencia 0%, pero NO es formato roto → se CREAN.
+    api_key, _, cleanup = _make_app_linked_to_process(
+        client, "sku,name,price\nAAA,Producto,100\n", app_name="GuardianAltas")
+
+    written = {}
+    import backend.services as services
+    monkeypatch.setattr(services, "write_sheet_data_surgical",
+                        lambda **kw: written.update(kw) or {"total_updates": 0})
+    try:
+        resp = client.post("/api/intake/push",
+                           json=[{"Codigo": "1203", "PRECIO": "45000"},
+                                 {"Codigo": "45", "PRECIO": "38000"}],
+                           headers={"api-key": api_key}).json()
+        assert resp["written"] is True
+        assert resp["rows_added"] == 2
+        assert resp["new_rows_suspect_ratio"] == 0.0  # ninguno se parece a existentes
+        assert len(written["new_rows"]) == 2
     finally:
         cleanup()
 

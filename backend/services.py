@@ -15,6 +15,16 @@ _READ_CACHE = {}
 _READ_CACHE_TTL = float(os.getenv("SHEETS_READ_CACHE_TTL", "45"))
 
 
+# --- El Guardián inteligente (crear filas nuevas sin ser tan limitante ni tan
+# creativo) ---
+# En vez de bloquear por un umbral plano de coherencia (que trataba igual a un
+# producto genuinamente nuevo y a un typo de formato), se mira si los SKUs
+# "nuevos" son CASI IDÉNTICOS a alguno que ya está en la Maestra.
+NEAR_DUP_RATIO = float(os.getenv("GUARDIAN_NEAR_DUP_RATIO", "0.85"))   # similitud (0..1) a partir de la cual un "nuevo" se considera casi-idéntico a un existente
+BROKEN_FORMAT_MIN = float(os.getenv("GUARDIAN_BROKEN_FORMAT_MIN", "0.5"))  # fracción de nuevos casi-idénticos a partir de la cual se declara "formato roto" y se bloquea
+NEW_ROWS_SUSPECT_SAMPLE = int(os.getenv("GUARDIAN_SUSPECT_SAMPLE", "80"))  # máximo de filas nuevas a evaluar (costo acotado en catálogos grandes)
+
+
 def _cache_get(spreadsheet_id, sheet_name):
     entry = _READ_CACHE.get((spreadsheet_id, sheet_name))
     if entry and (time.time() - entry[0]) < _READ_CACHE_TTL:
@@ -352,8 +362,6 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
     # de formato (1203.0 / 01203 / mayúsculas / espacios) no genere falsos
     # "no cruza". La normalización es SOLO para comparar; el SKU guardado no se toca.
     master_by_norm = {}          # normalizado -> {index, data, sku}
-    master_norm_index = {}       # normalizado -> SKU original (compat con detección de parecidos)
-    master_len_buckets = {}
     for i, row in enumerate(master_raw[1:]):
         sku_val = (row[master_sku_idx] if master_sku_idx < len(row) else "").strip()
         if sku_val:
@@ -362,8 +370,6 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
             norm = normalize_sku_for_match(sku_val)
             if norm:
                 master_by_norm.setdefault(norm, {"index": i + 1, "data": padded_row, "sku": sku_val})
-                master_norm_index.setdefault(norm, sku_val)
-                master_len_buckets.setdefault(len(norm), []).append((norm, sku_val))
 
     # Filas de la Maestra ANTES de crear nuevas (para el diagnóstico: distinguir
     # SKUs preexistentes de los recién agregados en esta corrida).
@@ -529,6 +535,30 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
             "closest_master_sku": orig_norm_to_sku[close[0]] if close else None,
         })
 
+    # El Guardián inteligente: decide si las filas nuevas son ALTAS LEGÍTIMAS o
+    # un FORMATO DE SKU ROTO, en vez de mirar solo el % de coherencia (que trataba
+    # igual a un producto genuinamente nuevo y a un typo de formato).
+    # Señal: ¿cuántos SKUs "nuevos" son CASI IDÉNTICOS a uno que YA está en la
+    # Maestra? Si muchos lo son, casi seguro es el mismo producto escrito distinto
+    # (guion perdido, dígito de más…) que el cruce exacto no atrapó → formato roto,
+    # se bloquea. Si los nuevos NO se parecen a nada existente → altas legítimas,
+    # pasan aunque la coherencia sea baja (BASE da de alta productos nuevos).
+    # Solo compara contra SKUs que ya estaban ANTES de esta corrida y sobre una
+    # muestra acotada de las filas nuevas (costo controlado en catálogos grandes).
+    suspect_sample = granular_new_rows[:NEW_ROWS_SUSPECT_SAMPLE]
+    near_dup_count = 0
+    for nr in suspect_sample:
+        src_norm = normalize_sku_for_match(nr["sku"])
+        if not src_norm:
+            continue
+        if difflib.get_close_matches(src_norm, original_norms, n=1, cutoff=NEAR_DUP_RATIO):
+            near_dup_count += 1
+    new_rows_suspect_ratio = round(near_dup_count / len(suspect_sample), 3) if suspect_sample else 0.0
+    # "Formato roto" solo si HAY con qué comparar (Maestra no vacía) y la mayoría
+    # de los nuevos resultan casi-idénticos a existentes.
+    new_rows_look_broken = bool(suspect_sample) and bool(original_norms) \
+        and new_rows_suspect_ratio >= BROKEN_FORMAT_MIN
+
     return {
         "master_raw": master_raw,
         "master_conn": master_conn,
@@ -539,6 +569,8 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
         "rows_skipped": rows_skipped,
         "rows_orphan": rows_orphan,        # en Master pero no en BASE (revisar)
         "coherence_index": coherence_index,
+        "new_rows_suspect_ratio": new_rows_suspect_ratio,  # % de nuevos casi-idénticos a existentes
+        "new_rows_look_broken": new_rows_look_broken,       # Guardián: True = probable formato de SKU roto
         "skipped_skus": skipped_skus,
         "total_origen": total_base,
         "total_maestra": len(master_raw) - 1,

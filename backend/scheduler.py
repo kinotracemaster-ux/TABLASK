@@ -5,10 +5,11 @@ Un thread daemon hace "tick" cada pocos minutos y compara `next_run_at` (que
 vive en la DB) contra el reloj; cuando toca, ejecuta y reprograma. Como el
 estado está en la DB, sobrevive reinicios del servidor.
 
-Respeta el Guardián también en modo automático: si un proceso cruza muy pocos
-SKUs y quiere crear muchas filas nuevas (probable formato de SKU roto), se
-SALTA ese proceso y se registra una alerta, en vez de contaminar la Maestra
-sin un humano que confirme.
+Respeta el Guardián también en modo automático: si las filas nuevas que quiere
+crear son casi-idénticas a SKUs que ya están en la Maestra (probable formato de
+SKU roto), SALTA ese proceso y registra una alerta, en vez de contaminar la
+Maestra sin un humano que confirme. Los productos genuinamente nuevos (que no se
+parecen a nada existente) SÍ se crean, aunque la coherencia sea baja.
 """
 import json
 import threading
@@ -20,8 +21,6 @@ from .database import SessionLocal
 from . import models
 
 TICK_SECONDS = 300          # cada 5 min revisa si toca correr
-LOW_MATCH_THRESHOLD = 10.0  # coherence_index (%) por debajo del cual, con filas
-                            # nuevas, se salta el proceso (mismo umbral que la UI)
 
 
 def get_or_create_config(db):
@@ -72,13 +71,19 @@ def run_scheduled_sync(db) -> dict:
             new_rows = result.get("new_rows", [])
             coherence = result.get("coherence_index", 100)
 
-            # Guardián en automático: baja coincidencia + muchas filas nuevas → saltar.
-            if new_rows and coherence < LOW_MATCH_THRESHOLD:
+            # Guardián inteligente en automático: se salta SOLO si las filas nuevas
+            # parecen un formato de SKU roto (casi-idénticas a SKUs ya existentes),
+            # no por baja coherencia a secas. Las altas legítimas de productos
+            # nuevos pasan aunque la coherencia sea baja.
+            if new_rows and result.get("new_rows_look_broken"):
+                suspect = result.get("new_rows_suspect_ratio", 0)
                 log_event(db, "AUTO_SYNC_SKIP", "warning",
-                          f"Auto-sync saltó '{proc.name}': coincidencia {coherence}% con "
-                          f"{len(new_rows)} filas nuevas (posible formato de SKU incorrecto).",
+                          f"Auto-sync saltó '{proc.name}': {len(new_rows)} filas nuevas y "
+                          f"{int(suspect * 100)}% son casi-idénticas a SKUs existentes "
+                          f"(probable formato de SKU roto), coincidencia {coherence}%.",
                           proc.id)
-                results.append({"process": proc.name, "skipped": True, "coherence": coherence})
+                results.append({"process": proc.name, "skipped": True, "coherence": coherence,
+                                "new_rows_suspect_ratio": suspect})
                 continue
 
             if changes or new_rows:
