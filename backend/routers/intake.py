@@ -126,6 +126,7 @@ def _run_pushed_sync(db, app, proc, raw_table, background_tasks):
         sku_column_master=proc.sku_column_master,
         field_mappings=field_mappings,
         add_new_rows=proc.add_new_rows,
+        zero_missing_stock=proc.zero_missing_stock,
     )
     result = _compute_master_sync(project, req, db, src_raw_override=raw_table)
 
@@ -166,9 +167,11 @@ def _run_pushed_sync(db, app, proc, raw_table, background_tasks):
         from ..propagation import propagate_changes
         background_tasks.add_task(propagate_changes, project.id, changes, new_rows)
 
+    rows_zeroed = result.get("rows_zeroed", 0)
+    zeroed_txt = f", {rows_zeroed} agotados" if rows_zeroed else ""
     log_event(db, "INTAKE_PUSH_OK", "success",
               f"Push de '{app.name}' vía Fuente '{proc.name}': {len(changes)} cambios, "
-              f"{len(new_rows)} filas nuevas.",
+              f"{len(new_rows)} filas nuevas{zeroed_txt}.",
               proc.id, None, None, len(changes) + len(new_rows))
 
     return {
@@ -177,6 +180,7 @@ def _run_pushed_sync(db, app, proc, raw_table, background_tasks):
         "rows_updated": result.get("rows_updated", 0),
         "rows_added": result.get("rows_added", 0),
         "rows_unchanged": result.get("rows_unchanged", 0),
+        "rows_zeroed": rows_zeroed,
         "coherence_index": coherence,
         "new_rows_suspect_ratio": result.get("new_rows_suspect_ratio", 0),
         "lavadero": result.get("lavadero"),

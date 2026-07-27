@@ -61,6 +61,16 @@ try:
 except Exception as e:
     print("Migraciones omitidas para processes (ya existen las columnas o error benigno):", e)
 
+# "Agotar faltantes" por proceso (solo la fuente de verdad del inventario).
+try:
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        conn.execute(text("ALTER TABLE processes ADD COLUMN zero_missing_stock BOOLEAN DEFAULT FALSE"))
+        conn.commit()
+        print("Migración zero_missing_stock aplicada.")
+except Exception as e:
+    print("Migración zero_missing_stock omitida (ya existe o error benigno):", e)
+
 # Columna transform_spec en export_formats (plantillas con transformaciones §11).
 try:
     with engine.connect() as conn:

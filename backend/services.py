@@ -534,11 +534,38 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
             granular_new_rows.append({"sku": sku_val, "fields": new_fields})
 
     # Coherencia: SKUs que están en la Maestra pero NO llegaron desde BASE (huérfanos).
+    # "Agotar faltantes" (§4 del flujo de stock): si el proceso es la fuente de
+    # verdad del inventario (zero_missing_stock), esos huérfanos pasan a stock 0.
+    # Solo se toca la columna de STOCK y solo si tenía un valor > 0 (no se pisa
+    # vacío ni lo que ya está en 0, para no meter ruido). NUNCA se agota si el
+    # flag está apagado: una fuente parcial no debe vaciar el catálogo.
+    zero_stock = bool(getattr(req, "zero_missing_stock", False))
+    stock_idxs = [master_headers.index(dst) for dst, kind in col_kinds.items()
+                  if kind == "stock" and dst in master_headers]
     granular_orphans = []
+    granular_zeroed = []  # SKUs que se agotaron (stock -> 0) en esta corrida
     for norm, info in master_by_norm.items():
         if norm not in matched_norms:
             granular_orphans.append(info["sku"])
+            if zero_stock and stock_idxs:
+                changed = False
+                for s_idx in stock_idxs:
+                    old_val = info["data"][s_idx] if s_idx < len(info["data"]) else ""
+                    if str(old_val).strip() not in ("", "0"):
+                        granular_changes.append({
+                            "sku": info["sku"],
+                            "field": master_headers[s_idx],
+                            "old": old_val,
+                            "new": "0",
+                            "row_index": info["index"],
+                        })
+                        info["data"][s_idx] = "0"
+                        changed = True
+                if changed:
+                    master_raw[info["index"]] = info["data"]
+                    granular_zeroed.append(info["sku"])
     rows_orphan = len(granular_orphans)
+    rows_zeroed = len(granular_zeroed)
 
     total_base = len(src_raw) - 1
     # Índice de coherencia: % de BASE que ya estaba en la Maestra ANTES de crear.
@@ -598,6 +625,8 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
         "rows_unchanged": rows_unchanged,
         "rows_skipped": rows_skipped,
         "rows_orphan": rows_orphan,        # en Master pero no en BASE (revisar)
+        "rows_zeroed": rows_zeroed,        # agotados (stock -> 0) por "agotar faltantes"
+        "detail_zeroed": granular_zeroed,  # SKUs que se agotaron en esta corrida
         "coherence_index": coherence_index,
         "new_rows_suspect_ratio": new_rows_suspect_ratio,  # % de nuevos casi-idénticos a existentes
         "new_rows_look_broken": new_rows_look_broken,       # Guardián: True = probable formato de SKU roto

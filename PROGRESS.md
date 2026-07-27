@@ -28,6 +28,14 @@
   `MASTER_ESTADO_NUEVO`). De paso, la escritura quirúrgica ahora reescribe la fila
   de encabezados al apendizar (arregla columnas nuevas que quedaban sin título).
 
+- **Agotar faltantes (§4 del flujo de stock):** flag por proceso
+  `zero_missing_stock` (default OFF). Cuando está ON, los SKU que están en la
+  Master pero NO llegan en esa fuente pasan a `stock = 0`. Solo toca la columna
+  de stock y solo si tenía valor > 0. Es OPT-IN a propósito: solo la fuente de
+  verdad del inventario (BASE-SYS) debe agotar; una fuente parcial vaciaría el
+  catálogo. Expuesto en el motor (`rows_zeroed`/`detail_zeroed`), en el preview,
+  en scheduler/intake, y con checkbox + aviso en `Flujos.jsx` (editar proceso).
+
 ## En progreso
 - [Lo que estás tocando ahora, con el archivo/módulo]
 
@@ -36,6 +44,8 @@
   "posible formato de SKU roto" cuando venga en True (frontend, aún sin usar).
 - UI: mostrar/filtrar en la Master los productos con `estado = NUEVO` para que el
   usuario los enriquezca y luego les cambie el estado.
+- Del flujo de stock quedan sin implementar: §7 anti-sobreventa (descontar stock
+  por venta confirmada) y §9 precio manual vs. automático por canal.
 
 ## Decisiones tomadas
 - Dos módulos Shopify a propósito: bajada = emergencia (sin archivo BASE),

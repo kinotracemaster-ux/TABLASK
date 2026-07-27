@@ -141,6 +141,10 @@ class Process(Base):
     sku_column_master = Column(String, nullable=False)  # Nombre de col SKU en destino
     field_mappings = Column(Text, nullable=False)       # JSON: {"col_origen": "col_destino"}
     add_new_rows = Column(Boolean, default=True)
+    # "Agotar faltantes": los SKU que están en la Master pero NO llegan en esta
+    # fuente pasan a stock 0. SOLO para la fuente de verdad del inventario
+    # (BASE-SYS). Default False: una fuente parcial no debe vaciar el catálogo.
+    zero_missing_stock = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

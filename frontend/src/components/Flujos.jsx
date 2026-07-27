@@ -87,6 +87,7 @@ export default function Flujos() {
   const [epSkuMaster, setEpSkuMaster] = useState('');
   const [epMappings, setEpMappings] = useState([{ src: '', dst: '' }]);
   const [epAddNewRows, setEpAddNewRows] = useState(true);
+  const [epZeroMissingStock, setEpZeroMissingStock] = useState(false);
 
   // --- Edición: Destino (Suscripción) ---
   const [editSub, setEditSub] = useState(null);
@@ -389,6 +390,7 @@ export default function Flujos() {
     setEpSkuMaster(proc.sku_column_master);
     setEpMappings(Object.entries(proc.field_mappings || {}).map(([src, dst]) => ({ src, dst })));
     setEpAddNewRows(proc.add_new_rows);
+    setEpZeroMissingStock(proc.zero_missing_stock ?? false);
     setEditProcLoading(true);
     try {
       const [metaRes, colsRes] = await Promise.all([
@@ -425,6 +427,7 @@ export default function Flujos() {
           sku_column_master: epSkuMaster,
           field_mappings: mappings,
           add_new_rows: epAddNewRows,
+          zero_missing_stock: epZeroMissingStock,
           is_active: editProc.is_active
         })
       });
@@ -831,6 +834,17 @@ export default function Flujos() {
                 <input type="checkbox" checked={epAddNewRows} onChange={e => setEpAddNewRows(e.target.checked)} />
                 Agregar filas nuevas que no existan en la Maestra
               </label>
+
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={epZeroMissingStock} onChange={e => setEpZeroMissingStock(e.target.checked)} />
+                Agotar faltantes: poner stock 0 a los SKU de la Maestra que no lleguen en esta fuente
+              </label>
+              {epZeroMissingStock && (
+                <p className="text-xs text-amber-700 -mt-1 ml-6">
+                  ⚠️ Activá esto SOLO en la fuente de verdad del inventario (BASE-SYS).
+                  Una fuente parcial vaciaría el catálogo.
+                </p>
+              )}
 
               <div className="flex gap-2 pt-2">
                 <button type="submit" disabled={editProcSaving}

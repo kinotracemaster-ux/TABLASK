@@ -140,6 +140,73 @@ def test_guardian_deja_pasar_altas_legitimas_push(client, monkeypatch):
         cleanup()
 
 
+def _make_app_con_agotar(client, master_content, zero_missing_stock, app_name):
+    """Como _make_app_linked_to_process pero con columna stock y el flag
+    'agotar faltantes' configurable. Devuelve (api_key, cleanup)."""
+    master = _upload_csv(client, f"master_{app_name}", master_content)
+    proc = client.post("/api/processes/", json={
+        "name": f"Fuente-{app_name}", "source_connection_id": master, "source_sheet_name": "CSV Data",
+        "target_connection_id": master, "target_sheet_name": "CSV Data",
+        "sku_column_source": "Codigo", "sku_column_master": "sku",
+        "field_mappings": {"stock": "stock"}, "add_new_rows": True,
+        "zero_missing_stock": zero_missing_stock, "is_active": True,
+    }).json()
+    app = client.post("/api/intake/apps", json={"name": app_name}).json()
+    client.put(f"/api/intake/apps/{app['id']}", json={
+        "name": app_name, "target_process_id": proc["id"], "is_active": True,
+    })
+
+    def cleanup():
+        client.delete(f"/api/intake/apps/{app['id']}")
+        client.delete(f"/api/processes/{proc['id']}")
+
+    return app["api_key"], cleanup
+
+
+def test_agotar_faltantes_pone_stock_cero(client, monkeypatch):
+    # Maestra con AAA (stock 5) y BBB (stock 3). La fuente de verdad trae solo AAA
+    # → BBB no llegó → con zero_missing_stock, BBB pasa a stock 0.
+    api_key, cleanup = _make_app_con_agotar(
+        client, "sku,stock\nAAA,5\nBBB,3\n", True, app_name="Agotar")
+
+    written = {}
+    import backend.services as services
+    monkeypatch.setattr(services, "write_sheet_data_surgical",
+                        lambda **kw: written.update(kw) or {"total_updates": 0})
+    try:
+        resp = client.post("/api/intake/push",
+                           json=[{"Codigo": "AAA", "stock": "5"}],
+                           headers={"api-key": api_key}).json()
+        assert resp["rows_zeroed"] == 1
+        zeroing = [c for c in written["changes"] if c["sku"] == "BBB"]
+        assert len(zeroing) == 1
+        assert zeroing[0]["field"] == "stock"
+        assert zeroing[0]["new"] == "0"
+    finally:
+        cleanup()
+
+
+def test_sin_flag_no_agota_faltantes(client, monkeypatch):
+    # Igual que arriba pero SIN el flag: BBB no debe tocarse (una fuente parcial
+    # no vacía el catálogo). Default seguro.
+    api_key, cleanup = _make_app_con_agotar(
+        client, "sku,stock\nAAA,5\nBBB,3\n", False, app_name="NoAgotar")
+
+    written = {}
+    import backend.services as services
+    monkeypatch.setattr(services, "write_sheet_data_surgical",
+                        lambda **kw: written.update(kw) or {"total_updates": 0})
+    try:
+        resp = client.post("/api/intake/push",
+                           json=[{"Codigo": "AAA", "stock": "5"}],
+                           headers={"api-key": api_key}).json()
+        assert resp.get("rows_zeroed", 0) == 0
+        # No hubo cambios (AAA igual, BBB intacto) → no se escribió nada.
+        assert "BBB" not in [c.get("sku") for c in written.get("changes", [])]
+    finally:
+        cleanup()
+
+
 def test_push_sin_columna_llave_da_error_claro(client):
     api_key, _, cleanup = _make_app_linked_to_process(
         client, "sku,name,price\nAAA,Producto,100\n", app_name="SinLlave")

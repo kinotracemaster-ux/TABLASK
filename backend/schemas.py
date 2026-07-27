@@ -153,6 +153,7 @@ class MasterSyncRequest(BaseModel):
     sku_column_master: str
     field_mappings: Dict[str, str]  # {"columna_origen": "columna_maestra"}
     add_new_rows: bool = True
+    zero_missing_stock: bool = False  # agotar (stock=0) los SKU de la Master que no lleguen en esta fuente
 
 class MasterLinkRequest(BaseModel):
     master_connection_id: int
@@ -172,6 +173,7 @@ class ProcessBase(BaseModel):
     sku_column_master: str
     field_mappings: Dict[str, str]  # {"col_origen": "col_destino"}
     add_new_rows: bool = True
+    zero_missing_stock: bool = False  # agotar (stock=0) los SKU de la Master que no lleguen en esta fuente
     is_active: bool = True
 
 class ProcessCreate(ProcessBase):

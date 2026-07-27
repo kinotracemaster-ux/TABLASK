@@ -65,6 +65,7 @@ def run_scheduled_sync(db) -> dict:
                 sku_column_master=proc.sku_column_master,
                 field_mappings=field_mappings,
                 add_new_rows=proc.add_new_rows,
+                zero_missing_stock=proc.zero_missing_stock,
             )
             result = _compute_master_sync(project, req, db)
             changes = result.get("changes", [])
@@ -103,10 +104,13 @@ def run_scheduled_sync(db) -> dict:
                 all_changes.extend(changes)
                 all_new_rows.extend(new_rows)
 
+            rows_zeroed = result.get("rows_zeroed", 0)
+            zeroed_txt = f", {rows_zeroed} agotados" if rows_zeroed else ""
             log_event(db, "AUTO_SYNC_OK", "success",
-                      f"Auto-sync '{proc.name}': {len(changes)} cambios, {len(new_rows)} filas nuevas.",
+                      f"Auto-sync '{proc.name}': {len(changes)} cambios, {len(new_rows)} filas nuevas{zeroed_txt}.",
                       proc.id, None, None, len(changes) + len(new_rows))
-            results.append({"process": proc.name, "rows_updated": len(changes), "rows_added": len(new_rows)})
+            results.append({"process": proc.name, "rows_updated": len(changes),
+                            "rows_added": len(new_rows), "rows_zeroed": rows_zeroed})
 
         except Exception as e:
             log_event(db, "AUTO_SYNC_ERROR", "error",

@@ -25,6 +25,7 @@ def create_process(proc: schemas.ProcessCreate, db: Session = Depends(get_db)):
         sku_column_master=proc.sku_column_master,
         field_mappings=json.dumps(proc.field_mappings, ensure_ascii=False),
         add_new_rows=proc.add_new_rows,
+        zero_missing_stock=proc.zero_missing_stock,
         is_active=proc.is_active
     )
     db.add(db_proc)
@@ -68,6 +69,7 @@ def update_process(process_id: int, proc: schemas.ProcessCreate, db: Session = D
     db_proc.sku_column_master = proc.sku_column_master
     db_proc.field_mappings = json.dumps(proc.field_mappings, ensure_ascii=False)
     db_proc.add_new_rows = proc.add_new_rows
+    db_proc.zero_missing_stock = proc.zero_missing_stock
     db_proc.is_active = proc.is_active
     db.commit()
     db.refresh(db_proc)
@@ -95,7 +97,8 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
         sku_column_source=proc.sku_column_source,
         sku_column_master=proc.sku_column_master,
         field_mappings=field_mappings,
-        add_new_rows=proc.add_new_rows
+        add_new_rows=proc.add_new_rows,
+        zero_missing_stock=proc.zero_missing_stock
     )
 
     try:
@@ -107,6 +110,8 @@ def stage_process(process_id: int, db: Session = Depends(get_db)):
             "rows_to_add": result["rows_added"],
             "rows_unchanged": result["rows_unchanged"],
             "rows_orphan": result.get("rows_orphan", 0),
+            "rows_zeroed": result.get("rows_zeroed", 0),
+            "detail_zeroed": result.get("detail_zeroed", []),
             "coherence_index": result.get("coherence_index", 100),
             "new_rows_suspect_ratio": result.get("new_rows_suspect_ratio", 0),
             "new_rows_look_broken": result.get("new_rows_look_broken", False),
