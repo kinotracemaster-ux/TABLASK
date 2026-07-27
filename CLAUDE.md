@@ -68,6 +68,20 @@ pytest -q
 - Al cambiar lógica del motor, correr `pytest -q`; los tests fijan reglas de negocio
   de riesgo (normalización SKU, push Shopify, lavadero, scheduler, export engine).
 
+## Canales y reglas de negocio
+- **BASE-SYS:** fuente del precio base.
+- **Precio sugerido = precio base × 2** (solo lo muestra Kyte, que es catálogo).
+- **Shopi-Kino:** lleva TODOS los relojes de Base, excluyendo algunos.
+- **Shopi-Poe:** solo productos POEDAGAR.
+- **Effi:** debe quedar sincronizado con Shopify por inventario.
+- **Módulos Shopify (son dos, a propósito):**
+  - Bajada (Shopify → Maestra): plan de emergencia cuando no está el archivo BASE.
+  - Subida (Maestra → Shopify): flujo normal.
+
 ## Despliegue
 Railway con Nixpacks (`nixpacks.toml` / `railway.toml`). Un solo worker uvicorn
 sirve el backend; el frontend se compila en el build. Ver `README.md`.
+
+## Estado del proyecto
+Se lee al inicio y se actualiza al cierre de cada sesión.
+@./PROGRESS.md
