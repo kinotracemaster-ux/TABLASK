@@ -276,6 +276,65 @@ class ApiSubscriptionOut(ApiSubscriptionBase):
         from_attributes = True
 
 
+# ---------------------------------------------------------------------------
+# Plantilla de flujo preestablecido: BASE-SYS → stock
+# (arma de una sola vez Process + hojas hijas + canales, con las convenciones
+#  ya puestas; todo queda editable/borrable por sus CRUD normales)
+# ---------------------------------------------------------------------------
+class StockSheetTarget(BaseModel):
+    """Hoja(s) hija(s) que reciben el stock de la Maestra."""
+    connection_id: int
+    sheets: List[str]                    # pestañas destino que comparten estructura
+    sku_column: str = "SKU"              # nombre de la llave en la hoja hija
+    stock_column: str = "Stock"          # nombre de la columna de stock en la hoja hija
+
+class StockShopifyTarget(BaseModel):
+    """Tienda Shopify que recibe el stock de la Maestra."""
+    connection_id: int
+    location_id: Optional[str] = None    # bodega destino (nulo => única bodega)
+    name: Optional[str] = None           # nombre del destino (si no, se arma solo)
+
+class StockApiTarget(BaseModel):
+    """Canal API genérico (ej. Effi) que recibe el stock de la Maestra."""
+    name: str
+    url: str
+    http_method: str = "POST"
+    auth_header_name: str = "Authorization"
+    auth_token: Optional[str] = None
+    extra_headers: Optional[Dict[str, str]] = None
+
+class BaseSysStockTemplate(BaseModel):
+    """Payload para armar el flujo de stock preestablecido de una sola vez:
+    BASE-SYS → Maestra (agotando faltantes) → hojas hijas + canales."""
+    # Fuente BASE-SYS
+    source_connection_id: int
+    source_sheet_name: str
+    sku_column_source: str = "SKU"
+    stock_column_source: str = "Stock"
+    price_column_source: Optional[str] = None   # si viene, también trae precio base
+    # Columnas en la Maestra
+    master_sku_column: str = "SKU"
+    master_stock_column: str = "Stock"
+    master_price_column: Optional[str] = "Precio base"
+    # Destinos (cualquiera puede ir vacío)
+    sheet_targets: List[StockSheetTarget] = []
+    shopify_targets: List[StockShopifyTarget] = []
+    api_targets: List[StockApiTarget] = []
+    activate: bool = True                        # crear todo activo o en pausa
+
+class BaseSysStockTemplateResult(BaseModel):
+    process_id: int
+    field_subscription_ids: List[int] = []
+    shopify_subscription_ids: List[int] = []
+    api_subscription_ids: List[int] = []
+    warnings: List[str] = []
+
+class FlowTemplateStatus(BaseModel):
+    """Estado del flujo preestablecido (para que la UI sepa si ya existe)."""
+    exists: bool
+    process_id: Optional[int] = None
+
+
 # Módulo Shopify → Maestra (sync de precio/stock, independiente de los Flujos)
 class ShopifyMasterSyncConfigUpdate(BaseModel):
     connection_id: int

@@ -4,6 +4,7 @@ import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2
 import { extractError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
 import AutoSyncPanel from './AutoSyncPanel';
+import StockFlowTemplateModal from './StockFlowTemplateModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -62,6 +63,10 @@ export default function Flujos() {
   const [pushingApiSub, setPushingApiSub] = useState(null);
   const [copiedLink, setCopiedLink] = useState(null);
   const [runProcs, setRunProcs] = useState(null); // [{id, name}] a correr en el modal de vista previa
+
+  // Plantilla de flujo preestablecido BASE-SYS → stock
+  const [showStockTemplate, setShowStockTemplate] = useState(false);
+  const [stockTemplateExists, setStockTemplateExists] = useState(false);
 
   // Maestra enlazada (para el banner "a dónde va todo")
   const [masterInfo, setMasterInfo] = useState(null);   // {sheet, rows} o null
@@ -147,6 +152,13 @@ export default function Flujos() {
       setExports(expRes ? await expRes.json() : []);
       setShopifySubs(shopSubsRes.ok ? await shopSubsRes.json() : []);
       setApiSubs(apiSubsRes.ok ? await apiSubsRes.json() : []);
+
+      // ¿Ya existe el flujo preestablecido de stock? (para mostrar bien el botón)
+      try {
+        const tplRes = await fetch(`${API}/api/flow-templates/base-sys-stock`);
+        const tpl = tplRes.ok ? await tplRes.json() : null;
+        setStockTemplateExists(!!tpl?.exists);
+      } catch { setStockTemplateExists(false); }
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -548,11 +560,27 @@ export default function Flujos() {
           <h1 className="text-2xl font-bold text-gray-800">Mis Flujos</h1>
           <p className="text-gray-500 text-sm mt-1">Todo lo que ya conectaste: fuentes, destinos y conexiones. Pausá o borrá lo que no uses.</p>
         </div>
-        <Link to="/nueva-fuente"
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm">
-          <Plus className="w-4 h-4" /> Nueva Fuente
-        </Link>
+        <div className="flex items-center gap-2">
+          {masterInfo && !stockTemplateExists && (
+            <button onClick={() => setShowStockTemplate(true)}
+              className="flex items-center gap-2 bg-white border border-indigo-200 text-indigo-700 px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-50 transition text-sm">
+              <Zap className="w-4 h-4" /> Flujo de stock (BASE-SYS)
+            </button>
+          )}
+          <Link to="/nueva-fuente"
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm">
+            <Plus className="w-4 h-4" /> Nueva Fuente
+          </Link>
+        </div>
       </div>
+
+      {showStockTemplate && (
+        <StockFlowTemplateModal
+          connections={connections}
+          onClose={() => setShowStockTemplate(false)}
+          onDone={() => { setShowStockTemplate(false); loadAll(); }}
+        />
+      )}
 
       {/* A dónde va todo: la Maestra ya enlazada (o el aviso si falta) */}
       {masterChecked && (masterInfo ? (
