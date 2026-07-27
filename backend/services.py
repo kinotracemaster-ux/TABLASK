@@ -24,6 +24,15 @@ NEAR_DUP_RATIO = float(os.getenv("GUARDIAN_NEAR_DUP_RATIO", "0.85"))   # similit
 BROKEN_FORMAT_MIN = float(os.getenv("GUARDIAN_BROKEN_FORMAT_MIN", "0.5"))  # fracción de nuevos casi-idénticos a partir de la cual se declara "formato roto" y se bloquea
 NEW_ROWS_SUSPECT_SAMPLE = int(os.getenv("GUARDIAN_SUSPECT_SAMPLE", "80"))  # máximo de filas nuevas a evaluar (costo acotado en catálogos grandes)
 
+# --- Marca de productos recién creados en la Master ---
+# Los productos nuevos SÍ se crean (BASE da de alta), pero se marcan para que se
+# vean resaltados y el humano los enriquezca/revise (no crear basura silenciosa).
+# La marca vive en una columna de control 'estado'; si no existe, se agrega al
+# final sin tocar las columnas ni los datos existentes. Solo se marca la fila
+# recién creada; las filas ya existentes nunca se pisan.
+ESTADO_COL = os.getenv("MASTER_ESTADO_COL", "estado")   # nombre de la columna de control
+ESTADO_NUEVO = os.getenv("MASTER_ESTADO_NUEVO", "NUEVO")  # valor con que se marca un alta nueva
+
 
 def _cache_get(spreadsheet_id, sheet_name):
     entry = _READ_CACHE.get((spreadsheet_id, sheet_name))
@@ -241,7 +250,19 @@ def write_sheet_data_surgical(spreadsheet_id: str, sheet_name: str, headers: lis
         raise HTTPException(status_code=400, detail="Faltan credenciales de Google Sheets.")
 
     updates = []
-    
+
+    # 0. Encabezados: al apendizar filas nuevas pueden haberse agregado columnas
+    # nuevas (la columna de estado, o un campo recién mapeado) que todavía no
+    # tienen título en la hoja. Reescribimos la fila 1 con los headers actuales
+    # para que ninguna columna nueva quede sin encabezado (y su valor no caiga en
+    # una columna anónima). Es idempotente: si ya coincide, no cambia nada.
+    if new_rows and headers:
+        last_col_h = column_index_to_letter(max(len(headers) - 1, 0))
+        updates.append({
+            "range": f"{sheet_name}!A1:{last_col_h}1",
+            "values": [list(headers)],
+        })
+
     # 1. Actualizaciones de celdas específicas
     # Agrupar por fila para minimizar el número de rangos si es posible, o simplemente mapear celdas
     for change in changes:
@@ -351,8 +372,13 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
     for dst_col in req.field_mappings.values():
         if dst_col not in master_headers:
             master_headers.append(dst_col)
+    # Columna de control para marcar las altas nuevas. Si no existe, se agrega al
+    # final (sin tocar el resto); si ya existe, se respeta su posición.
+    if ESTADO_COL not in master_headers:
+        master_headers.append(ESTADO_COL)
     master_raw[0] = master_headers
-    
+    estado_idx = master_headers.index(ESTADO_COL)
+
     if req.sku_column_master not in master_headers:
         raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column_master}' no encontrada en la maestra")
     master_sku_idx = master_headers.index(req.sku_column_master)
@@ -495,6 +521,10 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
                         new_val = ""  # sucio/sospechoso: la celda queda vacía, no se escribe basura
                     new_mr_data[master_headers.index(dst_col)] = new_val
                     new_fields[dst_col] = new_val
+            # Marca de alta nueva: se resalta en la Master para que el humano la
+            # enriquezca/revise. Solo la fila recién creada; las existentes no se tocan.
+            new_mr_data[estado_idx] = ESTADO_NUEVO
+            new_fields[ESTADO_COL] = ESTADO_NUEVO
 
             master_raw.append(new_mr_data)
             new_index = len(master_raw) - 1

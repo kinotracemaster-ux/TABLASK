@@ -80,6 +80,8 @@ def test_guardian_deja_pasar_altas_legitimas(client, monkeypatch):
     assert proc_result.get("skipped") is not True
     assert proc_result.get("rows_added") == 2
     assert len(written.get("new_rows", [])) == 2
+    # Cada alta nueva queda MARCADA con estado=NUEVO (para enriquecer/revisar).
+    assert all(nr["fields"].get("estado") == "NUEVO" for nr in written["new_rows"])
 
 
 def test_config_por_defecto_y_activacion(client):

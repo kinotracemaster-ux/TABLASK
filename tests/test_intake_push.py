@@ -134,6 +134,8 @@ def test_guardian_deja_pasar_altas_legitimas_push(client, monkeypatch):
         assert resp["rows_added"] == 2
         assert resp["new_rows_suspect_ratio"] == 0.0  # ninguno se parece a existentes
         assert len(written["new_rows"]) == 2
+        # Cada alta nueva queda MARCADA con estado=NUEVO (para enriquecer/revisar).
+        assert all(nr["fields"].get("estado") == "NUEVO" for nr in written["new_rows"])
     finally:
         cleanup()
 

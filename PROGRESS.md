@@ -21,6 +21,12 @@
   genuinamente nuevos se crean aunque la coherencia sea baja.
   (`services.py`: señal `new_rows_look_broken` / `new_rows_suspect_ratio`;
   usada en `scheduler.py` e `intake.py`; expuesta en el preview de `processes.py`.)
+- **Marca de altas nuevas:** al crear un producto nuevo, la Master lo marca con
+  `estado = NUEVO` (columna de control; si no existe se agrega al final sin tocar
+  el resto). Así se crean pero quedan resaltados para enriquecer/revisar — no se
+  crea basura silenciosa. Nombre/valor configurables por env (`MASTER_ESTADO_COL`,
+  `MASTER_ESTADO_NUEVO`). De paso, la escritura quirúrgica ahora reescribe la fila
+  de encabezados al apendizar (arregla columnas nuevas que quedaban sin título).
 
 ## En progreso
 - [Lo que estás tocando ahora, con el archivo/módulo]
@@ -28,6 +34,8 @@
 ## Próximos pasos
 - El preview manual ya trae `new_rows_look_broken`: mostrar en la UI un aviso
   "posible formato de SKU roto" cuando venga en True (frontend, aún sin usar).
+- UI: mostrar/filtrar en la Master los productos con `estado = NUEVO` para que el
+  usuario los enriquezca y luego les cambie el estado.
 
 ## Decisiones tomadas
 - Dos módulos Shopify a propósito: bajada = emergencia (sin archivo BASE),
