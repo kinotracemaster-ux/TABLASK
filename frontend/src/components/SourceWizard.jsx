@@ -83,6 +83,8 @@ export default function SourceWizard() {
   // puede elegir otra pestaña de la planilla para descargar ahí los datos.
   const [masterDestSheet, setMasterDestSheet] = useState('');
   const [masterDestSheets, setMasterDestSheets] = useState({}); // {pestaña: [columnas]}
+  // Conexión destino: por defecto la Maestra, pero se puede apuntar a otra planilla.
+  const [destTargetConnId, setDestTargetConnId] = useState('');
   const [skuColSource, setSkuColSource] = useState('');
   const [fieldMappings, setFieldMappings] = useState([{ src: '', dst: '' }]);
   const [processName, setProcessName] = useState('');
@@ -337,6 +339,7 @@ export default function SourceWizard() {
       const mainSheet = masterRes.ok ? (masterInfo.master_sheet_name || '') : '';
       setMasterDestSheet(mainSheet);
       const masterConn = masterRes.ok ? masterInfo.master_connection_id : null;
+      if (masterConn) setDestTargetConnId(String(masterConn));
       if (masterConn) {
         try {
           const mMetaRes = await fetch(`${API}/api/connections/${masterConn}/metadata`);
@@ -384,11 +387,12 @@ export default function SourceWizard() {
     await autoDetect(sourceConn.id, sheetName, headers, masterDestCols);
   };
 
-  // Cambiar la pestaña destino dentro de la Maestra: las columnas de destino
-  // pasan a ser las de esa hoja, así que re-mapeamos campos y ajustamos la SKU.
-  const handleMasterDestChange = async (sheetName) => {
+  // Cambiar la pestaña destino: las columnas de destino pasan a ser las de esa
+  // hoja, así que re-mapeamos campos y ajustamos la SKU. `sheetsOverride` permite
+  // pasar el mapa de hojas recién cargado (evita leer el estado aún sin actualizar).
+  const handleMasterDestChange = async (sheetName, sheetsOverride) => {
     setMasterDestSheet(sheetName);
-    const destHeaders = masterDestSheets[sheetName] || [];
+    const destHeaders = (sheetsOverride || masterDestSheets)[sheetName] || [];
     // Si la SKU elegida ya no existe en la nueva hoja, la limpiamos.
     if (masterSkuCol && !destHeaders.includes(masterSkuCol)) setMasterSkuCol('');
     // Re-sugerir el mapeo de campos contra las columnas de la nueva hoja.
@@ -404,6 +408,25 @@ export default function SourceWizard() {
         .map(([src, dst]) => ({ src, dst }));
       setFieldMappings(mapped.length > 0 ? mapped : [{ src: '', dst: '' }]);
     } catch (err) { console.error('Re-mapeo por hoja destino falló', err); }
+  };
+
+  // Cambiar la conexión destino: cargar sus pestañas, elegir una y re-mapear.
+  const handleDestConnChange = async (connId) => {
+    setDestTargetConnId(connId);
+    setMasterDestSheet('');
+    setMasterDestSheets({});
+    if (!connId) return;
+    try {
+      const res = await fetch(`${API}/api/connections/${connId}/metadata`);
+      if (!res.ok) return;
+      const meta = await res.json();
+      const sheets = meta.sheets || {};
+      setMasterDestSheets(sheets);
+      const first = (String(connId) === String(masterConnId) && masterSheetNameRef && sheets[masterSheetNameRef])
+        ? masterSheetNameRef
+        : (Object.keys(sheets)[0] || '');
+      await handleMasterDestChange(first, sheets);
+    } catch (err) { console.error('No se pudieron leer las pestañas del destino', err); }
   };
 
   const handleSaveProcess = async (e) => {
@@ -430,10 +453,10 @@ export default function SourceWizard() {
           sku_column_source: skuColSource,
           sku_column_master: masterSkuCol,
           field_mappings: mappings,
-          // Hoja destino dentro de la Maestra. Si es la principal el motor la
-          // resuelve igual; mandarla explícita permite elegir otra pestaña.
-          ...(masterConnId && masterDestSheet
-            ? { target_connection_id: masterConnId, target_sheet_name: masterDestSheet }
+          // Destino elegido (conexión + hoja). Por defecto la Maestra; mandarlo
+          // explícito permite apuntar a otra planilla o pestaña.
+          ...((destTargetConnId || masterConnId) && masterDestSheet
+            ? { target_connection_id: parseInt(destTargetConnId || masterConnId), target_sheet_name: masterDestSheet }
             : {}),
           add_new_rows: true,
           is_active: true
@@ -986,18 +1009,30 @@ export default function SourceWizard() {
                 </div>
               )}
 
-              {/* Hoja destino dentro de la Maestra: por defecto la principal,
-                  pero se puede elegir otra pestaña de la misma planilla. */}
-              {Object.keys(masterDestSheets).length > 1 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hoja destino en la Maestra</label>
-                  <select value={masterDestSheet} onChange={e => handleMasterDestChange(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg p-2 text-sm max-w-sm bg-white">
-                    {Object.keys(masterDestSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+              {/* Destino: a dónde se escribe. Por defecto la Maestra, pero se
+                  puede apuntar a otra planilla Google Sheets o a otra pestaña. */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                <label className="block text-sm font-medium text-emerald-800 mb-2">📥 Destino (a dónde se escribe)</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <select value={destTargetConnId} onChange={e => handleDestConnChange(e.target.value)}
+                    className="w-full border border-emerald-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Conexión...</option>
+                    {connections.filter(c => c.connection_type === 'google_sheets').map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{String(c.id) === String(masterConnId) ? ' (Maestra)' : ''}
+                      </option>
+                    ))}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">La pestaña de tu Maestra donde se descargan estos datos.</p>
+                  {Object.keys(masterDestSheets).length > 0 && (
+                    <select value={masterDestSheet} onChange={e => handleMasterDestChange(e.target.value)}
+                      className="w-full border border-emerald-200 rounded-lg p-2 text-sm bg-white">
+                      <option value="">Hoja...</option>
+                      {Object.keys(masterDestSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                    </select>
+                  )}
                 </div>
-              )}
+                <p className="text-xs text-emerald-700 mt-1">Por defecto tu Maestra. Podés elegir otra planilla o pestaña como destino de estos datos.</p>
+              </div>
 
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
                 <div className="grid grid-cols-2 gap-4 mb-4">

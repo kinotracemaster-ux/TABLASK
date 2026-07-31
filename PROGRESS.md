@@ -15,6 +15,17 @@
 - El Master todavía tiene campos de enriquecimiento por llenar.
 
 ## Hecho
+- **Hoja destino configurable por flujo (UI):** el backend ya soportaba destino
+  propio por proceso (`Process.target_connection_id`/`target_sheet_name`, resuelto
+  en `_compute_master_sync`), pero la UI lo amarraba a la Maestra. Ahora se expone:
+  - `SourceWizard.jsx` (paso 2): selector de **conexión destino** (Google Sheets)
+    + hoja, no solo pestañas de la Maestra. Default = Maestra.
+  - `Flujos.jsx` (editar fuente): bloque "Destino" con conexión + hoja; las columnas
+    de SKU/mapeo se leen del destino elegido. Al guardar, si el destino es la Maestra
+    principal se manda `null` (para que siga a la Maestra si se re-enlaza).
+  - Las tarjetas de fuente muestran "→ Destino: …" y el banner ya no afirma que
+    *todos* los flujos van a la Maestra (es el default, no una regla dura).
+
 - **Guardián inteligente** para crear productos nuevos: ya no bloquea por baja
   coherencia a secas. Ahora solo salta (auto/push) si las filas nuevas parecen
   un FORMATO DE SKU ROTO (casi-idénticas a SKUs existentes). Los productos

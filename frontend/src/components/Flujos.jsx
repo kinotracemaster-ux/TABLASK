@@ -66,6 +66,8 @@ export default function Flujos() {
   // Maestra enlazada (para el banner "a dónde va todo")
   const [masterInfo, setMasterInfo] = useState(null);   // {sheet, rows} o null
   const [masterChecked, setMasterChecked] = useState(false);
+  const [masterConnId, setMasterConnId] = useState(null);     // conexión real de la Maestra global
+  const [masterSheetName, setMasterSheetName] = useState(null); // pestaña principal de la Maestra
 
   // --- Edición: Destino API genérica ---
   const [editApiSub, setEditApiSub] = useState(null);
@@ -88,6 +90,11 @@ export default function Flujos() {
   const [epMappings, setEpMappings] = useState([{ src: '', dst: '' }]);
   const [epAddNewRows, setEpAddNewRows] = useState(true);
   const [epZeroMissingStock, setEpZeroMissingStock] = useState(false);
+  // Destino del proceso: conexión Google Sheets + hoja. Por defecto la Maestra,
+  // pero se puede apuntar a otra planilla/pestaña.
+  const [epTargetConnId, setEpTargetConnId] = useState('');
+  const [epTargetSheet, setEpTargetSheet] = useState('');
+  const [editProcTargetSheets, setEditProcTargetSheets] = useState({}); // {pestaña: [columnas]}
 
   // --- Edición: Destino (Suscripción) ---
   const [editSub, setEditSub] = useState(null);
@@ -127,9 +134,13 @@ export default function Flujos() {
       try {
         const masterRes = await fetch(`${API}/api/master`);
         const m = await masterRes.json();
-        setMasterInfo(masterRes.ok && m.master_connection_id
-          ? { sheet: m.master_sheet_name, rows: m.total_rows ?? null }
-          : null);
+        if (masterRes.ok && m.master_connection_id) {
+          setMasterInfo({ sheet: m.master_sheet_name, rows: m.total_rows ?? null });
+          setMasterConnId(m.master_connection_id);
+          setMasterSheetName(m.master_sheet_name);
+        } else {
+          setMasterInfo(null);
+        }
       } catch { setMasterInfo(null); }
       setMasterChecked(true);
 
@@ -152,6 +163,18 @@ export default function Flujos() {
   };
 
   const connName = (id) => connections.find(c => c.id === id)?.name || `Conexión ${id}`;
+
+  // Conexiones que pueden ser destino de escritura (la Maestra vive en Sheets).
+  const gsConnections = connections.filter(c => c.connection_type === 'google_sheets');
+
+  // A dónde escribe un proceso: la Maestra (default) o una hoja propia.
+  const procTargetLabel = (proc) => {
+    const isMaster = !proc.target_connection_id
+      || (String(proc.target_connection_id) === String(masterConnId)
+          && (!proc.target_sheet_name || proc.target_sheet_name === masterSheetName));
+    if (isMaster) return 'Maestra';
+    return `${connName(proc.target_connection_id)} / "${proc.target_sheet_name}"`;
+  };
 
   // --- Fuentes (Procesos) ---
   const toggleProcess = async (proc) => {
@@ -391,27 +414,65 @@ export default function Flujos() {
     setEpMappings(Object.entries(proc.field_mappings || {}).map(([src, dst]) => ({ src, dst })));
     setEpAddNewRows(proc.add_new_rows);
     setEpZeroMissingStock(proc.zero_missing_stock ?? false);
+    // Destino: el del proceso o, si no tiene, la Maestra global.
+    const tConn = proc.target_connection_id || masterConnId || '';
+    const tSheet = proc.target_sheet_name || masterSheetName || '';
+    setEpTargetConnId(tConn ? String(tConn) : '');
+    setEpTargetSheet(tSheet);
+    setEditProcTargetSheets({});
     setEditProcLoading(true);
     try {
-      const [metaRes, colsRes] = await Promise.all([
+      const reqs = [
         fetch(`${API}/api/connections/${proc.source_connection_id}/metadata`),
         fetch(`${API}/api/master-columns`)
-      ]);
+      ];
+      if (tConn) reqs.push(fetch(`${API}/api/connections/${tConn}/metadata`));
+      const [metaRes, colsRes, tMetaRes] = await Promise.all(reqs);
       const meta = await metaRes.json();
       setEditProcSheets(metaRes.ok ? (meta.sheets || {}) : {});
       const cols = await colsRes.json();
       setEditProcMasterCols(colsRes.ok && Array.isArray(cols) ? cols : []);
+      if (tMetaRes && tMetaRes.ok) {
+        const tMeta = await tMetaRes.json();
+        setEditProcTargetSheets(tMeta.sheets || {});
+      }
     } catch (err) { console.error(err); }
     setEditProcLoading(false);
+  };
+
+  // Cambiar la conexión destino: cargar sus pestañas y elegir una por defecto.
+  const handleEpTargetConnChange = async (connId) => {
+    setEpTargetConnId(connId);
+    setEpTargetSheet('');
+    setEditProcTargetSheets({});
+    if (!connId) return;
+    try {
+      const res = await fetch(`${API}/api/connections/${connId}/metadata`);
+      if (res.ok) {
+        const meta = await res.json();
+        const sheets = meta.sheets || {};
+        setEditProcTargetSheets(sheets);
+        const first = (String(connId) === String(masterConnId) && masterSheetName && sheets[masterSheetName])
+          ? masterSheetName
+          : (Object.keys(sheets)[0] || '');
+        setEpTargetSheet(first);
+      }
+    } catch (err) { console.error(err); }
   };
 
   const saveEditProcess = async (e) => {
     e.preventDefault();
     const mappings = {};
     epMappings.forEach(({ src, dst }) => { if (src && dst) mappings[src] = dst; });
-    if (!epSkuSrc || !epSkuMaster) { alert('Falta confirmar la columna SKU (origen y maestra).'); return; }
+    if (!epSkuSrc || !epSkuMaster) { alert('Falta confirmar la columna SKU (origen y destino).'); return; }
     if (Object.keys(mappings).length === 0) { alert('Agregá al menos un campo.'); return; }
+    if (!epTargetConnId || !epTargetSheet) { alert('Elegí la conexión y la hoja destino.'); return; }
     setEditProcSaving(true);
+    // Si el destino elegido es la Maestra principal, se guarda null para que el
+    // proceso siga a la Maestra aunque luego se re-enlace a otra planilla/hoja.
+    const isMasterTarget = masterConnId
+      && String(epTargetConnId) === String(masterConnId)
+      && epTargetSheet === masterSheetName;
     try {
       const res = await fetch(`${API}/api/processes/${editProc.id}`, {
         method: 'PUT',
@@ -421,8 +482,8 @@ export default function Flujos() {
           description: editProc.description,
           source_connection_id: editProc.source_connection_id,
           source_sheet_name: epSheet,
-          target_connection_id: editProc.target_connection_id,
-          target_sheet_name: editProc.target_sheet_name,
+          target_connection_id: isMasterTarget ? null : parseInt(epTargetConnId),
+          target_sheet_name: isMasterTarget ? null : epTargetSheet,
           sku_column_source: epSkuSrc,
           sku_column_master: epSkuMaster,
           field_mappings: mappings,
@@ -535,6 +596,10 @@ export default function Flujos() {
   };
 
   const epSourceCols = epSheet && editProcSheets[epSheet] ? editProcSheets[epSheet] : [];
+  // Columnas del destino elegido; si no hay metadata de esa hoja, caemos a las de la Maestra.
+  const epTargetCols = epTargetSheet && editProcTargetSheets[epTargetSheet]
+    ? editProcTargetSheets[epTargetSheet]
+    : editProcMasterCols;
   const esTargetCols = esSheet && editSubSheets[esSheet] ? editSubSheets[esSheet] : [];
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando...</div>;
@@ -559,7 +624,7 @@ export default function Flujos() {
         <div className="flex items-center gap-2 text-sm bg-indigo-50/60 border border-indigo-100 rounded-xl px-4 py-2.5 text-gray-600">
           <Database className="w-4 h-4 text-indigo-500 flex-shrink-0" />
           <span>
-            Todos los flujos pasan por tu Maestra:&nbsp;
+            Tu Tabla Maestra (destino por defecto):&nbsp;
             <span className="font-semibold text-gray-800">"{masterInfo.sheet}"</span>
             {masterInfo.rows != null && <span className="text-gray-400"> · {masterInfo.rows} filas</span>}
           </span>
@@ -617,6 +682,7 @@ export default function Flujos() {
                   </div>
                 </div>
                 <p className="text-sm text-gray-500">{connName(proc.source_connection_id)} / "{proc.source_sheet_name}"</p>
+                <p className="text-xs text-gray-500 mt-0.5">→ Destino: <span className="font-medium text-gray-600">{procTargetLabel(proc)}</span></p>
                 <p className="text-xs text-gray-400 mt-1">Llave: {proc.sku_column_source} ↔ {proc.sku_column_master} · {Object.keys(proc.field_mappings || {}).length} campo(s)</p>
                 <button
                   onClick={() => setRunProcs([{ id: proc.id, name: proc.name }])}
@@ -797,13 +863,35 @@ export default function Flujos() {
 
               {Object.keys(editProcSheets).length > 1 && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Pestaña / hoja</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Pestaña / hoja de origen</label>
                   <select value={epSheet} onChange={e => setEpSheet(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
                     {Object.keys(editProcSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
                   </select>
                 </div>
               )}
+
+              {/* Destino: a dónde escribe este flujo (por defecto la Maestra) */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                <label className="block text-sm font-medium text-emerald-800 mb-2">📥 Destino (a dónde se escribe)</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <select value={epTargetConnId} onChange={e => handleEpTargetConnChange(e.target.value)}
+                    className="w-full border border-emerald-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Conexión...</option>
+                    {gsConnections.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{String(c.id) === String(masterConnId) ? ' (Maestra)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <select value={epTargetSheet} onChange={e => setEpTargetSheet(e.target.value)}
+                    className="w-full border border-emerald-200 rounded-lg p-2 text-sm bg-white">
+                    <option value="">Hoja...</option>
+                    {Object.keys(editProcTargetSheets).map(sh => <option key={sh} value={sh}>{sh}</option>)}
+                  </select>
+                </div>
+                <p className="text-xs text-emerald-700 mt-1">Por defecto tu Maestra. Podés apuntar este flujo a otra planilla o pestaña.</p>
+              </div>
 
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
                 <div className="grid grid-cols-2 gap-4 mb-4">
@@ -816,18 +904,18 @@ export default function Flujos() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-indigo-800 mb-1">🔑 SKU en la Maestra</label>
+                    <label className="block text-sm font-medium text-indigo-800 mb-1">🔑 SKU en el destino</label>
                     <select value={epSkuMaster} onChange={e => setEpSkuMaster(e.target.value)}
                       className="w-full border border-indigo-200 rounded-lg p-2 text-sm bg-white">
                       <option value="">Seleccionar...</option>
-                      {editProcMasterCols.map(c => <option key={c} value={c}>{c}</option>)}
+                      {epTargetCols.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                 </div>
                 <label className="block text-sm font-medium text-indigo-800 mb-2">Campos</label>
                 <MappingEditor mappings={epMappings} setMappings={setEpMappings}
-                  srcOptions={epSourceCols} dstOptions={editProcMasterCols}
-                  srcLabel="Origen" dstLabel="Maestra" />
+                  srcOptions={epSourceCols} dstOptions={epTargetCols}
+                  srcLabel="Origen" dstLabel="Destino" />
               </div>
 
               <label className="flex items-center gap-2 text-sm text-gray-700">
