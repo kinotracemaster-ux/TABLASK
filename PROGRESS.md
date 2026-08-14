@@ -15,6 +15,18 @@
 - El Master todavía tiene campos de enriquecimiento por llenar.
 
 ## Hecho
+- **Push a Shopify con campos configurables (uno o varios):** antes el destino solo
+  mandaba precio/stock. Ahora se pueden elegir campos a nivel VARIANTE que Shopify
+  acepta cruzando por SKU: **precio, stock, precio comparativo (oferta) y código de
+  barras** — uno o varios, opcionales. Sigue sin crear productos ni tocar datos de
+  producto (título/descripción). Cambios: 2 columnas nuevas en `ShopifySubscription`
+  (`compare_price_column_master`, `barcode_column_master`) con auto-migración en
+  `main.py`; `push_updates` arma una sola llamada bulk de variante con los campos
+  activos (`do_compare_price`/`do_barcode`, contadores nuevos en el summary);
+  `build_updates_from_sheet`, `build_shopify_updates`, el push directo `/api/shopify/push`
+  y el diff de propagación extendidos. UI en las 3 pantallas (FileToShopify, asistente,
+  modal de Flujos). Tests nuevos en `test_shopify_push.py` y `test_shopify_subscription_diff.py`
+  (136 pasan). Regla en CLAUDE.md actualizada.
 - **Página dedicada "Archivo → Maestra → Shopify" (subida):** módulo propio en el
   menú, simétrico al de "Shopify → Maestra" (bajada), al estilo del screenshot del
   usuario. Tres tarjetas numeradas apiladas en una sola pantalla:

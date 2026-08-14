@@ -62,6 +62,8 @@ export default function FileToShopify() {
   const [shopConnId, setShopConnId] = useState('');
   const [shopPriceCol, setShopPriceCol] = useState('');
   const [shopStockCol, setShopStockCol] = useState('');
+  const [shopCompareCol, setShopCompareCol] = useState('');
+  const [shopBarcodeCol, setShopBarcodeCol] = useState('');
   const [shopLocations, setShopLocations] = useState([]);
   const [shopLocId, setShopLocId] = useState('');
   const [shopLocError, setShopLocError] = useState(null);
@@ -233,7 +235,7 @@ export default function FileToShopify() {
   const saveShopSub = async () => {
     setShopError(null);
     if (!shopConnId) { setShopError('Elegí la tienda Shopify.'); return; }
-    if (!shopPriceCol && !shopStockCol) { setShopError('Mapeá al menos Precio o Stock.'); return; }
+    if (!shopPriceCol && !shopStockCol && !shopCompareCol && !shopBarcodeCol) { setShopError('Mapeá al menos un campo (precio, stock, precio comparativo o código de barras).'); return; }
     if (shopStockCol && shopLocations.length > 1 && !shopLocId) {
       setShopError('Tu tienda tiene varias bodegas: elegí la ubicación destino del stock.'); return;
     }
@@ -245,6 +247,8 @@ export default function FileToShopify() {
         connection_id: parseInt(shopConnId),
         price_column_master: shopPriceCol || null,
         stock_column_master: shopStockCol || null,
+        compare_price_column_master: shopCompareCol || null,
+        barcode_column_master: shopBarcodeCol || null,
         location_id: shopLocId || null,
         is_active: true,
       };
@@ -283,7 +287,7 @@ export default function FileToShopify() {
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando...</div>;
 
-  const shopConfigReady = shopConnId && (shopPriceCol || shopStockCol);
+  const shopConfigReady = shopConnId && (shopPriceCol || shopStockCol || shopCompareCol || shopBarcodeCol);
 
   return (
     <div className="p-8 max-w-3xl mx-auto space-y-6">
@@ -488,6 +492,7 @@ export default function FileToShopify() {
               )}
             </div>
 
+            <p className="text-xs text-gray-500 mb-2">Elegí uno o varios campos para enviar (todos por SKU, a nivel variante — no se crean productos):</p>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Precio (Maestra)</label>
@@ -500,6 +505,22 @@ export default function FileToShopify() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Stock (Maestra)</label>
                 <select value={shopStockCol} onChange={e => { setShopStockCol(e.target.value); setShopSubId(null); }}
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— no enviar —</option>
+                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Precio comparativo / oferta</label>
+                <select value={shopCompareCol} onChange={e => { setShopCompareCol(e.target.value); setShopSubId(null); }}
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— no enviar —</option>
+                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Código de barras</label>
+                <select value={shopBarcodeCol} onChange={e => { setShopBarcodeCol(e.target.value); setShopSubId(null); }}
                   className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
                   <option value="">— no enviar —</option>
                   {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
@@ -546,6 +567,8 @@ export default function FileToShopify() {
             {shopResult && (
               <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
                 ✅ Enviado: {shopResult.price_updated} precios · {shopResult.stock_updated} stock
+                {shopResult.compare_price_updated ? ` · ${shopResult.compare_price_updated} precio comparativo` : ''}
+                {shopResult.barcode_updated ? ` · ${shopResult.barcode_updated} códigos de barras` : ''}
               </div>
             )}
           </>

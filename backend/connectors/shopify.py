@@ -318,10 +318,13 @@ class ShopifyConnector(BaseConnector):
             raise ValueError(str(errs)[:250])
 
     def push_updates(self, updates: List[Dict[str, Any]], do_price: bool, do_stock: bool,
-                     dry_run: bool = False, location_id: str = None) -> Dict[str, Any]:
+                     dry_run: bool = False, location_id: str = None,
+                     do_compare_price: bool = False, do_barcode: bool = False) -> Dict[str, Any]:
         """
-        Escribe precio/stock en Shopify cruzando por SKU.
-        updates: [{"sku":..., "price":..., "stock":...}]. dry_run solo reporta el cruce.
+        Escribe campos de VARIANTE en Shopify cruzando por SKU (nunca crea productos).
+        updates: [{"sku":..., "price":..., "stock":..., "compare_at_price":..., "barcode":...}].
+        Cada do_* activa el campo correspondiente; solo se escriben los que traen valor.
+        dry_run solo reporta el cruce.
         location_id: ubicación donde SET del inventario. Si None, usa la primera (arriesgado
         si hay varias bodegas) — la UI debería mandarlo explícito.
         """
@@ -341,27 +344,43 @@ class ShopifyConnector(BaseConnector):
             "not_found": not_found[:200],
             "price_updated": 0,
             "stock_updated": 0,
+            "compare_price_updated": 0,
+            "barcode_updated": 0,
             "errors": [],
         }
         if dry_run:
             return summary
 
-        # Precio: agrupado por producto (productVariantsBulkUpdate es por producto).
-        if do_price:
+        # Campos de variante (precio, precio comparativo, barcode): se agrupan por
+        # producto y se mandan en una sola llamada bulk (productVariantsBulkUpdate).
+        if do_price or do_compare_price or do_barcode:
             by_product: Dict[str, List[Dict[str, str]]] = {}
             for u, info in matched:
-                price = u.get("price")
-                if price in (None, "") or not info.get("product_id"):
+                if not info.get("product_id") or not info.get("variant_id"):
                     continue
-                by_product.setdefault(info["product_id"], []).append(
-                    {"id": info["variant_id"], "price": str(price).replace(",", ".").strip()}
-                )
+                vin: Dict[str, str] = {"id": info["variant_id"]}
+                if do_price:
+                    price = u.get("price")
+                    if price not in (None, ""):
+                        vin["price"] = str(price).replace(",", ".").strip()
+                if do_compare_price:
+                    cmp_price = u.get("compare_at_price")
+                    if cmp_price not in (None, ""):
+                        vin["compareAtPrice"] = str(cmp_price).replace(",", ".").strip()
+                if do_barcode:
+                    barcode = u.get("barcode")
+                    if barcode not in (None, ""):
+                        vin["barcode"] = str(barcode).strip()
+                if len(vin) > 1:  # además del id, trae al menos un campo
+                    by_product.setdefault(info["product_id"], []).append(vin)
             for pid, variants in by_product.items():
                 try:
                     self._price_bulk_update(pid, variants)
-                    summary["price_updated"] += len(variants)
+                    summary["price_updated"] += sum(1 for v in variants if "price" in v)
+                    summary["compare_price_updated"] += sum(1 for v in variants if "compareAtPrice" in v)
+                    summary["barcode_updated"] += sum(1 for v in variants if "barcode" in v)
                 except Exception as e:
-                    summary["errors"].append(f"precio (producto {pid[-8:]}): {str(e)[:140]}")
+                    summary["errors"].append(f"variante (producto {pid[-8:]}): {str(e)[:140]}")
 
         # Inventario: por lotes a la ubicación elegida (o la primera si no se indicó).
         if do_stock:

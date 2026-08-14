@@ -57,7 +57,9 @@ pytest -q
 - **El SKU es la llave.** El cruce usa SKU *normalizado* (`normalize_sku_for_match`);
   la normalización es solo para comparar — el SKU guardado no se altera.
 - **Nunca se crean productos en Shopify.** Los SKUs que no cruzan se reportan como
-  `not_found`. El push solo actualiza precio/stock de variantes existentes.
+  `not_found`. El push solo actualiza campos a nivel VARIANTE de productos existentes
+  (precio, stock, precio comparativo, código de barras) — configurables uno o varios
+  por destino. No toca datos de producto (título/descripción/imágenes).
 - **Modelo simétrico de canales:** entra por archivo o API (pull o push con `api-key`
   por el túnel real) → Maestra → cada canal sale por API (`ApiSubscription`, diff
   quirúrgico) o archivo (CSV con link fijo `?token=`). El túnel (Lavadero → Guardián →
