@@ -15,6 +15,20 @@
 - El Master todavía tiene campos de enriquecimiento por llenar.
 
 ## Hecho
+- **Diagrama de flujo interactivo (home):** el `PipelineBar` (Fuentes → Maestra →
+  Destinos) dejó de ser solo visual. Cada nodo ahora tiene botones que llevan a la
+  acción real vía deep-link `/flujos?action=&node=`:
+  - Fuente → **Correr** (vista previa) y **Editar** el mapeo.
+  - Maestra → **Ver Maestra**.
+  - Destino Shopify/API → **Enviar** (push ahora) y **Editar**; hoja hija → **Editar**.
+  Se agregó una línea que explica el camino ("Subís por una Fuente → Maestra →
+  Destino"). Genérico para cualquier fuente/destino (el caso Poe→Shopify es un
+  ejemplo). `Flujos.jsx` lee el deep-link y dispara el handler ya existente.
+- **Editar destinos Shopify:** faltaba el modal de edición (antes solo se podía
+  enviar/pausar/borrar). Ahora se puede cambiar nombre, tienda, columnas de
+  precio/stock (desde `master-columns`) y location_id. (`Flujos.jsx`,
+  `PUT /api/shopify-subscriptions/{id}` ya existía.)
+
 - **Guardián inteligente** para crear productos nuevos: ya no bloquea por baja
   coherencia a secas. Ahora solo salta (auto/push) si las filas nuevas parecen
   un FORMATO DE SKU ROTO (casi-idénticas a SKUs existentes). Los productos
