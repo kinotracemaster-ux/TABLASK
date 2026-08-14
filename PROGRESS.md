@@ -15,6 +15,15 @@
 - El Master todavía tiene campos de enriquecimiento por llenar.
 
 ## Hecho
+- **Cierre "Correr ahora" en el asistente (Nueva Fuente):** el flujo
+  Archivo → Maestra → Shopify ya existía entero en el wizard, pero al crear la
+  fuente NO se corría → la Maestra no se actualizaba hasta un "Correr Procesos"
+  manual y poco visible. Ahora el Paso 3 termina con una tarjeta **"Actualizar
+  ahora"** (mini-diagrama Archivo → Maestra → Shopify + botón **Correr ahora**)
+  que abre el `RunFlowModal` del proceso recién creado: vista previa → escribe la
+  Maestra (quirúrgico) → la propagación empuja precio/stock al destino Shopify
+  guardado. Cierra el círculo en un solo lugar. (`SourceWizard.jsx`: `createdProc`,
+  `runProc`, reusa `RunFlowModal` y `staging/execute-bulk`.)
 - **Diagrama de flujo interactivo (home):** el `PipelineBar` (Fuentes → Maestra →
   Destinos) dejó de ser solo visual. Cada nodo ahora tiene botones que llevan a la
   acción real vía deep-link `/flujos?action=&node=`:

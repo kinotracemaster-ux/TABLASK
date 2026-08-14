@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { UploadCloud, Link2, Server, Store, ChevronRight, CheckCircle2, ArrowRight, Sparkles, Download, FileDown, Eye, Send, XCircle, AlertTriangle, Globe, Database, Trash2 } from 'lucide-react';
+import { UploadCloud, Link2, Server, Store, ChevronRight, CheckCircle2, ArrowRight, Sparkles, Download, FileDown, Eye, Send, XCircle, AlertTriangle, Globe, Database, Trash2, Zap } from 'lucide-react';
 import { extractError, formatError } from '../utils/errors';
+import RunFlowModal from './RunFlowModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -88,6 +89,9 @@ export default function SourceWizard() {
   const [processName, setProcessName] = useState('');
   const [loadingMap, setLoadingMap] = useState(false);
   const [savingProcess, setSavingProcess] = useState(false);
+  // Proceso recién creado, para el cierre "Correr ahora" (Archivo → Maestra → destinos).
+  const [createdProc, setCreatedProc] = useState(null);   // {id, name}
+  const [runProc, setRunProc] = useState(null);           // proceso abierto en el RunFlowModal
 
   // --- Paso 3: Destinos ---
   const [destinations, setDestinations] = useState([]); // suscripciones + csv exports ya existentes
@@ -440,6 +444,8 @@ export default function SourceWizard() {
         })
       });
       if (!res.ok) throw new Error(await extractError(res));
+      const created = await res.json();
+      setCreatedProc({ id: created.id, name: created.name });
       if (projectId) await loadDestinations(projectId);
       setStep('destinos');
     } catch (err) {
@@ -1070,7 +1076,7 @@ export default function SourceWizard() {
             <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0" />
             <div>
               <p className="font-semibold text-green-800">Fuente lista y activa.</p>
-              <p className="text-sm text-green-700">Ya la va a tomar "⚡ Correr Procesos" en la próxima corrida. Ahora, opcionalmente, elegí a dónde se distribuyen los datos enriquecidos.</p>
+              <p className="text-sm text-green-700">Elegí a dónde se distribuyen los datos (ej. tu tienda Shopify) y, al final, tocá <strong>"Correr ahora"</strong> para escribir la Maestra y enviar a los destinos en un solo paso.</p>
             </div>
           </div>
 
@@ -1418,11 +1424,55 @@ export default function SourceWizard() {
             )}
           </div>
 
+          {/* Cierre del flujo: correr ahora escribe el archivo en la Maestra y, si
+              guardaste un destino Shopify arriba, dispara el envío a la tienda. */}
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-indigo-900 mb-1 flex items-center gap-2">
+              <Zap className="w-4 h-4 text-indigo-600" /> Actualizar ahora
+            </h3>
+            {/* Mini-diagrama del camino: Archivo → Maestra → Destino */}
+            <div className="flex items-center gap-2 text-xs font-medium text-gray-600 my-3 flex-wrap">
+              <span className="flex items-center gap-1 bg-white border border-gray-200 rounded-full px-2.5 py-1">
+                <UploadCloud className="w-3.5 h-3.5 text-indigo-500" /> Archivo
+              </span>
+              <ArrowRight className="w-3.5 h-3.5 text-gray-300" />
+              <span className="flex items-center gap-1 bg-white border border-indigo-200 rounded-full px-2.5 py-1">
+                <Database className="w-3.5 h-3.5 text-indigo-500" /> Maestra
+              </span>
+              <ArrowRight className="w-3.5 h-3.5 text-gray-300" />
+              <span className="flex items-center gap-1 bg-white border border-green-200 rounded-full px-2.5 py-1">
+                <Store className="w-3.5 h-3.5 text-green-600" /> Shopify / destinos
+              </span>
+            </div>
+            <p className="text-xs text-gray-600 mb-3">
+              Corré el flujo con vista previa: se escribe este archivo en la Maestra y,
+              si guardaste un destino Shopify arriba, el precio/stock sale solo a la tienda.
+              Nunca se crean productos: solo se actualizan los que cruzan por SKU.
+            </p>
+            <button onClick={() => createdProc && setRunProc(createdProc)} disabled={!createdProc}
+              className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 text-sm">
+              <Zap className="w-4 h-4" /> Correr ahora — actualizar Maestra y enviar a destinos
+            </button>
+          </div>
+
           <button onClick={() => navigate('/')}
             className="flex items-center gap-2 bg-gray-800 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-gray-900 text-sm">
             Terminar e ir a la Tabla Maestra <ArrowRight className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {runProc && (
+        <RunFlowModal
+          procs={[runProc]}
+          onClose={() => setRunProc(null)}
+          onDone={() => {
+            // Refrescar los datos de la Maestra (filas/columnas) tras escribir.
+            fetch(`${API}/api/master`).then(r => r.json()).then(m => {
+              setMasterRowsRef(m.total_rows ?? null);
+            }).catch(() => {});
+          }}
+        />
       )}
     </div>
   );
