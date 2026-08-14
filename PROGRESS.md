@@ -15,6 +15,17 @@
 - El Master todavía tiene campos de enriquecimiento por llenar.
 
 ## Hecho
+- **Página dedicada "Archivo → Maestra → Shopify" (subida):** módulo propio en el
+  menú, simétrico al de "Shopify → Maestra" (bajada), al estilo del screenshot del
+  usuario. Tres tarjetas numeradas apiladas en una sola pantalla:
+  1) **Archivo** — subir nuevo o elegir uno ya subido → lee columnas → auto-detecta
+     SKU y auto-mapea contra la Maestra (editable) → "Guardar" crea la Fuente.
+  2) **Maestra** — botón "Actualizar Maestra ahora" que abre el `RunFlowModal` del
+     proceso (vista previa → escritura quirúrgica).
+  3) **Shopify** — tienda + precio/stock (columnas Maestra) + bodega → "Guardar
+     destino" (`ShopifySubscription`) → Previsualizar / Enviar (`push-now`).
+  Reusa endpoints existentes; sin lógica nueva de backend. (`FileToShopify.jsx`,
+  ruta `/subir-shopify`, link en `App.jsx`.)
 - **Cierre "Correr ahora" en el asistente (Nueva Fuente):** el flujo
   Archivo → Maestra → Shopify ya existía entero en el wizard, pero al crear la
   fuente NO se corría → la Maestra no se actualizaba hasta un "Correr Procesos"
