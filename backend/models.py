@@ -178,9 +178,12 @@ class ShopifySubscription(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)                     # Ej: "Shopi-Poe"
     connection_id = Column(Integer, ForeignKey("connections.id"), nullable=False)
-    # Columnas DE LA MAESTRA que alimentan la tienda (al menos una)
+    # Columnas DE LA MAESTRA que alimentan la tienda (al menos una). Todas son a
+    # nivel VARIANTE (se actualizan cruzando por SKU, sin crear productos).
     price_column_master = Column(String, nullable=True)
     stock_column_master = Column(String, nullable=True)
+    compare_price_column_master = Column(String, nullable=True)  # precio comparativo / oferta
+    barcode_column_master = Column(String, nullable=True)        # código de barras
     # Ubicación/bodega destino del stock (gid://shopify/Location/...). Si es nulo
     # y la tienda tiene una sola bodega, se usa esa.
     location_id = Column(String, nullable=True)

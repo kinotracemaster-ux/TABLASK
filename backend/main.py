@@ -112,6 +112,20 @@ for _col_sql in (
     except Exception as e:
         print(f"Migración Shopify omitida ({_col_sql.split('ADD COLUMN ')[1]}):", e)
 
+# Campos extra (a nivel variante) que un destino Shopify puede escribir además de
+# precio/stock: precio comparativo (oferta) y código de barras. Cada uno opcional.
+for _col_sql in (
+    "ALTER TABLE shopify_subscriptions ADD COLUMN compare_price_column_master VARCHAR",
+    "ALTER TABLE shopify_subscriptions ADD COLUMN barcode_column_master VARCHAR",
+):
+    try:
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            conn.execute(text(_col_sql))
+            conn.commit()
+    except Exception as e:
+        print(f"Migración Shopify sub omitida ({_col_sql.split('ADD COLUMN ')[1]}):", e)
+
 app = FastAPI(title="Actualizar Tablas K API")
 
 # CORS

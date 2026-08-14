@@ -61,3 +61,14 @@ def test_columna_no_mapeada_se_ignora():
 
 def test_diff_vacio_no_envia_nada():
     assert build_shopify_updates([], [], "price", "stock") == []
+
+
+def test_campos_extra_compare_y_barcode_viajan():
+    changes = [
+        {"sku": "1203", "field": "precio_oferta", "old": "0", "new": "150"},
+        {"sku": "1203", "field": "cod_barras", "old": "", "new": "779001"},
+        {"sku": "1203", "field": "color", "old": "", "new": "negro"},  # no mapeado: se ignora
+    ]
+    updates = build_shopify_updates(changes, [], price_col="price", stock_col="stock",
+                                    compare_col="precio_oferta", barcode_col="cod_barras")
+    assert updates == [{"sku": "1203", "compare_at_price": "150", "barcode": "779001"}]

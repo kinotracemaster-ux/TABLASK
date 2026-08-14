@@ -148,33 +148,38 @@ def _propagate_changes(db, project_id: int, changes: List[Dict[str, Any]], new_r
 # ═══════════════════════════════════════════════════════════════════
 
 def build_shopify_updates(changes: List[Dict[str, Any]], new_rows: List[Dict[str, Any]],
-                          price_col: str, stock_col: str) -> List[Dict[str, Any]]:
+                          price_col: str, stock_col: str,
+                          compare_col: str = None, barcode_col: str = None) -> List[Dict[str, Any]]:
     """
     Convierte el diff de la Maestra en updates por SKU para Shopify:
-    [{"sku": ..., "price"?: ..., "stock"?: ...}].
+    [{"sku": ..., "price"?: ..., "stock"?: ..., "compare_at_price"?: ..., "barcode"?: ...}].
 
-    Solo entran los SKUs cuyo precio/stock cambió en ESTA corrida (escritura
-    quirúrgica también hacia afuera: no se re-empujan los 3.000 productos).
-    Las filas nuevas de la Maestra se incluyen por si ya existen en la tienda;
-    si no cruzan, push_updates las reporta como not_found y NUNCA las crea.
+    Solo entran los SKUs cuyo(s) campo(s) mapeado(s) cambiaron en ESTA corrida
+    (escritura quirúrgica también hacia afuera: no se re-empujan los 3.000
+    productos). Las filas nuevas de la Maestra se incluyen por si ya existen en la
+    tienda; si no cruzan, push_updates las reporta como not_found y NUNCA las crea.
     """
     by_sku: Dict[str, Dict[str, Any]] = {}
+    # {columna_maestra: clave_en_update}
+    field_map = {}
+    if price_col:   field_map[price_col] = "price"
+    if stock_col:   field_map[stock_col] = "stock"
+    if compare_col: field_map[compare_col] = "compare_at_price"
+    if barcode_col: field_map[barcode_col] = "barcode"
 
     def entry(sku):
         return by_sku.setdefault(sku, {"sku": sku})
 
     for ch in changes:
-        if price_col and ch.get("field") == price_col:
-            entry(ch["sku"])["price"] = ch.get("new")
-        if stock_col and ch.get("field") == stock_col:
-            entry(ch["sku"])["stock"] = ch.get("new")
+        key = field_map.get(ch.get("field"))
+        if key:
+            entry(ch["sku"])[key] = ch.get("new")
 
     for nr in new_rows:
         fields = nr.get("fields", {}) or {}
-        if price_col and str(fields.get(price_col, "") or "").strip() != "":
-            entry(nr["sku"])["price"] = fields[price_col]
-        if stock_col and str(fields.get(stock_col, "") or "").strip() != "":
-            entry(nr["sku"])["stock"] = fields[stock_col]
+        for col, key in field_map.items():
+            if str(fields.get(col, "") or "").strip() != "":
+                entry(nr["sku"])[key] = fields[col]
 
     return list(by_sku.values())
 
@@ -191,9 +196,10 @@ def _push_shopify_subscriptions(db, changes: List[Dict[str, Any]], new_rows: Lis
 
     for sub in subs:
         try:
-            updates = build_shopify_updates(changes, new_rows, sub.price_column_master, sub.stock_column_master)
+            updates = build_shopify_updates(changes, new_rows, sub.price_column_master, sub.stock_column_master,
+                                            sub.compare_price_column_master, sub.barcode_column_master)
             if not updates:
-                continue  # El diff no tocó precio/stock: nada que enviar a esta tienda
+                continue  # El diff no tocó ningún campo mapeado: nada que enviar a esta tienda
 
             shop_conn = db.query(Connection).filter(Connection.id == sub.connection_id).first()
             if not shop_conn or shop_conn.connection_type != "shopify":
@@ -205,6 +211,8 @@ def _push_shopify_subscriptions(db, changes: List[Dict[str, Any]], new_rows: Lis
                 updates,
                 do_price=bool(sub.price_column_master) and any("price" in u for u in updates),
                 do_stock=bool(sub.stock_column_master) and any("stock" in u for u in updates),
+                do_compare_price=bool(sub.compare_price_column_master) and any("compare_at_price" in u for u in updates),
+                do_barcode=bool(sub.barcode_column_master) and any("barcode" in u for u in updates),
                 dry_run=False,
                 location_id=sub.location_id or None,
             )

@@ -233,6 +233,8 @@ class ShopifySubscriptionBase(BaseModel):
     connection_id: int                          # Conexión tipo 'shopify' (la tienda)
     price_column_master: Optional[str] = None   # Columna de la Maestra con el precio
     stock_column_master: Optional[str] = None   # Columna de la Maestra con el stock
+    compare_price_column_master: Optional[str] = None  # precio comparativo / oferta
+    barcode_column_master: Optional[str] = None        # código de barras
     location_id: Optional[str] = None           # Bodega destino del stock
     is_active: bool = True
 

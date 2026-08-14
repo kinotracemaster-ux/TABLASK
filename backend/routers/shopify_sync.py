@@ -15,6 +15,8 @@ class PushRequest(BaseModel):
     sku_column: str
     price_column: Optional[str] = None
     stock_column: Optional[str] = None
+    compare_price_column: Optional[str] = None    # precio comparativo / oferta
+    barcode_column: Optional[str] = None          # código de barras
     location_id: Optional[str] = None             # ubicación destino para el stock
     dry_run: bool = True
 
@@ -51,8 +53,8 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
     if not shop_conn or shop_conn.connection_type != "shopify":
         raise HTTPException(status_code=400, detail="La conexión indicada no es de tipo Shopify.")
 
-    if not req.price_column and not req.stock_column:
-        raise HTTPException(status_code=400, detail="Debes mapear al menos Precio o Stock.")
+    if not any([req.price_column, req.stock_column, req.compare_price_column, req.barcode_column]):
+        raise HTTPException(status_code=400, detail="Debes mapear al menos un campo (precio, stock, precio comparativo o código de barras).")
 
     src_conn_id = req.source_connection_id or _resolve_master_connection_id(db)
     src_conn = db.query(models.Connection).filter(
@@ -75,6 +77,8 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
     si = col_idx(req.sku_column)
     pi = col_idx(req.price_column)
     ti = col_idx(req.stock_column)
+    ci = col_idx(req.compare_price_column)
+    bi = col_idx(req.barcode_column)
     if si < 0:
         raise HTTPException(status_code=400, detail=f"La columna SKU '{req.sku_column}' no existe en la hoja.")
 
@@ -88,12 +92,17 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
             u["price"] = row[pi] if pi < len(row) else ""
         if ti >= 0:
             u["stock"] = row[ti] if ti < len(row) else ""
+        if ci >= 0:
+            u["compare_at_price"] = row[ci] if ci < len(row) else ""
+        if bi >= 0:
+            u["barcode"] = row[bi] if bi < len(row) else ""
         updates.append(u)
 
     connector = _create_connector(shop_conn)
     try:
         summary = connector.push_updates(
             updates, do_price=pi >= 0, do_stock=ti >= 0,
+            do_compare_price=ci >= 0, do_barcode=bi >= 0,
             dry_run=req.dry_run, location_id=req.location_id
         )
     except Exception as e:

@@ -101,6 +101,8 @@ export default function Flujos() {
   const [essConnId, setEssConnId] = useState('');
   const [essPrice, setEssPrice] = useState('');
   const [essStock, setEssStock] = useState('');
+  const [essCompare, setEssCompare] = useState('');
+  const [essBarcode, setEssBarcode] = useState('');
   const [essLocation, setEssLocation] = useState('');
 
   // --- Edición: Destino (Suscripción) ---
@@ -251,6 +253,8 @@ export default function Flujos() {
     const parts = [];
     if (sub.price_column_master) parts.push(`Precio: ${sub.price_column_master}`);
     if (sub.stock_column_master) parts.push(`Stock: ${sub.stock_column_master}`);
+    if (sub.compare_price_column_master) parts.push(`Comparativo: ${sub.compare_price_column_master}`);
+    if (sub.barcode_column_master) parts.push(`Barcode: ${sub.barcode_column_master}`);
     return parts.join(' · ');
   };
 
@@ -270,6 +274,8 @@ export default function Flujos() {
     setEssConnId(sub.connection_id);
     setEssPrice(sub.price_column_master || '');
     setEssStock(sub.stock_column_master || '');
+    setEssCompare(sub.compare_price_column_master || '');
+    setEssBarcode(sub.barcode_column_master || '');
     setEssLocation(sub.location_id || '');
     try {
       const res = await fetch(`${API}/api/master-columns`);
@@ -280,7 +286,7 @@ export default function Flujos() {
 
   const saveEditShopSub = async (e) => {
     e.preventDefault();
-    if (!essPrice && !essStock) { alert('Mapeá al menos la columna de Precio o la de Stock de la Maestra.'); return; }
+    if (!essPrice && !essStock && !essCompare && !essBarcode) { alert('Mapeá al menos un campo (precio, stock, precio comparativo o código de barras).'); return; }
     setEditShopSubSaving(true);
     try {
       const res = await fetch(`${API}/api/shopify-subscriptions/${editShopSub.id}`, {
@@ -291,6 +297,8 @@ export default function Flujos() {
           connection_id: Number(essConnId),
           price_column_master: essPrice || null,
           stock_column_master: essStock || null,
+          compare_price_column_master: essCompare || null,
+          barcode_column_master: essBarcode || null,
           location_id: essLocation || null,
           is_active: editShopSub.is_active,
         })
@@ -1164,9 +1172,25 @@ export default function Flujos() {
                   {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-green-800 mb-1">Precio comparativo / oferta</label>
+                <select value={essCompare} onChange={e => setEssCompare(e.target.value)}
+                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— sin precio comparativo —</option>
+                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-green-800 mb-1">Código de barras</label>
+                <select value={essBarcode} onChange={e => setEssBarcode(e.target.value)}
+                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— sin código de barras —</option>
+                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
             </div>
             <p className="text-xs text-gray-500 -mt-1">
-              Mapeá al menos Precio o Stock. Nunca se crean productos en Shopify: solo se
+              Elegí uno o varios campos. Nunca se crean productos en Shopify: solo se
               actualizan variantes que ya existen (cruce por SKU).
             </p>
 

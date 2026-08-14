@@ -26,8 +26,9 @@ def _validate_payload(sub: schemas.ShopifySubscriptionCreate, db: Session):
     conn = db.query(models.Connection).filter(models.Connection.id == sub.connection_id).first()
     if not conn or conn.connection_type != "shopify":
         raise HTTPException(status_code=400, detail="La conexión indicada no es una tienda Shopify.")
-    if not sub.price_column_master and not sub.stock_column_master:
-        raise HTTPException(status_code=400, detail="Mapeá al menos la columna de Precio o la de Stock de la Maestra.")
+    if not any([sub.price_column_master, sub.stock_column_master,
+                sub.compare_price_column_master, sub.barcode_column_master]):
+        raise HTTPException(status_code=400, detail="Mapeá al menos un campo de la Maestra (precio, stock, precio comparativo o código de barras).")
     return conn
 
 
@@ -39,6 +40,8 @@ def create_shopify_subscription(sub: schemas.ShopifySubscriptionCreate, db: Sess
         connection_id=sub.connection_id,
         price_column_master=sub.price_column_master,
         stock_column_master=sub.stock_column_master,
+        compare_price_column_master=sub.compare_price_column_master,
+        barcode_column_master=sub.barcode_column_master,
         location_id=sub.location_id,
         is_active=sub.is_active,
     )
@@ -63,6 +66,8 @@ def update_shopify_subscription(sub_id: int, sub: schemas.ShopifySubscriptionCre
     db_sub.connection_id = sub.connection_id
     db_sub.price_column_master = sub.price_column_master
     db_sub.stock_column_master = sub.stock_column_master
+    db_sub.compare_price_column_master = sub.compare_price_column_master
+    db_sub.barcode_column_master = sub.barcode_column_master
     db_sub.location_id = sub.location_id
     db_sub.is_active = sub.is_active
     db.commit()
@@ -105,14 +110,17 @@ def _get_master_context(db: Session):
     return project, master_conn, project.master_sheet_name, sku_column
 
 
-def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], stock_col: Optional[str]) -> list:
-    """Convierte la matriz de la Maestra en updates [{sku, price?, stock?}] para Shopify."""
+def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], stock_col: Optional[str],
+                             compare_col: Optional[str] = None, barcode_col: Optional[str] = None) -> list:
+    """Convierte la matriz de la Maestra en updates [{sku, price?, stock?, ...}] para Shopify."""
     headers = raw[0]
     if sku_col not in headers:
         raise HTTPException(status_code=400, detail=f"La columna SKU '{sku_col}' no existe en la Maestra.")
     si = headers.index(sku_col)
     pi = headers.index(price_col) if price_col and price_col in headers else -1
     ti = headers.index(stock_col) if stock_col and stock_col in headers else -1
+    ci = headers.index(compare_col) if compare_col and compare_col in headers else -1
+    bi = headers.index(barcode_col) if barcode_col and barcode_col in headers else -1
     updates = []
     for row in raw[1:]:
         sku = row[si] if si < len(row) else ""
@@ -123,6 +131,10 @@ def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], 
             u["price"] = row[pi] if pi < len(row) else ""
         if ti >= 0:
             u["stock"] = row[ti] if ti < len(row) else ""
+        if ci >= 0:
+            u["compare_at_price"] = row[ci] if ci < len(row) else ""
+        if bi >= 0:
+            u["barcode"] = row[bi] if bi < len(row) else ""
         updates.append(u)
     return updates
 
@@ -146,7 +158,10 @@ def push_now(sub_id: int, dry_run: bool = True, db: Session = Depends(get_db)):
     if not raw or len(raw) < 2:
         raise HTTPException(status_code=400, detail=f"La hoja Maestra '{master_sheet}' está vacía o no se pudo leer.")
 
-    updates = build_updates_from_sheet(raw, sku_column, db_sub.price_column_master, db_sub.stock_column_master)
+    updates = build_updates_from_sheet(
+        raw, sku_column, db_sub.price_column_master, db_sub.stock_column_master,
+        db_sub.compare_price_column_master, db_sub.barcode_column_master,
+    )
 
     connector = _create_connector(shop_conn)
     try:
@@ -154,6 +169,8 @@ def push_now(sub_id: int, dry_run: bool = True, db: Session = Depends(get_db)):
             updates,
             do_price=bool(db_sub.price_column_master),
             do_stock=bool(db_sub.stock_column_master),
+            do_compare_price=bool(db_sub.compare_price_column_master),
+            do_barcode=bool(db_sub.barcode_column_master),
             dry_run=dry_run,
             location_id=db_sub.location_id or None,
         )

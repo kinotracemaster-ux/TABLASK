@@ -130,3 +130,39 @@ def test_unmatched_sku_goes_to_not_found(conn):
     assert summary["matched"] == 0
     assert summary["not_found"] == ["does-not-exist"]
     assert conn._calls["price"] == []
+
+
+def test_compare_price_and_barcode_go_in_one_variant_call(conn):
+    # Precio comparativo (oferta) y barcode son de VARIANTE: viajan en la misma
+    # llamada bulk que el precio, con las claves que Shopify espera.
+    updates = [{"sku": "1203", "price": "10", "compare_at_price": "15,5", "barcode": "779000"}]
+    summary = conn.push_updates(updates, do_price=True, do_stock=False, dry_run=False,
+                                do_compare_price=True, do_barcode=True)
+    assert summary["price_updated"] == 1
+    assert summary["compare_price_updated"] == 1
+    assert summary["barcode_updated"] == 1
+    assert len(conn._calls["price"]) == 1  # una sola llamada de variante
+    _, variants = conn._calls["price"][0]
+    assert variants[0]["price"] == "10"
+    assert variants[0]["compareAtPrice"] == "15.5"   # coma normalizada
+    assert variants[0]["barcode"] == "779000"
+
+
+def test_only_barcode_without_price(conn):
+    # Se puede elegir un solo campo (barcode) sin tocar precio ni stock.
+    summary = conn.push_updates([{"sku": "1203", "barcode": "abc123"}],
+                                do_price=False, do_stock=False, dry_run=False,
+                                do_barcode=True)
+    assert summary["barcode_updated"] == 1
+    assert summary["price_updated"] == 0
+    _, variants = conn._calls["price"][0]
+    assert variants[0] == {"id": "gid://shopify/ProductVariant/1", "barcode": "abc123"}
+
+
+def test_extra_fields_off_by_default(conn):
+    # Si no se activan, compare/barcode NO se escriben aunque vengan en el update.
+    conn.push_updates([{"sku": "1203", "price": "10", "compare_at_price": "20", "barcode": "x"}],
+                      do_price=True, do_stock=False, dry_run=False)
+    _, variants = conn._calls["price"][0]
+    assert "compareAtPrice" not in variants[0]
+    assert "barcode" not in variants[0]

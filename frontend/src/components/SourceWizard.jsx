@@ -130,6 +130,8 @@ export default function SourceWizard() {
   const [shopSkuCol, setShopSkuCol] = useState('');
   const [shopPriceCol, setShopPriceCol] = useState('');
   const [shopStockCol, setShopStockCol] = useState('');
+  const [shopCompareCol, setShopCompareCol] = useState('');
+  const [shopBarcodeCol, setShopBarcodeCol] = useState('');
   const [shopLocations, setShopLocations] = useState([]);
   const [shopLocId, setShopLocId] = useState('');
   const [shopLocError, setShopLocError] = useState(null);
@@ -659,7 +661,7 @@ export default function SourceWizard() {
   const saveShopifySubscription = async () => {
     setShopError(null); setShopSubSaved(null);
     if (!shopConnId) { setShopError('Elegí la tienda Shopify.'); return; }
-    if (!shopPriceCol && !shopStockCol) { setShopError('Mapeá al menos Precio o Stock para guardar el destino.'); return; }
+    if (!shopPriceCol && !shopStockCol && !shopCompareCol && !shopBarcodeCol) { setShopError('Mapeá al menos un campo (precio, stock, precio comparativo o código de barras) para guardar el destino.'); return; }
     if (shopStockCol && shopLocations.length > 1 && !shopLocId) {
       setShopError('Tu tienda tiene varias bodegas: elegí la ubicación destino del stock.'); return;
     }
@@ -674,6 +676,8 @@ export default function SourceWizard() {
           connection_id: parseInt(shopConnId),
           price_column_master: shopPriceCol || null,
           stock_column_master: shopStockCol || null,
+          compare_price_column_master: shopCompareCol || null,
+          barcode_column_master: shopBarcodeCol || null,
           location_id: shopLocId || null,
           is_active: true,
         }),
@@ -729,7 +733,7 @@ export default function SourceWizard() {
   const runShopifyPush = async (dryRun) => {
     setShopError(null); setShopResult(null); setShopPreview(null);
     if (!shopConnId || !shopTab || !shopSkuCol) { setShopError('Elegí tienda, hoja y columna SKU.'); return; }
-    if (!shopPriceCol && !shopStockCol) { setShopError('Mapeá al menos Precio o Stock.'); return; }
+    if (!shopPriceCol && !shopStockCol && !shopCompareCol && !shopBarcodeCol) { setShopError('Mapeá al menos un campo (precio, stock, precio comparativo o código de barras).'); return; }
     if (shopStockCol && shopLocations.length > 1 && !shopLocId) {
       setShopError('Tu tienda tiene varias bodegas: elegí la ubicación destino del stock.'); return;
     }
@@ -745,6 +749,8 @@ export default function SourceWizard() {
           sku_column: shopSkuCol,
           price_column: shopPriceCol || null,
           stock_column: shopStockCol || null,
+          compare_price_column: shopCompareCol || null,
+          barcode_column: shopBarcodeCol || null,
           location_id: shopLocId || null,
           dry_run: dryRun,
         }),
@@ -1317,7 +1323,7 @@ export default function SourceWizard() {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Hoja de la Maestra a enviar</label>
-                        <select value={shopTab} onChange={e => { setShopTab(e.target.value); setShopSkuCol(''); setShopPriceCol(''); setShopStockCol(''); }}
+                        <select value={shopTab} onChange={e => { setShopTab(e.target.value); setShopSkuCol(''); setShopPriceCol(''); setShopStockCol(''); setShopCompareCol(''); setShopBarcodeCol(''); }}
                           className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
                           <option value="">Seleccionar...</option>
                           {Object.keys(masterSheetsAll).map(s => <option key={s} value={s}>{s}</option>)}
@@ -1367,6 +1373,25 @@ export default function SourceWizard() {
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Precio comparativo / oferta</label>
+                        <select value={shopCompareCol} onChange={e => setShopCompareCol(e.target.value)} disabled={!shopTabCols.length}
+                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                          <option value="">— no enviar —</option>
+                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Código de barras</label>
+                        <select value={shopBarcodeCol} onChange={e => setShopBarcodeCol(e.target.value)} disabled={!shopTabCols.length}
+                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                          <option value="">— no enviar —</option>
+                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
                     <div className="flex gap-2">
                       <button type="button" onClick={() => runShopifyPush(true)} disabled={shopBusy}
                         className="flex items-center gap-2 border border-green-300 text-green-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-50 disabled:opacity-50">
@@ -1394,6 +1419,8 @@ export default function SourceWizard() {
                     {shopResult && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
                         ✅ Precios: {shopResult.price_updated} · Stock: {shopResult.stock_updated}
+                        {shopResult.compare_price_updated ? ` · Comparativo: ${shopResult.compare_price_updated}` : ''}
+                        {shopResult.barcode_updated ? ` · Barcode: ${shopResult.barcode_updated}` : ''}
                       </div>
                     )}
 
