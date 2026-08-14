@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap, Globe, Copy, Check, Database, AlertTriangle } from 'lucide-react';
 import { extractError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
@@ -63,6 +63,10 @@ export default function Flujos() {
   const [copiedLink, setCopiedLink] = useState(null);
   const [runProcs, setRunProcs] = useState(null); // [{id, name}] a correr en el modal de vista previa
 
+  // Deep-link desde el diagrama (PipelineBar): /flujos?action=...&node=...
+  const [searchParams, setSearchParams] = useSearchParams();
+  const handledDeepLink = useRef(false);
+
   // Maestra enlazada (para el banner "a dónde va todo")
   const [masterInfo, setMasterInfo] = useState(null);   // {sheet, rows} o null
   const [masterChecked, setMasterChecked] = useState(false);
@@ -88,6 +92,16 @@ export default function Flujos() {
   const [epMappings, setEpMappings] = useState([{ src: '', dst: '' }]);
   const [epAddNewRows, setEpAddNewRows] = useState(true);
   const [epZeroMissingStock, setEpZeroMissingStock] = useState(false);
+
+  // --- Edición: Destino Shopify (Maestra → tienda) ---
+  const [editShopSub, setEditShopSub] = useState(null);
+  const [editShopSubSaving, setEditShopSubSaving] = useState(false);
+  const [editShopSubCols, setEditShopSubCols] = useState([]);
+  const [essName, setEssName] = useState('');
+  const [essConnId, setEssConnId] = useState('');
+  const [essPrice, setEssPrice] = useState('');
+  const [essStock, setEssStock] = useState('');
+  const [essLocation, setEssLocation] = useState('');
 
   // --- Edición: Destino (Suscripción) ---
   const [editSub, setEditSub] = useState(null);
@@ -248,6 +262,44 @@ export default function Flujos() {
     } catch {
       return `Último envío: ${new Date(sub.last_pushed_at).toLocaleString()}`;
     }
+  };
+
+  const openEditShopSub = async (sub) => {
+    setEditShopSub(sub);
+    setEssName(sub.name);
+    setEssConnId(sub.connection_id);
+    setEssPrice(sub.price_column_master || '');
+    setEssStock(sub.stock_column_master || '');
+    setEssLocation(sub.location_id || '');
+    try {
+      const res = await fetch(`${API}/api/master-columns`);
+      const cols = await res.json();
+      setEditShopSubCols(res.ok && Array.isArray(cols) ? cols : []);
+    } catch { setEditShopSubCols([]); }
+  };
+
+  const saveEditShopSub = async (e) => {
+    e.preventDefault();
+    if (!essPrice && !essStock) { alert('Mapeá al menos la columna de Precio o la de Stock de la Maestra.'); return; }
+    setEditShopSubSaving(true);
+    try {
+      const res = await fetch(`${API}/api/shopify-subscriptions/${editShopSub.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: essName || editShopSub.name,
+          connection_id: Number(essConnId),
+          price_column_master: essPrice || null,
+          stock_column_master: essStock || null,
+          location_id: essLocation || null,
+          is_active: editShopSub.is_active,
+        })
+      });
+      if (!res.ok) throw new Error(await extractError(res));
+      setEditShopSub(null);
+      loadAll();
+    } catch (err) { alert(err.message || 'No se pudo guardar.'); }
+    setEditShopSubSaving(false);
   };
 
   // --- Destinos (Canales API genéricos: Maestra → endpoint del cliente) ---
@@ -534,6 +586,41 @@ export default function Flujos() {
     setEditConnSaving(false);
   };
 
+  // Al llegar desde el diagrama con ?action=&node=, dispara la acción sobre el
+  // nodo indicado (una sola vez, cuando los datos ya cargaron) y limpia la URL.
+  useEffect(() => {
+    if (loading || handledDeepLink.current) return;
+    const action = searchParams.get('action');
+    const node = searchParams.get('node');
+    if (!action || !node) return;
+    handledDeepLink.current = true;
+
+    // node: id de fuente (numérico) o destino con prefijo (shop-/api-/sub-/csv-).
+    const num = (prefix) => Number(node.slice(prefix.length));
+    if (/^\d+$/.test(node)) {
+      const proc = processes.find(p => p.id === Number(node));
+      if (proc) {
+        if (action === 'run') setRunProcs([{ id: proc.id, name: proc.name }]);
+        else if (action === 'editFuente') openEditProcess(proc);
+      }
+    } else if (node.startsWith('shop-')) {
+      const sub = shopifySubs.find(s => s.id === num('shop-'));
+      if (sub) { if (action === 'send') pushNowShopSub(sub); else openEditShopSub(sub); }
+    } else if (node.startsWith('api-')) {
+      const sub = apiSubs.find(s => s.id === num('api-'));
+      if (sub) { if (action === 'send') pushNowApiSub(sub); else openEditApiSub(sub); }
+    } else if (node.startsWith('sub-')) {
+      const sub = subscriptions.find(s => s.id === num('sub-'));
+      if (sub) openEditSub(sub);
+    }
+
+    // Sacar los parámetros de la URL para que no se re-dispare al recargar/volver.
+    searchParams.delete('action');
+    searchParams.delete('node');
+    setSearchParams(searchParams, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, processes, shopifySubs, apiSubs, subscriptions]);
+
   const epSourceCols = epSheet && editProcSheets[epSheet] ? editProcSheets[epSheet] : [];
   const esTargetCols = esSheet && editSubSheets[esSheet] ? editSubSheets[esSheet] : [];
 
@@ -648,6 +735,10 @@ export default function Flujos() {
                       disabled={pushingShopSub === sub.id}
                       className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 transition disabled:opacity-50">
                       <Send className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => openEditShopSub(sub)} title="Editar"
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition">
+                      <Pencil className="w-4 h-4" />
                     </button>
                     <button onClick={() => toggleShopSub(sub)} title={sub.is_active ? 'Pausar' : 'Activar'}
                       className={`p-1.5 rounded-lg transition ${sub.is_active ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100'}`}>
@@ -1031,6 +1122,67 @@ export default function Flujos() {
                 {editApiSaving ? 'Guardando...' : 'Guardar cambios'}
               </button>
               <button type="button" onClick={() => setEditApiSub(null)}
+                className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium">Cancelar</button>
+            </div>
+          </form>
+        </ModalShell>
+      )}
+
+      {editShopSub && (
+        <ModalShell title={`Editar destino Shopify: ${editShopSub.name}`} onClose={() => setEditShopSub(null)}>
+          <form onSubmit={saveEditShopSub} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+              <input value={essName} onChange={e => setEssName(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tienda Shopify</label>
+              <select value={essConnId} onChange={e => setEssConnId(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                {connections.filter(c => c.connection_type === 'shopify').map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-green-800 mb-1">Precio (columna Maestra)</label>
+                <select value={essPrice} onChange={e => setEssPrice(e.target.value)}
+                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— sin precio —</option>
+                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-green-800 mb-1">Stock (columna Maestra)</label>
+                <select value={essStock} onChange={e => setEssStock(e.target.value)}
+                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— sin stock —</option>
+                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 -mt-1">
+              Mapeá al menos Precio o Stock. Nunca se crean productos en Shopify: solo se
+              actualizan variantes que ya existen (cruce por SKU).
+            </p>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bodega / Location ID (opcional)</label>
+              <input value={essLocation} onChange={e => setEssLocation(e.target.value)}
+                placeholder="Dejar en blanco para la bodega principal"
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button type="submit" disabled={editShopSubSaving}
+                className="bg-green-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 text-sm">
+                {editShopSubSaving ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+              <button type="button" onClick={() => setEditShopSub(null)}
                 className="text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium">Cancelar</button>
             </div>
           </form>
