@@ -336,7 +336,8 @@ export default function SourceWizard() {
       setMasterCols(mCols);
       if (!masterColsRes.ok) alert('No se pudieron leer las columnas de la Tabla Maestra. Revisá que esté enlazada y accesible.');
       const masterInfo = await masterRes.json();
-      setMasterSkuCol(masterRes.ok ? (masterInfo.master_sku_column || '') : '');
+      const storedMasterSku = masterRes.ok ? (masterInfo.master_sku_column || '') : '';
+      setMasterSkuCol(storedMasterSku);
 
       // Pestañas de la propia planilla Maestra: la principal queda por defecto,
       // pero se puede elegir otra para descargar la fuente ahí.
@@ -354,7 +355,7 @@ export default function SourceWizard() {
       }
 
       if (firstSheet && sheets[firstSheet]) {
-        await autoDetect(connId, firstSheet, sheets[firstSheet], mCols);
+        await autoDetect(connId, firstSheet, sheets[firstSheet], mCols, storedMasterSku);
       }
     } catch (err) {
       alert(err.message);
@@ -362,7 +363,7 @@ export default function SourceWizard() {
     setLoadingMap(false);
   };
 
-  const autoDetect = async (connId, sheetName, headers, mCols) => {
+  const autoDetect = async (connId, sheetName, headers, mCols, currentMasterSku = '') => {
     try {
       const [skuRes, mapRes] = await Promise.all([
         fetch(`${API}/api/intelligence/suggest-sku?connection_id=${connId}&sheet_name=${encodeURIComponent(sheetName)}`),
@@ -373,21 +374,31 @@ export default function SourceWizard() {
         })
       ]);
       const skuData = await skuRes.json();
-      const mapData = await mapRes.json();
+      const mapping = (await mapRes.json()).mapping || {};
       const suggestedSku = skuData.suggested_sku || headers[0] || '';
       setSkuColSource(suggestedSku);
 
-      const mapped = Object.entries(mapData.mapping || {})
+      const mapped = Object.entries(mapping)
         .filter(([src]) => src !== suggestedSku)
         .map(([src, dst]) => ({ src, dst }));
       setFieldMappings(mapped.length > 0 ? mapped : [{ src: '', dst: '' }]);
+
+      // Si la Maestra todavía no tiene una columna SKU configurada, aprovechamos
+      // el match exacto/semántico que el auto-mapeo ya encontró para la columna
+      // SKU del origen (ej. "sku" -> "SKU") en vez de dejarla en blanco.
+      if (!currentMasterSku) {
+        const guessedMasterSku = mapping[suggestedSku];
+        if (guessedMasterSku && mCols.includes(guessedMasterSku)) {
+          setMasterSkuCol(guessedMasterSku);
+        }
+      }
     } catch (err) { console.error('Auto-detect falló', err); }
   };
 
   const handleSheetChange = async (sheetName) => {
     setSourceSheet(sheetName);
     const headers = sourceSheets[sheetName] || [];
-    await autoDetect(sourceConn.id, sheetName, headers, masterDestCols);
+    await autoDetect(sourceConn.id, sheetName, headers, masterDestCols, masterSkuCol);
   };
 
   // Cambiar la pestaña destino dentro de la Maestra: las columnas de destino
@@ -396,7 +407,8 @@ export default function SourceWizard() {
     setMasterDestSheet(sheetName);
     const destHeaders = masterDestSheets[sheetName] || [];
     // Si la SKU elegida ya no existe en la nueva hoja, la limpiamos.
-    if (masterSkuCol && !destHeaders.includes(masterSkuCol)) setMasterSkuCol('');
+    const skuStillValid = masterSkuCol && destHeaders.includes(masterSkuCol);
+    if (masterSkuCol && !skuStillValid) setMasterSkuCol('');
     // Re-sugerir el mapeo de campos contra las columnas de la nueva hoja.
     try {
       const res = await fetch(`${API}/api/intelligence/auto-map`, {
@@ -405,10 +417,20 @@ export default function SourceWizard() {
         body: JSON.stringify({ source_headers: sourceCols, target_headers: destHeaders })
       });
       const data = await res.json();
-      const mapped = Object.entries(data.mapping || {})
+      const mapping = data.mapping || {};
+      const mapped = Object.entries(mapping)
         .filter(([src]) => src !== skuColSource)
         .map(([src, dst]) => ({ src, dst }));
       setFieldMappings(mapped.length > 0 ? mapped : [{ src: '', dst: '' }]);
+
+      // Si quedó sin SKU de Maestra (nunca se configuró, o ya no existe en la
+      // hoja nueva), reaprovechar el match que encontró el auto-mapeo.
+      if (!skuStillValid) {
+        const guessedMasterSku = mapping[skuColSource];
+        if (guessedMasterSku && destHeaders.includes(guessedMasterSku)) {
+          setMasterSkuCol(guessedMasterSku);
+        }
+      }
     } catch (err) { console.error('Re-mapeo por hoja destino falló', err); }
   };
 
