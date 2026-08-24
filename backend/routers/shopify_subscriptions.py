@@ -110,17 +110,32 @@ def _get_master_context(db: Session):
     return project, master_conn, project.master_sheet_name, sku_column
 
 
+def _header_index(headers: list, name: Optional[str]) -> int:
+    """Busca una columna por nombre exacto y, si no hay match, case-insensitive
+    (la columna SKU guardada puede no coincidir en mayúsculas con el
+    encabezado real, ej. 'sku' guardado vs 'SKU' en la hoja)."""
+    if not name:
+        return -1
+    if name in headers:
+        return headers.index(name)
+    name_lower = name.strip().lower()
+    for i, h in enumerate(headers):
+        if str(h).strip().lower() == name_lower:
+            return i
+    return -1
+
+
 def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], stock_col: Optional[str],
                              compare_col: Optional[str] = None, barcode_col: Optional[str] = None) -> list:
     """Convierte la matriz de la Maestra en updates [{sku, price?, stock?, ...}] para Shopify."""
     headers = raw[0]
-    if sku_col not in headers:
+    si = _header_index(headers, sku_col)
+    if si < 0:
         raise HTTPException(status_code=400, detail=f"La columna SKU '{sku_col}' no existe en la Maestra.")
-    si = headers.index(sku_col)
-    pi = headers.index(price_col) if price_col and price_col in headers else -1
-    ti = headers.index(stock_col) if stock_col and stock_col in headers else -1
-    ci = headers.index(compare_col) if compare_col and compare_col in headers else -1
-    bi = headers.index(barcode_col) if barcode_col and barcode_col in headers else -1
+    pi = _header_index(headers, price_col)
+    ti = _header_index(headers, stock_col)
+    ci = _header_index(headers, compare_col)
+    bi = _header_index(headers, barcode_col)
     updates = []
     for row in raw[1:]:
         sku = row[si] if si < len(row) else ""

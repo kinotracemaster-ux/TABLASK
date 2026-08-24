@@ -128,11 +128,16 @@ export default function FileToShopify() {
         }),
       ]);
       const skuData = await skuRes.json();
-      const mapData = await mapRes.json();
+      const mapping = (await mapRes.json()).mapping || {};
       const suggestedSku = skuData.suggested_sku || headers[0] || '';
       setSkuColSource(suggestedSku);
-      setMasterSkuCol(masterSkuDefault || '');
-      const mapped = Object.entries(mapData.mapping || {})
+
+      // Si la Maestra no tiene SKU configurado, reaprovechamos el match
+      // exacto/semántico que el auto-mapeo ya encontró (ej. "sku" -> "SKU").
+      const guessedMasterSku = mapping[suggestedSku];
+      setMasterSkuCol(masterSkuDefault || (guessedMasterSku && masterCols.includes(guessedMasterSku) ? guessedMasterSku : ''));
+
+      const mapped = Object.entries(mapping)
         .filter(([src]) => src !== suggestedSku)
         .map(([src, dst]) => ({ src, dst }));
       setMappings(mapped.length > 0 ? mapped : [{ src: '', dst: '' }]);
