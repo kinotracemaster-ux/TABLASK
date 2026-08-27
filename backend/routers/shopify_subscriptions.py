@@ -26,9 +26,29 @@ def _validate_payload(sub: schemas.ShopifySubscriptionCreate, db: Session):
     conn = db.query(models.Connection).filter(models.Connection.id == sub.connection_id).first()
     if not conn or conn.connection_type != "shopify":
         raise HTTPException(status_code=400, detail="La conexión indicada no es una tienda Shopify.")
-    if not any([sub.price_column_master, sub.stock_column_master,
-                sub.compare_price_column_master, sub.barcode_column_master]):
+    campos = {
+        "precio": sub.price_column_master,
+        "stock": sub.stock_column_master,
+        "precio comparativo": sub.compare_price_column_master,
+        "código de barras": sub.barcode_column_master,
+    }
+    if not any(campos.values()):
         raise HTTPException(status_code=400, detail="Mapeá al menos un campo de la Maestra (precio, stock, precio comparativo o código de barras).")
+    # Guardián: la misma columna de la Maestra no puede alimentar dos campos
+    # distintos de Shopify (ej. mandar la columna de precio también como stock
+    # escribiría el precio como cantidad de inventario en la tienda).
+    usadas: dict = {}
+    for campo, columna in campos.items():
+        if not columna:
+            continue
+        if columna in usadas:
+            raise HTTPException(
+                status_code=400,
+                detail=f"La columna '{columna}' está mapeada a '{usadas[columna]}' y a '{campo}' a la vez. "
+                       f"Elegí una columna distinta para cada campo (mandar la misma columna como precio y como "
+                       f"stock, por ejemplo, escribiría el precio como cantidad de inventario en Shopify).",
+            )
+        usadas[columna] = campo
     return conn
 
 
