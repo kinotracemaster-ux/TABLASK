@@ -13,14 +13,31 @@
 ## Estado actual
 - [Describí en qué punto está el proyecto ahora mismo]
 - El Master todavía tiene campos de enriquecimiento por llenar.
-- **Pendiente urgente:** en "Mis Flujos" pueden existir varios destinos Shopify
-  duplicados apuntando a la misma tienda (se crean de nuevo cada vez que se
-  guarda el paso 3 del asistente, sin reusar el existente — ver "Próximos
-  pasos"). Si alguno quedó con `Stock = PRICE` o `Stock = SKU` de antes del
-  guardián de validación, sigue activo y corrompe el inventario en cada sync
-  hasta que se pause/borre a mano desde Flujos.
+- **Pendiente urgente (dato ya escrito, no lo arregla el código):** si en "Mis
+  Flujos" quedaron varios destinos Shopify duplicados de ANTES de este fix
+  (creados mientras el bug de deduplicación existía) con `Stock = PRICE` o
+  `Stock = SKU`, esos registros viejos siguen activos en la base y corrompen
+  el inventario en cada sync hasta que se pausen/borren a mano desde Flujos —
+  el fix de abajo evita que se sigan creando duplicados nuevos, pero no toca
+  los que ya existían.
 
 ## Hecho
+- **Una tienda Shopify = un solo destino guardado (deduplicación):**
+  `saveShopSub`/`saveShopifySubscription` (FileToShopify, asistente, Flujos)
+  siempre hacían `POST /api/shopify-subscriptions/` sin revisar si esa tienda
+  ya tenía un destino — cada archivo nuevo dejaba OTRO destino más para la
+  misma tienda (visto como varias tarjetas "Shopify · SHOPOE" en Flujos), y
+  como `propagation.py` corre TODOS los destinos activos en cada sync, un
+  destino viejo con mapeo peligroso seguía escribiendo aunque ya hubiera uno
+  nuevo bien configurado. Ahora, en `shopify_subscriptions.py`:
+  `create_shopify_subscription` (POST) busca si ya existe una suscripción
+  para ese `connection_id` y, si existe, la ACTUALIZA en vez de crear otra
+  (mismo id, se sigue viendo una sola tarjeta); `update_shopify_subscription`
+  (PUT) rechaza (400) si el `connection_id` que le pasás ya es de OTRO
+  destino existente, para no terminar con dos filas para la misma tienda por
+  otra vía. Sin cambios de frontend: las 3 pantallas ya pegan al mismo
+  endpoint, así que quedan cubiertas solas. Tests en
+  `test_shopify_subscriptions_dedup.py` (149 pasan en total).
 - **"Reemplazar archivo" en una Fuente antes de correrla:** cada archivo nuevo
   creaba una Conexión (Fuente) separada — no había forma de actualizar el
   contenido de una ya subida, así que archivos con datos más nuevos del mismo
@@ -121,15 +138,12 @@
 - [Lo que estás tocando ahora, con el archivo/módulo]
 
 ## Próximos pasos
-- **Deduplicar destinos Shopify:** `saveShopSub`/`saveShopifySubscription`
-  (`FileToShopify.jsx`, `SourceWizard.jsx`) siempre hacen `POST` a
-  `/api/shopify-subscriptions/` — nunca revisan si ya existe un destino activo
-  para esa misma tienda. Cada corrida del asistente con un archivo nuevo crea
-  otro destino más para la misma tienda, en vez de reusar/actualizar el que
-  ya está. Falta: al guardar, si ya hay un destino `is_active` para ese
-  `connection_id`, ofrecer actualizarlo en vez de crear uno nuevo (o al menos
-  avisar antes de guardar). Mientras tanto, revisar a mano en "Mis Flujos" que
-  no haya duplicados con mapeos viejos/peligrosos todavía activos.
+- **Limpiar duplicados viejos de destinos Shopify ya en la base:** el fix de
+  deduplicación (ver "Hecho") solo impide que se creen duplicados NUEVOS. Los
+  que ya existían de antes (ej. varios "Shopify · SHOPOE") siguen ahí y hay
+  que pausarlos/borrarlos a mano desde Flujos — no hay limpieza automática
+  todavía (a propósito: decidir cuál de varios duplicados es "el bueno" es
+  una decisión humana, no algo para automatizar sin confirmación).
 - El preview manual ya trae `new_rows_look_broken`: mostrar en la UI un aviso
   "posible formato de SKU roto" cuando venga en True (frontend, aún sin usar).
 - UI: mostrar/filtrar en la Master los productos con `estado = NUEVO` para que el

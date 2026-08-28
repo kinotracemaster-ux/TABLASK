@@ -22,6 +22,23 @@ from ..database import get_db
 router = APIRouter(prefix="/api/shopify-subscriptions", tags=["shopify-subscriptions"])
 
 
+def _reject_duplicate_connection(sub: schemas.ShopifySubscriptionCreate, db: Session, exclude_id: int):
+    """Al EDITAR un destino, no dejar que quede apuntando a una tienda que ya
+    tiene otro destino guardado — se pisarían entre sí en cada sync. Al CREAR
+    no hace falta: create_shopify_subscription reusa el existente en vez de
+    rechazar (ver ahí)."""
+    otra = db.query(models.ShopifySubscription).filter(
+        models.ShopifySubscription.connection_id == sub.connection_id,
+        models.ShopifySubscription.id != exclude_id,
+    ).first()
+    if otra:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Esa tienda ya tiene otro destino guardado ('{otra.name}'). Dos destinos para la misma "
+                   f"tienda terminan pisándose entre sí en cada sync — usá uno solo por tienda.",
+        )
+
+
 def _validate_payload(sub: schemas.ShopifySubscriptionCreate, db: Session):
     conn = db.query(models.Connection).filter(models.Connection.id == sub.connection_id).first()
     if not conn or conn.connection_type != "shopify":
@@ -52,20 +69,33 @@ def _validate_payload(sub: schemas.ShopifySubscriptionCreate, db: Session):
     return conn
 
 
+def _apply_payload(db_sub: models.ShopifySubscription, sub: schemas.ShopifySubscriptionCreate):
+    db_sub.name = sub.name
+    db_sub.connection_id = sub.connection_id
+    db_sub.price_column_master = sub.price_column_master
+    db_sub.stock_column_master = sub.stock_column_master
+    db_sub.compare_price_column_master = sub.compare_price_column_master
+    db_sub.barcode_column_master = sub.barcode_column_master
+    db_sub.location_id = sub.location_id
+    db_sub.is_active = sub.is_active
+
+
 @router.post("/", response_model=schemas.ShopifySubscriptionOut)
 def create_shopify_subscription(sub: schemas.ShopifySubscriptionCreate, db: Session = Depends(get_db)):
+    """Guarda un destino Shopify. Una tienda tiene UN SOLO destino: si ya existe
+    una suscripción para esa misma conexión (activa o pausada), se actualiza
+    en vez de crear otra — así "Guardar destino" nunca duplica un destino para
+    la misma tienda con distintos mapeos, algunos potencialmente peligrosos."""
     _validate_payload(sub, db)
-    db_sub = models.ShopifySubscription(
-        name=sub.name,
-        connection_id=sub.connection_id,
-        price_column_master=sub.price_column_master,
-        stock_column_master=sub.stock_column_master,
-        compare_price_column_master=sub.compare_price_column_master,
-        barcode_column_master=sub.barcode_column_master,
-        location_id=sub.location_id,
-        is_active=sub.is_active,
-    )
-    db.add(db_sub)
+    db_sub = db.query(models.ShopifySubscription).filter(
+        models.ShopifySubscription.connection_id == sub.connection_id
+    ).first()
+    if db_sub:
+        _apply_payload(db_sub, sub)
+    else:
+        db_sub = models.ShopifySubscription(connection_id=sub.connection_id)
+        _apply_payload(db_sub, sub)
+        db.add(db_sub)
     db.commit()
     db.refresh(db_sub)
     return db_sub
@@ -82,14 +112,8 @@ def update_shopify_subscription(sub_id: int, sub: schemas.ShopifySubscriptionCre
     if not db_sub:
         raise HTTPException(status_code=404, detail="Suscripción Shopify no encontrada")
     _validate_payload(sub, db)
-    db_sub.name = sub.name
-    db_sub.connection_id = sub.connection_id
-    db_sub.price_column_master = sub.price_column_master
-    db_sub.stock_column_master = sub.stock_column_master
-    db_sub.compare_price_column_master = sub.compare_price_column_master
-    db_sub.barcode_column_master = sub.barcode_column_master
-    db_sub.location_id = sub.location_id
-    db_sub.is_active = sub.is_active
+    _reject_duplicate_connection(sub, db, exclude_id=sub_id)
+    _apply_payload(db_sub, sub)
     db.commit()
     db.refresh(db_sub)
     return db_sub
