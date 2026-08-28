@@ -27,6 +27,9 @@ class Connection(Base):
     # efímero (se borra en cada redeploy), así que la ruta sola no basta: guardar
     # los bytes hace que la fuente subida sobreviva a los redeploys.
     file_content = Column(LargeBinary, nullable=True)
+    # Cuándo se subió/reemplazó el archivo por última vez. Se usa para avisar
+    # en "Correr flujo" si conviene reemplazarlo por uno más nuevo antes de sincronizar.
+    file_updated_at = Column(DateTime, nullable=True)
 
     # Campos para HTTP API
     http_url = Column(String, nullable=True)

@@ -126,6 +126,19 @@ for _col_sql in (
     except Exception as e:
         print(f"Migración Shopify sub omitida ({_col_sql.split('ADD COLUMN ')[1]}):", e)
 
+# Fecha del último upload/reemplazo del archivo de una conexión local (para
+# recomendar reemplazarlo antes de correr una Fuente si está desactualizado).
+for _col_sql in (
+    "ALTER TABLE connections ADD COLUMN file_updated_at TIMESTAMP",
+):
+    try:
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            conn.execute(text(_col_sql))
+            conn.commit()
+    except Exception as e:
+        print(f"Migración file_updated_at omitida:", e)
+
 app = FastAPI(title="Actualizar Tablas K API")
 
 # CORS
