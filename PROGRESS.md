@@ -8,13 +8,28 @@
 > para eso. Este archivo es solo el estado/avance. Si preferís uno solo,
 > renombrá MEJORAS → PROGRESS y borrá este.
 >
-> Última actualización: [poné la fecha]
+> Última actualización: 2026-08-27
 
 ## Estado actual
 - [Describí en qué punto está el proyecto ahora mismo]
 - El Master todavía tiene campos de enriquecimiento por llenar.
 
 ## Hecho
+- **Guardián contra mapear la misma columna a dos campos de un destino Shopify:**
+  un usuario mapeó por error la columna PRICE tanto a "Precio" como a "Stock"
+  del destino, y el push escribió el precio como cantidad de inventario
+  (Shopify quedó mostrando "480.000 en existencias" — el precio en pesos, no
+  stock real). `_validate_payload` en `shopify_subscriptions.py` ahora rechaza
+  (400) crear o editar una suscripción si dos de los cuatro campos (precio,
+  stock, precio comparativo, código de barras) apuntan a la misma columna de
+  la Maestra. Aplica a los 3 puntos de entrada (asistente, "Archivo →
+  Maestra → Shopify", modal de edición en Flujos) porque todos pegan al mismo
+  endpoint `/api/shopify-subscriptions/`. Tests nuevos en
+  `test_shopify_subscriptions_validation.py` (144 pasan en total).
+  **Pendiente real:** el inventario ya escrito en Shopify con esta suscripción
+  quedó corrupto (cantidades = precio); no hay forma de recuperar el stock
+  real desde TablasK — hay que corregirlo a mano en Shopify o resincronizar
+  desde una fuente que sí tenga stock real.
 - **Push a Shopify con campos configurables (uno o varios):** antes el destino solo
   mandaba precio/stock. Ahora se pueden elegir campos a nivel VARIANTE que Shopify
   acepta cruzando por SKU: **precio, stock, precio comparativo (oferta) y código de
