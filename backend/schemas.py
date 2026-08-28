@@ -41,6 +41,8 @@ class Connection(ConnectionBase):
     user_id: Optional[int] = None
     # Indica si la conexión Shopify ya tiene secret guardado (sin exponerlo).
     has_shopify_secret: bool = False
+    # Cuándo se subió/reemplazó el archivo (solo connection_type == "local_file").
+    file_updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

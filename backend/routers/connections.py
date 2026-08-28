@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 import os
 from .. import models, schemas
 from ..database import get_db
@@ -149,11 +150,41 @@ def upload_file_connection(
         connection_type="local_file",
         file_path=file_path,
         file_content=content,
+        file_updated_at=datetime.utcnow(),
     )
     db.add(db_conn)
     db.commit()
     db.refresh(db_conn)
     return db_conn
+
+@router.post("/{conn_id}/replace-file", response_model=schemas.Connection)
+def replace_file_connection(conn_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Reemplaza el contenido de un archivo YA subido, sin tocar el id de la
+    conexión: los Procesos que la usan como fuente siguen apuntando a la misma
+    conexión y a partir de ahora leen del archivo nuevo. Evita crear una Fuente
+    duplicada cada vez que llega una versión más nueva del mismo archivo."""
+    conn = db.query(models.Connection).filter(models.Connection.id == conn_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Conexión no encontrada")
+    if conn.connection_type != "local_file":
+        raise HTTPException(status_code=400, detail="Esta conexión no es un archivo local.")
+
+    upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    file_path = os.path.join(upload_dir, file.filename)
+    content = file.file.read()
+    try:
+        with open(file_path, "wb") as buffer:
+            buffer.write(content)
+    except Exception as e:
+        print(f"No se pudo escribir el archivo en disco (se usará el guardado en DB): {e}")
+
+    conn.file_path = file_path
+    conn.file_content = content
+    conn.file_updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(conn)
+    return conn
 
 @router.post("/{conn_id}/test")
 def test_connection(conn_id: int, db: Session = Depends(get_db)):

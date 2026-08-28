@@ -8,13 +8,33 @@
 > para eso. Este archivo es solo el estado/avance. Si preferís uno solo,
 > renombrá MEJORAS → PROGRESS y borrá este.
 >
-> Última actualización: 2026-08-27
+> Última actualización: 2026-08-28
 
 ## Estado actual
 - [Describí en qué punto está el proyecto ahora mismo]
 - El Master todavía tiene campos de enriquecimiento por llenar.
+- **Pendiente urgente:** en "Mis Flujos" pueden existir varios destinos Shopify
+  duplicados apuntando a la misma tienda (se crean de nuevo cada vez que se
+  guarda el paso 3 del asistente, sin reusar el existente — ver "Próximos
+  pasos"). Si alguno quedó con `Stock = PRICE` o `Stock = SKU` de antes del
+  guardián de validación, sigue activo y corrompe el inventario en cada sync
+  hasta que se pause/borre a mano desde Flujos.
 
 ## Hecho
+- **"Reemplazar archivo" en una Fuente antes de correrla:** cada archivo nuevo
+  creaba una Conexión (Fuente) separada — no había forma de actualizar el
+  contenido de una ya subida, así que archivos con datos más nuevos del mismo
+  origen se acumulaban como Fuentes duplicadas en "Mis Flujos". Ahora:
+  `POST /api/connections/{id}/replace-file` (nuevo, en `connections.py`)
+  reemplaza `file_path`/`file_content`/`file_updated_at` de la conexión SIN
+  cambiar su id — el Proceso que la usa como origen sigue intacto y pasa a
+  leer el archivo nuevo. Columna nueva `Connection.file_updated_at` (con
+  auto-migración en `main.py`) registra cuándo se subió/reemplazó. En
+  `Flujos.jsx`, al apretar "Correr flujo" en una Fuente cuyo origen es un
+  archivo local, aparece un aviso — no bloqueante — recomendando reemplazarlo
+  por uno más nuevo antes de sincronizar, con opción de "Continuar con el
+  archivo actual". Tests en `test_connection_replace_file.py` (145 pasan en
+  total).
 - **Guardián contra mapear la misma columna a dos campos de un destino Shopify:**
   un usuario mapeó por error la columna PRICE tanto a "Precio" como a "Stock"
   del destino, y el push escribió el precio como cantidad de inventario
@@ -25,7 +45,7 @@
   la Maestra. Aplica a los 3 puntos de entrada (asistente, "Archivo →
   Maestra → Shopify", modal de edición en Flujos) porque todos pegan al mismo
   endpoint `/api/shopify-subscriptions/`. Tests nuevos en
-  `test_shopify_subscriptions_validation.py` (144 pasan en total).
+  `test_shopify_subscriptions_validation.py` (140 pasan en total).
   **Pendiente real:** el inventario ya escrito en Shopify con esta suscripción
   quedó corrupto (cantidades = precio); no hay forma de recuperar el stock
   real desde TablasK — hay que corregirlo a mano en Shopify o resincronizar
@@ -101,6 +121,15 @@
 - [Lo que estás tocando ahora, con el archivo/módulo]
 
 ## Próximos pasos
+- **Deduplicar destinos Shopify:** `saveShopSub`/`saveShopifySubscription`
+  (`FileToShopify.jsx`, `SourceWizard.jsx`) siempre hacen `POST` a
+  `/api/shopify-subscriptions/` — nunca revisan si ya existe un destino activo
+  para esa misma tienda. Cada corrida del asistente con un archivo nuevo crea
+  otro destino más para la misma tienda, en vez de reusar/actualizar el que
+  ya está. Falta: al guardar, si ya hay un destino `is_active` para ese
+  `connection_id`, ofrecer actualizarlo en vez de crear uno nuevo (o al menos
+  avisar antes de guardar). Mientras tanto, revisar a mano en "Mis Flujos" que
+  no haya duplicados con mapeos viejos/peligrosos todavía activos.
 - El preview manual ya trae `new_rows_look_broken`: mostrar en la UI un aviso
   "posible formato de SKU roto" cuando venga en True (frontend, aún sin usar).
 - UI: mostrar/filtrar en la Master los productos con `estado = NUEVO` para que el

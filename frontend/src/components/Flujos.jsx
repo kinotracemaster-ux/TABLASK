@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap, Globe, Copy, Check, Database, AlertTriangle } from 'lucide-react';
-import { extractError } from '../utils/errors';
+import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap, Globe, Copy, Check, Database, AlertTriangle, UploadCloud } from 'lucide-react';
+import { extractError, formatError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
 import AutoSyncPanel from './AutoSyncPanel';
 
@@ -62,6 +62,12 @@ export default function Flujos() {
   const [pushingApiSub, setPushingApiSub] = useState(null);
   const [copiedLink, setCopiedLink] = useState(null);
   const [runProcs, setRunProcs] = useState(null); // [{id, name}] a correr en el modal de vista previa
+
+  // Recomendación de reemplazar el archivo antes de correr una Fuente puntual
+  // (solo si su origen es un archivo local; no aplica a "Correr todo").
+  const [fileSwapProc, setFileSwapProc] = useState(null); // {id, name, source_connection_id} pendiente de decisión
+  const [fileSwapBusy, setFileSwapBusy] = useState(false);
+  const [fileSwapError, setFileSwapError] = useState(null);
 
   // Deep-link desde el diagrama (PipelineBar): /flujos?action=...&node=...
   const [searchParams, setSearchParams] = useSearchParams();
@@ -168,6 +174,39 @@ export default function Flujos() {
   };
 
   const connName = (id) => connections.find(c => c.id === id)?.name || `Conexión ${id}`;
+
+  // Antes de correr una Fuente cuyo origen es un archivo local, ofrecemos
+  // reemplazarlo por uno más nuevo (recomendación, no obligatorio).
+  const maybeRunProc = (proc) => {
+    const conn = connections.find(c => c.id === proc.source_connection_id);
+    if (conn && conn.connection_type === 'local_file') {
+      setFileSwapError(null);
+      setFileSwapProc(proc);
+    } else {
+      setRunProcs([{ id: proc.id, name: proc.name }]);
+    }
+  };
+
+  const handleReplaceAndRun = async (file) => {
+    if (!file || !fileSwapProc) return;
+    setFileSwapBusy(true); setFileSwapError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${API}/api/connections/${fileSwapProc.source_connection_id}/replace-file`, {
+        method: 'POST', body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) { setFileSwapError(formatError(data)); return; }
+      setConnections(prev => prev.map(c => c.id === data.id ? data : c));
+      const proc = fileSwapProc;
+      setFileSwapProc(null);
+      setRunProcs([{ id: proc.id, name: proc.name }]);
+    } catch (err) {
+      setFileSwapError(err.message || 'No se pudo reemplazar el archivo.');
+    }
+    setFileSwapBusy(false);
+  };
 
   // --- Fuentes (Procesos) ---
   const toggleProcess = async (proc) => {
@@ -608,7 +647,7 @@ export default function Flujos() {
     if (/^\d+$/.test(node)) {
       const proc = processes.find(p => p.id === Number(node));
       if (proc) {
-        if (action === 'run') setRunProcs([{ id: proc.id, name: proc.name }]);
+        if (action === 'run') maybeRunProc(proc);
         else if (action === 'editFuente') openEditProcess(proc);
       }
     } else if (node.startsWith('shop-')) {
@@ -714,7 +753,7 @@ export default function Flujos() {
                 <p className="text-sm text-gray-500">{connName(proc.source_connection_id)} / "{proc.source_sheet_name}"</p>
                 <p className="text-xs text-gray-400 mt-1">Llave: {proc.sku_column_source} ↔ {proc.sku_column_master} · {Object.keys(proc.field_mappings || {}).length} campo(s)</p>
                 <button
-                  onClick={() => setRunProcs([{ id: proc.id, name: proc.name }])}
+                  onClick={() => maybeRunProc(proc)}
                   disabled={!proc.is_active}
                   title={proc.is_active ? 'Correr este flujo con vista previa' : 'Activá el flujo para poder correrlo'}
                   className="mt-3 w-full flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:from-green-700 hover:to-emerald-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
@@ -1212,6 +1251,33 @@ export default function Flujos() {
           </form>
         </ModalShell>
       )}
+
+      {fileSwapProc && (() => {
+        const conn = connections.find(c => c.id === fileSwapProc.source_connection_id);
+        return (
+          <ModalShell title={`Antes de correr "${fileSwapProc.name}"`} onClose={() => setFileSwapProc(null)}>
+            <p className="text-sm text-gray-600 mb-4">
+              Esta fuente lee del archivo <span className="font-medium text-gray-800">"{conn?.name}"</span>
+              {conn?.file_updated_at && (
+                <> · subido el {new Date(conn.file_updated_at).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' })}</>
+              )}. Si tenés una versión más nueva, te recomendamos reemplazarlo antes de correr para no sincronizar datos viejos.
+            </p>
+            {fileSwapError && <p className="text-xs text-red-600 mb-3">{fileSwapError}</p>}
+            <div className="flex flex-col gap-2">
+              <label className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-lg p-3 text-sm font-medium transition ${fileSwapBusy ? 'border-gray-200 text-gray-400 cursor-wait' : 'border-indigo-300 text-indigo-700 cursor-pointer hover:bg-indigo-50'}`}>
+                <UploadCloud className="w-4 h-4" /> {fileSwapBusy ? 'Subiendo...' : 'Reemplazar archivo y correr'}
+                <input type="file" accept=".csv,.xls,.xlsx" className="hidden" disabled={fileSwapBusy}
+                  onChange={e => handleReplaceAndRun(e.target.files?.[0])} />
+              </label>
+              <button type="button" disabled={fileSwapBusy}
+                onClick={() => { const proc = fileSwapProc; setFileSwapProc(null); setRunProcs([{ id: proc.id, name: proc.name }]); }}
+                className="text-sm text-gray-500 hover:underline disabled:opacity-50">
+                Continuar con el archivo actual
+              </button>
+            </div>
+          </ModalShell>
+        );
+      })()}
 
       {runProcs && (
         <RunFlowModal
