@@ -1,8 +1,61 @@
 import os
 import io
+import re
+from datetime import date, datetime
 import pandas as pd
+import openpyxl
 from typing import List, Dict, Any, Tuple
 from .base import BaseConnector
+
+# Traduce los tokens de formato de fecha de Excel (yyyy, mm, dd...) a texto real.
+# Sin esto, una celda que Excel guardó como FECHA (aunque se vea como "9051-6")
+# se lee como datetime y termina como "9051-06-01 00:00:00" — un SKU/código
+# irreconocible que no cruza con nada de la Maestra y crea un producto fantasma.
+# Usando el number_format de la celda ("yyyy-m") se reconstruye el texto real
+# que el usuario ve en Excel ("9051-6"), en vez del ISO completo con hora.
+_DATE_TOKEN_RE = re.compile(r'yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d|hh|h|ss|s', re.IGNORECASE)
+
+
+def _excel_date_cell_to_str(value, number_format: str) -> str:
+    if not isinstance(value, (datetime, date)):
+        return "" if value is None else str(value)
+
+    def repl(m):
+        tok = m.group(0).lower()
+        if tok == 'yyyy':
+            return f'{value.year:04d}'
+        if tok == 'yy':
+            return f'{value.year % 100:02d}'
+        if tok == 'mmmm':
+            return value.strftime('%B')
+        if tok == 'mmm':
+            return value.strftime('%b')
+        if tok == 'mm':
+            return f'{value.month:02d}'
+        if tok == 'm':
+            return str(value.month)
+        if tok == 'dddd':
+            return value.strftime('%A')
+        if tok == 'ddd':
+            return value.strftime('%a')
+        if tok == 'dd':
+            return f'{value.day:02d}'
+        if tok == 'd':
+            return str(value.day)
+        if tok in ('hh', 'h'):
+            hour = getattr(value, 'hour', 0)
+            return f'{hour:02d}' if tok == 'hh' else str(hour)
+        if tok in ('ss', 's'):
+            second = getattr(value, 'second', 0)
+            return f'{second:02d}' if tok == 'ss' else str(second)
+        return m.group(0)
+
+    fmt = number_format or ''
+    if not _DATE_TOKEN_RE.search(fmt):
+        # Formato desconocido/no fechable: mejor la fecha completa que nada.
+        return value.isoformat(sep=' ')
+    return _DATE_TOKEN_RE.sub(repl, fmt)
+
 
 class LocalFileConnector(BaseConnector):
     """Conector para archivos locales CSV, XLS, XLSX."""
@@ -43,14 +96,46 @@ class LocalFileConnector(BaseConnector):
 
         if ext == '.csv':
             df = pd.read_csv(src, dtype=str).fillna("")
+            return df.to_dict('records')
         elif ext in ('.xls', '.xlsx'):
-            sheet = source_path if source_path and source_path != "CSV Data" else 0
-            df = pd.read_excel(src, sheet_name=sheet, dtype=str).fillna("")
+            return self._read_excel(src, source_path)
         else:
             raise ValueError("Formato de archivo no soportado. Debe ser csv, xls o xlsx.")
 
-        # Convertir a lista de diccionarios
-        return df.to_dict('records')
+    def _read_excel(self, src, source_path: str) -> List[Dict[str, Any]]:
+        """Lee con openpyxl (no pandas) para poder usar el number_format real de
+        cada celda: así una celda que Excel guardó como fecha (aunque el usuario
+        haya tipeado un código tipo "9051-6") se reconstruye como el texto que
+        se ve en Excel, en vez de un datetime con hora pegoteada."""
+        wb = openpyxl.load_workbook(src, data_only=True, read_only=True)
+        sheet_name = source_path if source_path and source_path != "CSV Data" else wb.sheetnames[0]
+        ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.worksheets[0]
+
+        rows_iter = ws.iter_rows()
+        try:
+            header_row = next(rows_iter)
+        except StopIteration:
+            return []
+        headers = [("" if c.value is None else str(c.value)) for c in header_row]
+
+        records = []
+        for row in rows_iter:
+            if all(c.value is None for c in row):
+                continue
+            values = []
+            for c in row:
+                if c.data_type == 'd':
+                    values.append(_excel_date_cell_to_str(c.value, c.number_format))
+                elif c.data_type == 'n' and isinstance(c.value, float) and c.value.is_integer():
+                    # Excel guarda todo número como float; sin esto "10" (stock)
+                    # o "182000" (precio) salían como "10.0"/"182000.0".
+                    values.append(str(int(c.value)))
+                else:
+                    values.append("" if c.value is None else str(c.value))
+            # Completar/recortar para que calce con la cantidad de encabezados.
+            values = (values + [""] * len(headers))[:len(headers)]
+            records.append(dict(zip(headers, values)))
+        return records
 
     def normalize_data(self, raw_data: List[Dict[str, Any]], field_mappings: Dict[str, str]) -> List[Dict[str, Any]]:
         """
