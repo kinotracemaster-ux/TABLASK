@@ -38,6 +38,19 @@ class ShopifyConnector(BaseConnector):
         # Normalizar: aceptar "tienda", "tienda.myshopify.com" o una URL completa.
         raw_domain = raw_domain.replace("https://", "").replace("http://", "").strip("/")
         if raw_domain and not raw_domain.endswith(".myshopify.com"):
+            if "." in raw_domain:
+                # Ya trae un dominio completo (ej. "mitienda.com", el dominio
+                # propio de la tienda) — pegarle ".myshopify.com" da un host
+                # que no existe ("mitienda.com.myshopify.com") y falla más
+                # adelante con un error de SSL críptico en vez de decir el
+                # problema real. Ese dato NO sirve para armar el admin domain:
+                # hay que pedir el "xxx.myshopify.com" real de Shopify.
+                raise ValueError(
+                    f"'{raw_domain}' parece el dominio propio de la tienda (el que ven "
+                    "los clientes), no el dominio de administración de Shopify. Necesito "
+                    "el que termina en .myshopify.com — lo encontrás en Shopify Admin → "
+                    "Configuración → Dominios, o en la URL cuando entrás al admin."
+                )
             raw_domain = f"{raw_domain}.myshopify.com"
         self.domain = raw_domain
         self.client_id = (self.config.get("shopify_client_id") or "").strip()
