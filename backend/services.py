@@ -552,12 +552,20 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
                 for s_idx in stock_idxs:
                     old_val = info["data"][s_idx] if s_idx < len(info["data"]) else ""
                     if str(old_val).strip() not in ("", "0"):
+                        # Se agrega a granular_changes (igual que antes) porque la
+                        # escritura quirúrgica y la propagación a destinos usan ESA
+                        # lista para saber qué celdas tocar — sacarlo de ahí dejaría
+                        # de escribir el agotado de verdad. Se marca "orphan_zero"
+                        # para que la vista previa lo pueda separar de los cambios
+                        # que sí vinieron en el archivo (si no, confunde: parece que
+                        # el archivo trae un SKU que en realidad NO trae).
                         granular_changes.append({
                             "sku": info["sku"],
                             "field": master_headers[s_idx],
                             "old": old_val,
                             "new": "0",
                             "row_index": info["index"],
+                            "orphan_zero": True,
                         })
                         info["data"][s_idx] = "0"
                         changed = True
@@ -626,7 +634,8 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
         "rows_skipped": rows_skipped,
         "rows_orphan": rows_orphan,        # en Master pero no en BASE (revisar)
         "rows_zeroed": rows_zeroed,        # agotados (stock -> 0) por "agotar faltantes"
-        "detail_zeroed": granular_zeroed,  # SKUs que se agotaron en esta corrida
+        "detail_zeroed": [c for c in granular_changes if c.get("orphan_zero")],  # sku/campo/
+                          # antes/después de los agotados (huérfanos: NO vinieron en el archivo)
         "coherence_index": coherence_index,
         "new_rows_suspect_ratio": new_rows_suspect_ratio,  # % de nuevos casi-idénticos a existentes
         "new_rows_look_broken": new_rows_look_broken,       # Guardián: True = probable formato de SKU roto

@@ -49,7 +49,13 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
       const errors = previews.filter(p => !p.ok);
 
       const newRowsDetail = ok.flatMap(p => (p.new_rows || []).map(r => ({ process: p.name, sku: r.sku, fields: r.fields || {} })));
-      const changesDetail = ok.flatMap(p => (p.changes || []).map(c => ({ process: p.name, ...c })));
+      // "changes" trae mezclados los cambios que sí vinieron en el archivo con los
+      // agotados por "Agotar faltantes" (stock -> 0 de SKUs que NO vinieron en este
+      // archivo). Se separan para no mostrar como "actualización del archivo" algo
+      // que en realidad es lo contrario: un producto que el archivo NO trajo.
+      const changesDetail = ok.flatMap(p => (p.changes || []).filter(c => !c.orphan_zero).map(c => ({ process: p.name, ...c })));
+      const zeroedDetail = ok.flatMap(p => (p.detail_zeroed || []).map(c => ({ process: p.name, ...c })));
+      const totalZeroed = ok.reduce((s, p) => s + (p.rows_zeroed || 0), 0);
 
       // Diagnóstico de por qué no cruzan: SKU del origen vs. el más parecido en la
       // Maestra, y una muestra de SKUs reales de la Maestra (para ver el formato).
@@ -71,6 +77,7 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
         processesOk: ok.length,
         matchPercentage: totalOrigin > 0 ? (totalUpdated / totalOrigin) : 1,
         newRowsDetail, changesDetail,
+        totalZeroed, zeroedDetail,
         skuDiagnosis, masterSkuSamples,
         lavCleaned, lavEmpties, lavRejectedCount, lavReviewCount, lavHeldDetail,
       });
@@ -161,7 +168,7 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
             </div>
 
             {/* Detalle: filas/campos concretos */}
-            {(preview.totalAdded > 0 || preview.totalUpdated > 0) && (
+            {(preview.totalAdded > 0 || preview.totalUpdated > 0 || preview.totalZeroed > 0) && (
               <div className="mb-4">
                 <div className="flex gap-2 flex-wrap">
                   {preview.totalAdded > 0 && (
@@ -176,6 +183,13 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
                       className="flex items-center gap-1 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50">
                       {detailTab === 'actualizaciones' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                       Ver las {preview.totalUpdated} actualización(es)
+                    </button>
+                  )}
+                  {preview.totalZeroed > 0 && (
+                    <button type="button" onClick={() => setDetailTab(detailTab === 'agotados' ? null : 'agotados')}
+                      className="flex items-center gap-1 text-xs font-medium text-amber-700 bg-white border border-amber-200 rounded-lg px-3 py-1.5 hover:bg-amber-50">
+                      {detailTab === 'agotados' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      Ver los {preview.totalZeroed} agotado(s) (NO están en este archivo)
                     </button>
                   )}
                 </div>
@@ -222,6 +236,34 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
                       </table>
                     </div>
                     {preview.changesDetail.length > DETAIL_LIMIT && <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">Mostrando {DETAIL_LIMIT} de {preview.changesDetail.length}.</div>}
+                  </div>
+                )}
+
+                {detailTab === 'agotados' && (
+                  <div className="mt-2 bg-white border rounded-lg overflow-hidden">
+                    <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs p-2">
+                      Estos SKU ya estaban en la Maestra pero NO vinieron en este archivo. Como
+                      el flujo tiene activado "Agotar faltantes", su stock se pone en 0 (no es un
+                      dato que traiga el archivo).
+                    </div>
+                    <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
+                          <tr><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Campo</th><th className="px-3 py-2">Antes → Después</th>{multi && <th className="px-3 py-2">Fuente</th>}</tr>
+                        </thead>
+                        <tbody>
+                          {preview.zeroedDetail.slice(0, DETAIL_LIMIT).map((c, i) => (
+                            <tr key={i} className="border-t">
+                              <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{c.sku}</td>
+                              <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{c.field}</td>
+                              <td className="px-3 py-1.5 text-gray-600"><span className="text-gray-400">{c.old || '-'}</span> → <span className="font-medium text-amber-700">{c.new || '-'}</span></td>
+                              {multi && <td className="px-3 py-1.5 text-gray-400 whitespace-nowrap">{c.process}</td>}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {preview.zeroedDetail.length > DETAIL_LIMIT && <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">Mostrando {DETAIL_LIMIT} de {preview.zeroedDetail.length}.</div>}
                   </div>
                 )}
               </div>
