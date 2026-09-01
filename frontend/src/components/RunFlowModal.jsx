@@ -20,7 +20,8 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
   const [executing, setExecuting] = useState(false);
   const [result, setResult] = useState(null);
   const [acknowledged, setAcknowledged] = useState(false);
-  const [detailTab, setDetailTab] = useState(null); // 'nuevas' | 'actualizaciones' | 'lavadero'
+  const [detailTab, setDetailTab] = useState(null); // 'nuevas' | 'actualizaciones' | 'lavadero' | 'sugerencias'
+  const [applySuggestions, setApplySuggestions] = useState(false);
 
   const multi = procs.length > 1;
 
@@ -49,6 +50,13 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
       const errors = previews.filter(p => !p.ok);
 
       const newRowsDetail = ok.flatMap(p => (p.new_rows || []).map(r => ({ process: p.name, sku: r.sku, fields: r.fields || {} })));
+      // Sugerencias de enriquecimiento (categoría/marca...) para altas nuevas:
+      // copiadas de "hermanos" con la misma referencia base (968B-1/-2/-3) ya
+      // existentes en la Maestra, SOLO cuando todos coinciden. Nunca se aplican
+      // solas — el checkbox de abajo decide si van en el envío real.
+      const suggestionsDetail = ok.flatMap(p => (p.new_rows || [])
+        .filter(r => r.suggested_fields && Object.keys(r.suggested_fields).length > 0)
+        .map(r => ({ process: p.name, sku: r.sku, suggested_fields: r.suggested_fields })));
       // "changes" trae mezclados los cambios que sí vinieron en el archivo con los
       // agotados por "Agotar faltantes" (stock -> 0 de SKUs que NO vinieron en este
       // archivo). Se separan para no mostrar como "actualización del archivo" algo
@@ -77,6 +85,7 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
         processesOk: ok.length,
         matchPercentage: totalOrigin > 0 ? (totalUpdated / totalOrigin) : 1,
         newRowsDetail, changesDetail,
+        suggestionsDetail,
         totalZeroed, zeroedDetail,
         skuDiagnosis, masterSkuSamples,
         lavCleaned, lavEmpties, lavRejectedCount, lavReviewCount, lavHeldDetail,
@@ -94,7 +103,7 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
       const res = await fetch(`${API}/api/staging/execute-bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch_ids: preview.batchIds }),
+        body: JSON.stringify({ batch_ids: preview.batchIds, apply_suggestions: applySuggestions }),
       });
       const data = await res.json();
       setResult(data);
@@ -192,6 +201,13 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
                       Ver los {preview.totalZeroed} agotado(s) (NO están en este archivo)
                     </button>
                   )}
+                  {preview.suggestionsDetail.length > 0 && (
+                    <button type="button" onClick={() => setDetailTab(detailTab === 'sugerencias' ? null : 'sugerencias')}
+                      className="flex items-center gap-1 text-xs font-medium text-purple-700 bg-white border border-purple-200 rounded-lg px-3 py-1.5 hover:bg-purple-50">
+                      {detailTab === 'sugerencias' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      💡 {preview.suggestionsDetail.length} sugerencia(s) de enriquecimiento
+                    </button>
+                  )}
                 </div>
 
                 {detailTab === 'nuevas' && (
@@ -264,6 +280,39 @@ export default function RunFlowModal({ procs, onClose, onDone }) {
                       </table>
                     </div>
                     {preview.zeroedDetail.length > DETAIL_LIMIT && <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">Mostrando {DETAIL_LIMIT} de {preview.zeroedDetail.length}.</div>}
+                  </div>
+                )}
+
+                {detailTab === 'sugerencias' && (
+                  <div className="mt-2 bg-white border rounded-lg overflow-hidden">
+                    <div className="bg-purple-50 border-b border-purple-200 text-purple-800 text-xs p-2">
+                      Estos SKU nuevos se parecen a una referencia que ya existe en la Maestra
+                      (mismo código antes del guion, ej. "968B-1"/"968B-2"/"968B-3") y todas sus
+                      variantes coinciden en estos campos — se pueden copiar. NO se escriben solas:
+                      tildá la casilla de abajo para incluirlas al confirmar.
+                    </div>
+                    <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
+                          <tr><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Campos sugeridos</th>{multi && <th className="px-3 py-2">Fuente</th>}</tr>
+                        </thead>
+                        <tbody>
+                          {preview.suggestionsDetail.slice(0, DETAIL_LIMIT).map((r, i) => (
+                            <tr key={i} className="border-t">
+                              <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{r.sku}</td>
+                              <td className="px-3 py-1.5 text-gray-600">{Object.entries(r.suggested_fields).map(([k, v]) => `${k}: ${v}`).join(' · ')}</td>
+                              {multi && <td className="px-3 py-1.5 text-gray-400 whitespace-nowrap">{r.process}</td>}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {preview.suggestionsDetail.length > DETAIL_LIMIT && <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">Mostrando {DETAIL_LIMIT} de {preview.suggestionsDetail.length}.</div>}
+                    <label className="flex items-center gap-2 p-2.5 bg-purple-50/60 border-t border-purple-100 cursor-pointer">
+                      <input type="checkbox" className="rounded border-purple-300 text-purple-600 focus:ring-purple-500 w-4 h-4"
+                        checked={applySuggestions} onChange={e => setApplySuggestions(e.target.checked)} />
+                      <span className="text-xs font-medium text-purple-900">Aplicar estas sugerencias a las filas nuevas al confirmar</span>
+                    </label>
                   </div>
                 )}
               </div>

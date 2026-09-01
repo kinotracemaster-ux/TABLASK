@@ -55,6 +55,20 @@ def normalize_sku_for_match(s: str) -> str:
     return s
 
 
+_VARIANT_SUFFIX_RE = re.compile(r"-\d+$")
+
+
+def sku_reference_base(sku: str) -> str:
+    """'968B-1', '968B-2', '968B-3' -> '968b': variantes (color/talle) de la
+    MISMA referencia comparten el código antes del último "-<número>".
+    Se usa SOLO para sugerir enriquecimiento (categoría, marca...) de un SKU
+    nuevo copiándolo de sus "hermanos" ya existentes en la Maestra — NUNCA
+    para el cruce principal BASE→Master (ese sigue siendo por SKU exacto
+    normalizado, normalize_sku_for_match)."""
+    norm = normalize_sku_for_match(sku)
+    return _VARIANT_SUFFIX_RE.sub("", norm)
+
+
 def find_header_index(headers, name: str) -> int:
     """Busca `name` en `headers`: primero exacto, si no case-insensitive
     (recortando espacios). Devuelve -1 si no está en ninguna forma.

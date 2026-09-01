@@ -17,6 +17,11 @@ router = APIRouter(
 
 class BulkExecuteRequest(BaseModel):
     batch_ids: List[int]
+    # Si True, las sugerencias de enriquecimiento (categoría/marca... copiadas
+    # de la misma referencia, ej. 968B-1/-2/-3) se aplican a las filas nuevas.
+    # Default False: por diseño, nunca se aplican solas — el humano las ve en
+    # el preview y decide (ver services._compute_master_sync).
+    apply_suggestions: bool = False
 
 @router.post("/execute-bulk")
 def execute_bulk_batches(req: BulkExecuteRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
@@ -58,6 +63,13 @@ def execute_bulk_batches(req: BulkExecuteRequest, background_tasks: BackgroundTa
 
             changes = diff_summary.get("changes", [])
             new_rows = diff_summary.get("new_rows", [])
+            if req.apply_suggestions:
+                # Merge: la sugerencia rellena solo lo que "fields" dejó vacío
+                # (el núcleo lavado siempre gana si por algo se solaparan).
+                new_rows = [
+                    {**r, "fields": {**r.get("suggested_fields", {}), **r["fields"]}}
+                    for r in new_rows
+                ]
 
             # Recuperar target explícito si el proceso lo tenía, si no, global
             target_sheet_name = process.target_sheet_name if (process and process.target_sheet_name) else project.master_sheet_name
