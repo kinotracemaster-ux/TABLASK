@@ -144,8 +144,15 @@ export default function Flujos() {
 
   useEffect(() => { loadAll(); }, []);
 
+  // Solo la PRIMERA carga bloquea la pantalla entera con "Cargando...". Sin
+  // esto, cada refresco posterior (ej. el que dispara onDone tras confirmar
+  // un flujo) desmontaba TODO — incluido el modal recién cerrado con el
+  // resultado — porque el gate de "loading" está antes del return del JSX.
+  // El usuario nunca llegaba a ver si el envío salió bien.
+  const loadedOnce = useRef(false);
+
   const loadAll = async () => {
-    setLoading(true);
+    if (!loadedOnce.current) setLoading(true);
     try {
       const projsRes = await fetch(`${API}/api/projects/`);
       const projs = await projsRes.json();
@@ -177,6 +184,7 @@ export default function Flujos() {
       setApiSubs(apiSubsRes.ok ? await apiSubsRes.json() : []);
     } catch (err) { console.error(err); }
     setLoading(false);
+    loadedOnce.current = true;
   };
 
   const connName = (id) => connections.find(c => c.id === id)?.name || `Conexión ${id}`;

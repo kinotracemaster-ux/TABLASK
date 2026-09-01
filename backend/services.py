@@ -59,7 +59,7 @@ def invalidate_read_cache(spreadsheet_id=None, sheet_name=None):
 
 # La normalización de SKU vive en sku_utils (única fuente de verdad, compartida
 # con el conector de Shopify). Se re-exporta acá para no romper imports previos.
-from .sku_utils import normalize_sku_for_match
+from .sku_utils import normalize_sku_for_match, sku_reference_base
 
 
 # Configuración de credenciales (Service Account)
@@ -397,6 +397,21 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
             if norm:
                 master_by_norm.setdefault(norm, {"index": i + 1, "data": padded_row, "sku": sku_val})
 
+    # Índice por REFERENCIA BASE (para sugerir enriquecimiento de altas
+    # nuevas): 968B-1/968B-2/968B-3 son la misma referencia con distinto
+    # sufijo de variante -> comparten categoría/marca/etc, aunque casi
+    # seguro difieren en color/talle. Se arma con lo que YA estaba en la
+    # Maestra ANTES de esta corrida (nunca con otras filas nuevas del mismo
+    # archivo, para no sugerir en base a un dato recién inventado).
+    reference_siblings = {}   # referencia_base -> [{columna: valor}, ...]
+    for info in master_by_norm.values():
+        base = sku_reference_base(info["sku"])
+        if base:
+            reference_siblings.setdefault(base, []).append({
+                master_headers[i]: (info["data"][i] if i < len(info["data"]) else "")
+                for i in range(len(master_headers))
+            })
+
     # Filas de la Maestra ANTES de crear nuevas (para el diagnóstico: distinguir
     # SKUs preexistentes de los recién agregados en esta corrida).
     master_rows_before = len(master_raw) - 1
@@ -526,12 +541,30 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
             new_mr_data[estado_idx] = ESTADO_NUEVO
             new_fields[ESTADO_COL] = ESTADO_NUEVO
 
+            # Sugerencia de enriquecimiento (categoría, marca...): busca "hermanos"
+            # con la misma referencia base (968B-1/-2/-3) ya existentes en la
+            # Maestra. Solo sugiere una columna si TODOS los hermanos coinciden en
+            # un único valor no vacío — si difieren (típico de "color", que sí
+            # cambia entre variantes), no hay nada inequívoco que sugerir. Nunca
+            # se escribe sola: queda aparte de "fields", el humano confirma antes
+            # de aplicarla (ver /api/staging/execute-bulk, apply_suggestions).
+            suggested_fields = {}
+            siblings = reference_siblings.get(sku_reference_base(sku_val), [])
+            if siblings:
+                enrichment_cols = [h for h in master_headers
+                                    if h not in req.field_mappings.values()
+                                    and h != req.sku_column_master and h != ESTADO_COL]
+                for col in enrichment_cols:
+                    sibling_values = {str(s.get(col, "")).strip() for s in siblings if str(s.get(col, "")).strip()}
+                    if len(sibling_values) == 1:
+                        suggested_fields[col] = next(iter(sibling_values))
+
             master_raw.append(new_mr_data)
             new_index = len(master_raw) - 1
             master_by_norm[norm] = {"index": new_index, "data": new_mr_data, "sku": sku_val}
             matched_norms.add(norm)
             rows_added += 1
-            granular_new_rows.append({"sku": sku_val, "fields": new_fields})
+            granular_new_rows.append({"sku": sku_val, "fields": new_fields, "suggested_fields": suggested_fields})
 
     # Coherencia: SKUs que están en la Maestra pero NO llegaron desde BASE (huérfanos).
     # "Agotar faltantes" (§4 del flujo de stock): si el proceso es la fuente de
