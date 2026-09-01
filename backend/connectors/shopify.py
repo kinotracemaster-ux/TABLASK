@@ -1,9 +1,18 @@
 import time
 import uuid
+import certifi
 import requests
 from typing import List, Dict, Any, Tuple
 from .base import BaseConnector
 from ..sku_utils import normalize_sku_for_match
+
+# Se fuerza el bundle de CAs de certifi (en vez del default de requests, que
+# puede quedar pisado por REQUESTS_CA_BUNDLE/SSL_CERT_FILE del contenedor de
+# despliegue) — visto en producción: Railway/Nixpacks con esa variable
+# apuntando a una ruta de Nix inexistente en runtime hacía fallar TODO
+# llamado a Shopify con "unable to get local issuer certificate", aunque el
+# certificado de *.myshopify.com sea válido.
+_CA_BUNDLE = certifi.where()
 
 
 def _chunks(seq, size):
@@ -79,7 +88,7 @@ class ShopifyConnector(BaseConnector):
             "client_id": self.client_id,
             "client_secret": self.client_secret,
             "grant_type": "client_credentials",
-        }, timeout=15)
+        }, timeout=15, verify=_CA_BUNDLE)
         if resp.status_code != 200:
             raise ValueError(
                 f"No se pudo obtener token de Shopify ({resp.status_code}): {resp.text[:300]}"
@@ -102,7 +111,7 @@ class ShopifyConnector(BaseConnector):
 
         last_err = ""
         for attempt in range(5):
-            resp = requests.post(url, json=payload, headers=headers, timeout=30)
+            resp = requests.post(url, json=payload, headers=headers, timeout=30, verify=_CA_BUNDLE)
             if resp.status_code == 429 or resp.status_code >= 500:
                 last_err = f"HTTP {resp.status_code}: {resp.text[:200]}"
                 time.sleep(2 ** attempt)
