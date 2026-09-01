@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
+from ..sku_utils import find_header_index as _header_index
 
 router = APIRouter(prefix="/api/shopify-subscriptions", tags=["shopify-subscriptions"])
 
@@ -152,21 +153,6 @@ def _get_master_context(db: Session):
     if not sku_column:
         raise HTTPException(status_code=400, detail="No se pudo determinar la columna llave (SKU) de la Maestra.")
     return project, master_conn, project.master_sheet_name, sku_column
-
-
-def _header_index(headers: list, name: Optional[str]) -> int:
-    """Busca una columna por nombre exacto y, si no hay match, case-insensitive
-    (la columna SKU guardada puede no coincidir en mayúsculas con el
-    encabezado real, ej. 'sku' guardado vs 'SKU' en la hoja)."""
-    if not name:
-        return -1
-    if name in headers:
-        return headers.index(name)
-    name_lower = name.strip().lower()
-    for i, h in enumerate(headers):
-        if str(h).strip().lower() == name_lower:
-            return i
-    return -1
 
 
 def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], stock_col: Optional[str],

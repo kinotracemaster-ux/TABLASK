@@ -68,6 +68,16 @@ def test_diff_sin_columna_sku_no_manda_nada():
     assert rows_from_master(MASTER, only_skus={"1203"}, sku_column="no_existe") == []
 
 
+def test_diff_columna_sku_con_otra_casing_igual_cruza():
+    # La columna configurada puede haber quedado guardada con otra casing que
+    # el encabezado real ("SKU" guardado vs "sku" en la hoja) — sin la
+    # búsqueda case-insensitive esto fallaba EN SILENCIO (devolvía []),
+    # perdiendo el diff quirúrgico completo del canal.
+    rows = rows_from_master(MASTER, only_skus={"1203"}, sku_column="SKU")
+    assert len(rows) == 1
+    assert rows[0]["sku"] == "01203"
+
+
 def test_maestra_vacia():
     assert rows_from_master([]) == []
     assert rows_from_master([["sku"]]) == []

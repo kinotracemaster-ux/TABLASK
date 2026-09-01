@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from . import models, schemas
 from .database import engine, get_db
+from .sku_utils import find_header_index
 
 # Create DB tables
 models.Base.metadata.create_all(bind=engine)
@@ -551,12 +552,12 @@ def _index_master_by_sku(master_conn, master_sheet, sku_column):
     if not raw or len(raw) < 1:
         return [], {}
     headers = raw[0]
-    if sku_column not in headers:
+    sku_idx = find_header_index(headers, sku_column)
+    if sku_idx < 0:
         raise HTTPException(
             status_code=400,
             detail=f"La columna llave '{sku_column}' no existe en la maestra."
         )
-    sku_idx = headers.index(sku_column)
     by_sku = {}
     for row in raw[1:]:
         sku_val = row[sku_idx] if sku_idx < len(row) else ""
