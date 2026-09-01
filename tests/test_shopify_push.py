@@ -62,6 +62,44 @@ def test_dry_run_reports_cross_without_writing(conn):
     assert conn._calls["stock"] == []
 
 
+def test_dry_run_changes_shows_before_after(conn):
+    # El índice mockeado no trae valores actuales -> "before" queda "(vacío)".
+    updates = [{"sku": "1203", "price": "10", "stock": "5"}]
+    summary = conn.push_updates(updates, do_price=True, do_stock=True, dry_run=True)
+    assert summary["changes"] == [
+        {"sku": "1203", "field": "Precio", "before": "(vacío)", "after": "10"},
+        {"sku": "1203", "field": "Stock", "before": "(vacío)", "after": "5"},
+    ]
+    assert summary["changes_total"] == 2
+
+
+def test_dry_run_changes_ignores_same_value_different_format(conn, monkeypatch):
+    # "182000" (Maestra) vs "182000.00" (Shopify) es el MISMO precio -> no es
+    # un cambio real, no debe aparecer en el preview (evita ruido/falsos positivos).
+    index = {
+        "1203": {
+            "variant_id": "gid://shopify/ProductVariant/1",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/100",
+            "sku": "1203",
+            "current_price": "182000.00",
+            "current_stock": 5,
+        },
+    }
+    monkeypatch.setattr(conn, "index_variants_by_sku", lambda: index)
+    summary = conn.push_updates([{"sku": "1203", "price": "182000", "stock": "5,0"}],
+                                do_price=True, do_stock=True, dry_run=True)
+    assert summary["changes"] == []
+    assert summary["changes_total"] == 0
+
+
+def test_dry_run_changes_only_for_active_fields(conn):
+    # barcode viene en el update pero do_barcode=False -> no genera "changes".
+    updates = [{"sku": "1203", "price": "10", "barcode": "999"}]
+    summary = conn.push_updates(updates, do_price=True, do_stock=False, dry_run=True)
+    assert [c["field"] for c in summary["changes"]] == ["Precio"]
+
+
 def test_matches_by_normalized_sku(conn):
     # "01203" debe cruzar con la variante indexada como "1203".
     summary = conn.push_updates([{"sku": "01203", "price": "9,99"}],

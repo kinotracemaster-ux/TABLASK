@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { UploadCloud, Database, Store, ArrowRight, ChevronRight, CheckCircle2, AlertTriangle, Eye, Send, Save, Zap, FileDown, XCircle } from 'lucide-react';
+import { UploadCloud, Database, Store, ArrowRight, ChevronRight, CheckCircle2, AlertTriangle, Send, Save, Zap, FileDown, XCircle } from 'lucide-react';
 import { extractError, formatError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
+import ShopifyPushModal from './ShopifyPushModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 const ALLOWED_FILE_EXT = ['.csv', '.xls', '.xlsx'];
@@ -70,10 +71,9 @@ export default function FileToShopify() {
   const [shopDestName, setShopDestName] = useState('');
   const [shopSubId, setShopSubId] = useState(null);
   const [savingShopSub, setSavingShopSub] = useState(false);
-  const [shopPreview, setShopPreview] = useState(null);
-  const [shopResult, setShopResult] = useState(null);
-  const [shopBusy, setShopBusy] = useState(false);
   const [shopError, setShopError] = useState(null);
+  const [shopPushOpen, setShopPushOpen] = useState(false);
+  const [shopSent, setShopSent] = useState(false);
 
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
   const fileConns = connections.filter(c => c.connection_type === 'local_file');
@@ -271,19 +271,6 @@ export default function FileToShopify() {
     setSavingShopSub(false);
   };
 
-  const runShopPush = async (dryRun) => {
-    if (!shopSubId) { setShopError('Guardá el destino Shopify primero.'); return; }
-    setShopError(null); setShopPreview(null); if (!dryRun) setShopResult(null);
-    setShopBusy(true);
-    try {
-      const res = await fetch(`${API}/api/shopify-subscriptions/${shopSubId}/push-now?dry_run=${dryRun}`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) { setShopError(formatError(data)); return; }
-      if (dryRun) setShopPreview(data); else setShopResult(data);
-    } catch (err) { setShopError(err.message || 'Error contra Shopify.'); }
-    setShopBusy(false);
-  };
-
   const formatFileSize = (bytes) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -466,7 +453,7 @@ export default function FileToShopify() {
       {/* ── Tarjeta 3: Shopify ── */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <StepBadge n={3} done={!!shopResult} active={masterUpdated && !shopResult} /> Shopify
+          <StepBadge n={3} done={shopSent} active={masterUpdated && !shopSent} /> Shopify
         </h2>
 
         {shopConns.length === 0 ? (
@@ -545,35 +532,17 @@ export default function FileToShopify() {
             {shopSubId && <p className="text-xs text-green-700 mt-2">✓ Destino guardado. Queda en "Mis Flujos" y se envía solo con cada actualización de la Maestra.</p>}
 
             <div className="flex gap-2 mt-4">
-              <button type="button" onClick={() => runShopPush(true)} disabled={!shopSubId || shopBusy}
-                className="flex items-center gap-2 border border-green-300 text-green-700 px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-green-50 disabled:opacity-50">
-                <Eye className="w-4 h-4" /> {shopBusy ? 'Calculando...' : 'Previsualizar'}
-              </button>
-              <button type="button"
-                onClick={() => { if (window.confirm('Esto ESCRIBIRÁ precio/stock en la tienda Shopify. ¿Continuar?')) runShopPush(false); }}
-                disabled={!shopSubId || shopBusy}
+              <button type="button" onClick={() => setShopPushOpen(true)} disabled={!shopSubId}
                 className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
                 <Send className="w-4 h-4" /> Enviar a Shopify
               </button>
             </div>
             {!shopSubId && <p className="text-xs text-gray-400 mt-2">Guardá el destino primero para previsualizar/enviar.</p>}
+            {shopSent && <p className="text-sm text-green-700 mt-2 flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Enviado a Shopify.</p>}
 
             {shopError && (
               <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 whitespace-pre-line flex gap-2">
                 <XCircle className="w-4 h-4 shrink-0" /> {shopError}
-              </div>
-            )}
-            {shopPreview && (
-              <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm">
-                Cruzan (se actualizarán): <b className="text-green-700">{shopPreview.matched}</b> de {shopPreview.total}
-                {shopPreview.not_found_count > 0 && <span className="text-amber-700"> · sin cruzar: {shopPreview.not_found_count} (no se crean)</span>}
-              </div>
-            )}
-            {shopResult && (
-              <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
-                ✅ Enviado: {shopResult.price_updated} precios · {shopResult.stock_updated} stock
-                {shopResult.compare_price_updated ? ` · ${shopResult.compare_price_updated} precio comparativo` : ''}
-                {shopResult.barcode_updated ? ` · ${shopResult.barcode_updated} códigos de barras` : ''}
               </div>
             )}
           </>
@@ -588,6 +557,15 @@ export default function FileToShopify() {
             setMasterUpdated(true);
             fetch(`${API}/api/master`).then(r => r.json()).then(m => setMasterRows(m.total_rows ?? null)).catch(() => {});
           }}
+        />
+      )}
+
+      {shopPushOpen && (
+        <ShopifyPushModal
+          subId={shopSubId}
+          subName={shopDestName || 'Shopify'}
+          onClose={() => setShopPushOpen(false)}
+          onDone={() => setShopSent(true)}
         />
       )}
     </div>
