@@ -136,6 +136,11 @@ export default function Flujos() {
   const [ecShopClientSecret, setEcShopClientSecret] = useState('');
   const [ecShopToken, setEcShopToken] = useState('');
 
+  // --- Selección múltiple (borrar en masa) ---
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState({ proc: [], shopSub: [], apiSub: [], sub: [], exp: [], conn: [] });
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   useEffect(() => { loadAll(); }, []);
 
   const loadAll = async () => {
@@ -480,6 +485,59 @@ export default function Flujos() {
     google_sheets: 'Google Sheet', local_file: 'Archivo subido', http_api: 'API externa', shopify: 'Shopify'
   }[type] || type);
 
+  // --- Selección múltiple (borrar en masa) ---
+  // Metadatos por tipo: endpoint de borrado, etiqueta legible y de dónde sacar
+  // el nombre para el resumen de errores. El orden importa: se borran destinos
+  // y fuentes ANTES que conexiones, así si en la misma tanda se selecciona un
+  // destino Shopify duplicado Y su conexión, la protección relacional (una
+  // conexión no se borra si algo activo la usa) no bloquea la conexión.
+  const KIND_META = {
+    exp: { label: 'exportación CSV', endpoint: id => `/api/exports/${id}`, list: exports },
+    sub: { label: 'destino Sheets', endpoint: id => `/api/subscriptions/${id}`, list: subscriptions },
+    shopSub: { label: 'destino Shopify', endpoint: id => `/api/shopify-subscriptions/${id}`, list: shopifySubs },
+    apiSub: { label: 'canal API', endpoint: id => `/api/api-subscriptions/${id}`, list: apiSubs },
+    proc: { label: 'fuente', endpoint: id => `/api/processes/${id}`, list: processes },
+    conn: { label: 'conexión', endpoint: id => `/api/connections/${id}`, list: connections },
+  };
+  const BULK_ORDER = ['exp', 'sub', 'shopSub', 'apiSub', 'proc', 'conn'];
+
+  const isSelected = (kind, id) => selected[kind].includes(id);
+  const toggleSelected = (kind, id) => {
+    setSelected(prev => ({
+      ...prev,
+      [kind]: prev[kind].includes(id) ? prev[kind].filter(x => x !== id) : [...prev[kind], id]
+    }));
+  };
+  const clearSelection = () => setSelected({ proc: [], shopSub: [], apiSub: [], sub: [], exp: [], conn: [] });
+  const exitSelectMode = () => { setSelectMode(false); clearSelection(); };
+  const selectedCount = Object.values(selected).reduce((n, l) => n + l.length, 0);
+
+  const bulkDelete = async () => {
+    if (selectedCount === 0 || bulkDeleting) return;
+    const summary = BULK_ORDER.filter(k => selected[k].length > 0)
+      .map(k => `${selected[k].length} ${KIND_META[k].label}(s)`).join(', ');
+    if (!window.confirm(`¿Eliminar ${summary}?\n\nEsta acción no se puede deshacer.`)) return;
+    setBulkDeleting(true);
+    const failed = [];
+    for (const kind of BULK_ORDER) {
+      for (const id of selected[kind]) {
+        const name = KIND_META[kind].list.find(x => x.id === id)?.name || `#${id}`;
+        try {
+          const res = await fetch(`${API}${KIND_META[kind].endpoint(id)}`, { method: 'DELETE' });
+          if (!res.ok) failed.push(`${KIND_META[kind].label} "${name}": ${await extractError(res)}`);
+        } catch (err) {
+          failed.push(`${KIND_META[kind].label} "${name}": ${err.message || 'error de red'}`);
+        }
+      }
+    }
+    setBulkDeleting(false);
+    exitSelectMode();
+    await loadAll();
+    if (failed.length > 0) {
+      alert(`Algunos no se pudieron borrar (probablemente siguen en uso por algo activo):\n\n${failed.join('\n')}`);
+    }
+  };
+
   // --- Edición: Fuente (Proceso) ---
   const openEditProcess = async (proc) => {
     setEditProc(proc);
@@ -682,10 +740,18 @@ export default function Flujos() {
           <h1 className="text-2xl font-bold text-gray-800">Mis Flujos</h1>
           <p className="text-gray-500 text-sm mt-1">Todo lo que ya conectaste: fuentes, destinos y conexiones. Pausá o borrá lo que no uses.</p>
         </div>
-        <Link to="/nueva-fuente"
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm">
-          <Plus className="w-4 h-4" /> Nueva Fuente
-        </Link>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {!nothing && (
+            <button onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium transition text-sm border ${selectMode ? 'bg-gray-800 text-white border-gray-800 hover:bg-gray-900' : 'text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
+              <CheckCircle2 className="w-4 h-4" /> {selectMode ? 'Cancelar selección' : 'Seleccionar varios'}
+            </button>
+          )}
+          <Link to="/nueva-fuente"
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm">
+            <Plus className="w-4 h-4" /> Nueva Fuente
+          </Link>
+        </div>
       </div>
 
       {/* A dónde va todo: la Maestra ya enlazada (o el aviso si falta) */}
@@ -733,9 +799,15 @@ export default function Flujos() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {processes.map(proc => (
-              <div key={proc.id} className={`bg-white rounded-xl shadow-sm border p-4 ${!proc.is_active ? 'opacity-60 grayscale' : 'border-gray-200'}`}>
+              <div key={proc.id} className={`bg-white rounded-xl shadow-sm border p-4 ${selectMode && isSelected('proc', proc.id) ? 'ring-2 ring-indigo-400' : ''} ${!proc.is_active ? 'opacity-60 grayscale' : 'border-gray-200'}`}>
                 <div className="flex justify-between items-start mb-1">
-                  <h3 className="font-semibold text-gray-800">{proc.name}</h3>
+                  <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                    {selectMode && (
+                      <input type="checkbox" checked={isSelected('proc', proc.id)} onChange={() => toggleSelected('proc', proc.id)}
+                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    )}
+                    {proc.name}
+                  </h3>
                   <div className="flex gap-1">
                     <button onClick={() => openEditProcess(proc)} title="Editar"
                       className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition">
@@ -772,9 +844,13 @@ export default function Flujos() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {shopifySubs.map(sub => (
-              <div key={`shopsub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${!sub.is_active ? 'opacity-60 grayscale' : 'border-green-200'}`}>
+              <div key={`shopsub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${selectMode && isSelected('shopSub', sub.id) ? 'ring-2 ring-indigo-400' : ''} ${!sub.is_active ? 'opacity-60 grayscale' : 'border-green-200'}`}>
                 <div className="flex justify-between items-start mb-1">
                   <h3 className="font-semibold text-gray-800 flex items-center gap-1.5">
+                    {selectMode && (
+                      <input type="checkbox" checked={isSelected('shopSub', sub.id)} onChange={() => toggleSelected('shopSub', sub.id)}
+                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    )}
                     <Store className="w-4 h-4 text-green-600" /> {sub.name}
                   </h3>
                   <div className="flex gap-1">
@@ -804,9 +880,13 @@ export default function Flujos() {
               </div>
             ))}
             {apiSubs.map(sub => (
-              <div key={`apisub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${!sub.is_active ? 'opacity-60 grayscale' : 'border-sky-200'}`}>
+              <div key={`apisub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${selectMode && isSelected('apiSub', sub.id) ? 'ring-2 ring-indigo-400' : ''} ${!sub.is_active ? 'opacity-60 grayscale' : 'border-sky-200'}`}>
                 <div className="flex justify-between items-start mb-1">
                   <h3 className="font-semibold text-gray-800 flex items-center gap-1.5">
+                    {selectMode && (
+                      <input type="checkbox" checked={isSelected('apiSub', sub.id)} onChange={() => toggleSelected('apiSub', sub.id)}
+                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    )}
                     <Globe className="w-4 h-4 text-sky-600" /> {sub.name}
                   </h3>
                   <div className="flex gap-1">
@@ -837,9 +917,15 @@ export default function Flujos() {
               </div>
             ))}
             {subscriptions.map(sub => (
-              <div key={`sub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${!sub.is_active ? 'opacity-60 grayscale' : 'border-gray-200'}`}>
+              <div key={`sub-${sub.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${selectMode && isSelected('sub', sub.id) ? 'ring-2 ring-indigo-400' : ''} ${!sub.is_active ? 'opacity-60 grayscale' : 'border-gray-200'}`}>
                 <div className="flex justify-between items-start mb-1">
-                  <h3 className="font-semibold text-gray-800">{sub.name}</h3>
+                  <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                    {selectMode && (
+                      <input type="checkbox" checked={isSelected('sub', sub.id)} onChange={() => toggleSelected('sub', sub.id)}
+                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    )}
+                    {sub.name}
+                  </h3>
                   <div className="flex gap-1">
                     <button onClick={() => openEditSub(sub)} title="Editar"
                       className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition">
@@ -859,9 +945,15 @@ export default function Flujos() {
               </div>
             ))}
             {exports.map(exp => (
-              <div key={`exp-${exp.id}`} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <div key={`exp-${exp.id}`} className={`bg-white rounded-xl shadow-sm border border-gray-200 p-4 ${selectMode && isSelected('exp', exp.id) ? 'ring-2 ring-indigo-400' : ''}`}>
                 <div className="flex justify-between items-start mb-1">
-                  <h3 className="font-semibold text-gray-800">{exp.name}</h3>
+                  <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                    {selectMode && (
+                      <input type="checkbox" checked={isSelected('exp', exp.id)} onChange={() => toggleSelected('exp', exp.id)}
+                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    )}
+                    {exp.name}
+                  </h3>
                   <div className="flex gap-1">
                     <a href={exportLink(exp)} title="Descargar CSV"
                       className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 transition">
@@ -895,8 +987,13 @@ export default function Flujos() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {connections.map(conn => (
-              <div key={conn.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-start justify-between">
-                <div className="min-w-0">
+              <div key={conn.id} className={`bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-start justify-between gap-2 ${selectMode && isSelected('conn', conn.id) ? 'ring-2 ring-indigo-400' : ''}`}>
+                <div className="min-w-0 flex items-start gap-2">
+                  {selectMode && (
+                    <input type="checkbox" checked={isSelected('conn', conn.id)} onChange={() => toggleSelected('conn', conn.id)}
+                      className="w-4 h-4 mt-1 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 flex-shrink-0" />
+                  )}
+                  <div className="min-w-0">
                   <h3 className="font-semibold text-gray-800 truncate">{conn.name}</h3>
                   <p className="text-xs text-gray-500">{kindLabel(conn.connection_type)}</p>
                   {(conn.connection_type === 'shopify' || conn.connection_type === 'http_api') && (
@@ -905,6 +1002,7 @@ export default function Flujos() {
                       {testing === conn.id ? 'Probando...' : 'Probar conexión'}
                     </button>
                   )}
+                  </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <button onClick={() => openEditConn(conn)} title="Editar"
@@ -1285,6 +1383,19 @@ export default function Flujos() {
           onClose={() => setRunProcs(null)}
           onDone={() => loadAll()}
         />
+      )}
+
+      {selectMode && selectedCount > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-gray-900 text-white rounded-xl shadow-xl px-5 py-3 flex items-center gap-4">
+          <span className="text-sm font-medium">{selectedCount} seleccionado{selectedCount === 1 ? '' : 's'}</span>
+          <button onClick={bulkDelete} disabled={bulkDeleting}
+            className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition">
+            <Trash2 className="w-4 h-4" /> {bulkDeleting ? 'Borrando...' : 'Borrar seleccionados'}
+          </button>
+          <button onClick={exitSelectMode} disabled={bulkDeleting} className="text-gray-300 hover:text-white text-sm disabled:opacity-50">
+            Cancelar
+          </button>
+        </div>
       )}
     </div>
   );
