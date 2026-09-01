@@ -13,6 +13,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from .export_engine import transform_headers, transform_row
+from .sku_utils import find_header_index
 
 
 def rows_from_master(master_raw: List[List[str]],
@@ -33,9 +34,9 @@ def rows_from_master(master_raw: List[List[str]],
 
     sku_idx = -1
     if only_skus is not None:
-        if not sku_column or sku_column not in headers:
+        sku_idx = find_header_index(headers, sku_column)
+        if sku_idx < 0:
             return []
-        sku_idx = headers.index(sku_column)
 
     from .services import normalize_sku_for_match
 

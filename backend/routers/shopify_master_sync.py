@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 from .. import models, schemas
 from ..database import get_db
+from ..sku_utils import find_header_index
 
 router = APIRouter(prefix="/api/shopify-master-sync", tags=["shopify-master-sync"])
 
@@ -78,11 +79,13 @@ def _run_diff(db: Session):
         raise HTTPException(status_code=400, detail="La Tabla Maestra está vacía.")
 
     headers = master_raw[0]
-    if config.sku_column_master not in headers:
+    sku_idx = find_header_index(headers, config.sku_column_master)
+    if sku_idx < 0:
         raise HTTPException(status_code=400, detail=f"Columna SKU '{config.sku_column_master}' no encontrada en la Maestra.")
-    sku_idx = headers.index(config.sku_column_master)
-    price_idx = headers.index(config.price_column_master) if config.price_column_master and config.price_column_master in headers else None
-    stock_idx = headers.index(config.stock_column_master) if config.stock_column_master and config.stock_column_master in headers else None
+    price_idx = find_header_index(headers, config.price_column_master)
+    price_idx = price_idx if price_idx >= 0 else None
+    stock_idx = find_header_index(headers, config.stock_column_master)
+    stock_idx = stock_idx if stock_idx >= 0 else None
 
     changes = []
     updated_skus = set()

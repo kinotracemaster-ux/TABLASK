@@ -53,3 +53,25 @@ def normalize_sku_for_match(s: str) -> str:
     if s.isdigit():
         s = s.lstrip("0") or "0"
     return s
+
+
+def find_header_index(headers, name: str) -> int:
+    """Busca `name` en `headers`: primero exacto, si no case-insensitive
+    (recortando espacios). Devuelve -1 si no está en ninguna forma.
+
+    La columna llave (SKU) u otras columnas configuradas por el usuario a
+    veces quedan guardadas con una casing distinta a la del encabezado real
+    de la hoja (ej. 'sku' guardado vs 'SKU' en la Maestra) — sin esto, un
+    cruce que debería funcionar falla con "columna no encontrada" o, peor,
+    falla en silencio y deja de filtrar/escribir filas. Única fuente de
+    verdad para esta búsqueda: la usan main.py, api_push.py y los routers
+    de Shopify."""
+    if not name:
+        return -1
+    if name in headers:
+        return headers.index(name)
+    name_lower = name.strip().lower()
+    for i, h in enumerate(headers):
+        if str(h).strip().lower() == name_lower:
+            return i
+    return -1

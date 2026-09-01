@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from .. import models
 from ..database import get_db
+from ..sku_utils import find_header_index
 
 router = APIRouter(prefix="/api/shopify", tags=["shopify"])
 
@@ -72,7 +73,7 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
     headers = raw[0]
 
     def col_idx(name: Optional[str]) -> int:
-        return headers.index(name) if name and name in headers else -1
+        return find_header_index(headers, name)
 
     si = col_idx(req.sku_column)
     pi = col_idx(req.price_column)
