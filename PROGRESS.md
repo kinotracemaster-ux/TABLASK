@@ -1,170 +1,50 @@
 # PROGRESS — TablasK
 
-> Estado vivo del proyecto. Se LEE al inicio de cada sesión y se ACTUALIZA al final.
-> Instrucción típica de cierre: "actualizá PROGRESS.md con lo que hicimos,
-> decisiones y próximos pasos".
+> Estado vivo del proyecto, **corto a propósito**: se carga completo en CADA turno
+> vía el `@import` de CLAUDE.md, así que cada línea de más acá es tokens gastados
+> en toda sesión futura. El detalle técnico y el historial completo de cada
+> feature (qué se rompió, cómo se resolvió, qué archivos tocó, qué tests la
+> fijan) vive en `MEMORIA_PROYECTO.md` §3 — se lee bajo demanda, no en cada turno.
 >
-> Nota: si `MEJORAS_TABLASK.md` te sirve para lluvia de ideas de mejora, dejalo
-> para eso. Este archivo es solo el estado/avance. Si preferís uno solo,
-> renombrá MEJORAS → PROGRESS y borrá este.
+> Instrucción típica de cierre: "actualizá el estado — PROGRESS.md corto acá,
+> detalle de la feature en MEMORIA_PROYECTO.md §3".
 >
-> Última actualización: 2026-08-28
+> Última actualización: 2026-09-01
 
 ## Estado actual
-- [Describí en qué punto está el proyecto ahora mismo]
-- El Master todavía tiene campos de enriquecimiento por llenar.
-- **Pendiente urgente (dato ya escrito, no lo arregla el código):** si en "Mis
-  Flujos" quedaron varios destinos Shopify duplicados de ANTES de este fix
-  (creados mientras el bug de deduplicación existía) con `Stock = PRICE` o
-  `Stock = SKU`, esos registros viejos siguen activos en la base y corrompen
-  el inventario en cada sync hasta que se pausen/borren a mano desde Flujos —
-  el fix de abajo evita que se sigan creando duplicados nuevos, pero no toca
-  los que ya existían.
-
-## Hecho
-- **Una tienda Shopify = un solo destino guardado (deduplicación):**
-  `saveShopSub`/`saveShopifySubscription` (FileToShopify, asistente, Flujos)
-  siempre hacían `POST /api/shopify-subscriptions/` sin revisar si esa tienda
-  ya tenía un destino — cada archivo nuevo dejaba OTRO destino más para la
-  misma tienda (visto como varias tarjetas "Shopify · SHOPOE" en Flujos), y
-  como `propagation.py` corre TODOS los destinos activos en cada sync, un
-  destino viejo con mapeo peligroso seguía escribiendo aunque ya hubiera uno
-  nuevo bien configurado. Ahora, en `shopify_subscriptions.py`:
-  `create_shopify_subscription` (POST) busca si ya existe una suscripción
-  para ese `connection_id` y, si existe, la ACTUALIZA en vez de crear otra
-  (mismo id, se sigue viendo una sola tarjeta); `update_shopify_subscription`
-  (PUT) rechaza (400) si el `connection_id` que le pasás ya es de OTRO
-  destino existente, para no terminar con dos filas para la misma tienda por
-  otra vía. Sin cambios de frontend: las 3 pantallas ya pegan al mismo
-  endpoint, así que quedan cubiertas solas. Tests en
-  `test_shopify_subscriptions_dedup.py` (149 pasan en total).
-- **"Reemplazar archivo" en una Fuente antes de correrla:** cada archivo nuevo
-  creaba una Conexión (Fuente) separada — no había forma de actualizar el
-  contenido de una ya subida, así que archivos con datos más nuevos del mismo
-  origen se acumulaban como Fuentes duplicadas en "Mis Flujos". Ahora:
-  `POST /api/connections/{id}/replace-file` (nuevo, en `connections.py`)
-  reemplaza `file_path`/`file_content`/`file_updated_at` de la conexión SIN
-  cambiar su id — el Proceso que la usa como origen sigue intacto y pasa a
-  leer el archivo nuevo. Columna nueva `Connection.file_updated_at` (con
-  auto-migración en `main.py`) registra cuándo se subió/reemplazó. En
-  `Flujos.jsx`, al apretar "Correr flujo" en una Fuente cuyo origen es un
-  archivo local, aparece un aviso — no bloqueante — recomendando reemplazarlo
-  por uno más nuevo antes de sincronizar, con opción de "Continuar con el
-  archivo actual". Tests en `test_connection_replace_file.py` (145 pasan en
-  total).
-- **Guardián contra mapear la misma columna a dos campos de un destino Shopify:**
-  un usuario mapeó por error la columna PRICE tanto a "Precio" como a "Stock"
-  del destino, y el push escribió el precio como cantidad de inventario
-  (Shopify quedó mostrando "480.000 en existencias" — el precio en pesos, no
-  stock real). `_validate_payload` en `shopify_subscriptions.py` ahora rechaza
-  (400) crear o editar una suscripción si dos de los cuatro campos (precio,
-  stock, precio comparativo, código de barras) apuntan a la misma columna de
-  la Maestra. Aplica a los 3 puntos de entrada (asistente, "Archivo →
-  Maestra → Shopify", modal de edición en Flujos) porque todos pegan al mismo
-  endpoint `/api/shopify-subscriptions/`. Tests nuevos en
-  `test_shopify_subscriptions_validation.py` (140 pasan en total).
-  **Pendiente real:** el inventario ya escrito en Shopify con esta suscripción
-  quedó corrupto (cantidades = precio); no hay forma de recuperar el stock
-  real desde TablasK — hay que corregirlo a mano en Shopify o resincronizar
-  desde una fuente que sí tenga stock real.
-- **Push a Shopify con campos configurables (uno o varios):** antes el destino solo
-  mandaba precio/stock. Ahora se pueden elegir campos a nivel VARIANTE que Shopify
-  acepta cruzando por SKU: **precio, stock, precio comparativo (oferta) y código de
-  barras** — uno o varios, opcionales. Sigue sin crear productos ni tocar datos de
-  producto (título/descripción). Cambios: 2 columnas nuevas en `ShopifySubscription`
-  (`compare_price_column_master`, `barcode_column_master`) con auto-migración en
-  `main.py`; `push_updates` arma una sola llamada bulk de variante con los campos
-  activos (`do_compare_price`/`do_barcode`, contadores nuevos en el summary);
-  `build_updates_from_sheet`, `build_shopify_updates`, el push directo `/api/shopify/push`
-  y el diff de propagación extendidos. UI en las 3 pantallas (FileToShopify, asistente,
-  modal de Flujos). Tests nuevos en `test_shopify_push.py` y `test_shopify_subscription_diff.py`
-  (136 pasan). Regla en CLAUDE.md actualizada.
-- **Página dedicada "Archivo → Maestra → Shopify" (subida):** módulo propio en el
-  menú, simétrico al de "Shopify → Maestra" (bajada), al estilo del screenshot del
-  usuario. Tres tarjetas numeradas apiladas en una sola pantalla:
-  1) **Archivo** — subir nuevo o elegir uno ya subido → lee columnas → auto-detecta
-     SKU y auto-mapea contra la Maestra (editable) → "Guardar" crea la Fuente.
-  2) **Maestra** — botón "Actualizar Maestra ahora" que abre el `RunFlowModal` del
-     proceso (vista previa → escritura quirúrgica).
-  3) **Shopify** — tienda + precio/stock (columnas Maestra) + bodega → "Guardar
-     destino" (`ShopifySubscription`) → Previsualizar / Enviar (`push-now`).
-  Reusa endpoints existentes; sin lógica nueva de backend. (`FileToShopify.jsx`,
-  ruta `/subir-shopify`, link en `App.jsx`.)
-- **Cierre "Correr ahora" en el asistente (Nueva Fuente):** el flujo
-  Archivo → Maestra → Shopify ya existía entero en el wizard, pero al crear la
-  fuente NO se corría → la Maestra no se actualizaba hasta un "Correr Procesos"
-  manual y poco visible. Ahora el Paso 3 termina con una tarjeta **"Actualizar
-  ahora"** (mini-diagrama Archivo → Maestra → Shopify + botón **Correr ahora**)
-  que abre el `RunFlowModal` del proceso recién creado: vista previa → escribe la
-  Maestra (quirúrgico) → la propagación empuja precio/stock al destino Shopify
-  guardado. Cierra el círculo en un solo lugar. (`SourceWizard.jsx`: `createdProc`,
-  `runProc`, reusa `RunFlowModal` y `staging/execute-bulk`.)
-- **Diagrama de flujo interactivo (home):** el `PipelineBar` (Fuentes → Maestra →
-  Destinos) dejó de ser solo visual. Cada nodo ahora tiene botones que llevan a la
-  acción real vía deep-link `/flujos?action=&node=`:
-  - Fuente → **Correr** (vista previa) y **Editar** el mapeo.
-  - Maestra → **Ver Maestra**.
-  - Destino Shopify/API → **Enviar** (push ahora) y **Editar**; hoja hija → **Editar**.
-  Se agregó una línea que explica el camino ("Subís por una Fuente → Maestra →
-  Destino"). Genérico para cualquier fuente/destino (el caso Poe→Shopify es un
-  ejemplo). `Flujos.jsx` lee el deep-link y dispara el handler ya existente.
-- **Editar destinos Shopify:** faltaba el modal de edición (antes solo se podía
-  enviar/pausar/borrar). Ahora se puede cambiar nombre, tienda, columnas de
-  precio/stock (desde `master-columns`) y location_id. (`Flujos.jsx`,
-  `PUT /api/shopify-subscriptions/{id}` ya existía.)
-
-- **Guardián inteligente** para crear productos nuevos: ya no bloquea por baja
-  coherencia a secas. Ahora solo salta (auto/push) si las filas nuevas parecen
-  un FORMATO DE SKU ROTO (casi-idénticas a SKUs existentes). Los productos
-  genuinamente nuevos se crean aunque la coherencia sea baja.
-  (`services.py`: señal `new_rows_look_broken` / `new_rows_suspect_ratio`;
-  usada en `scheduler.py` e `intake.py`; expuesta en el preview de `processes.py`.)
-- **Marca de altas nuevas:** al crear un producto nuevo, la Master lo marca con
-  `estado = NUEVO` (columna de control; si no existe se agrega al final sin tocar
-  el resto). Así se crean pero quedan resaltados para enriquecer/revisar — no se
-  crea basura silenciosa. Nombre/valor configurables por env (`MASTER_ESTADO_COL`,
-  `MASTER_ESTADO_NUEVO`). De paso, la escritura quirúrgica ahora reescribe la fila
-  de encabezados al apendizar (arregla columnas nuevas que quedaban sin título).
-
-- **Agotar faltantes (§4 del flujo de stock):** flag por proceso
-  `zero_missing_stock` (default OFF). Cuando está ON, los SKU que están en la
-  Master pero NO llegan en esa fuente pasan a `stock = 0`. Solo toca la columna
-  de stock y solo si tenía valor > 0. Es OPT-IN a propósito: solo la fuente de
-  verdad del inventario (BASE-SYS) debe agotar; una fuente parcial vaciaría el
-  catálogo. Expuesto en el motor (`rows_zeroed`/`detail_zeroed`), en el preview,
-  en scheduler/intake, y con checkbox + aviso en `Flujos.jsx` (editar proceso).
+- Motor y flujos principales (Fuente → Maestra → Destinos) estables. Mapa
+  completo en MEMORIA_PROYECTO.md §2-3.
+- La Master todavía tiene campos de enriquecimiento por llenar.
+- **Pendiente urgente (dato ya escrito, no lo arregla código nuevo):** los
+  destinos Shopify duplicados creados ANTES del fix de deduplicación (varias
+  tarjetas para la misma tienda, algunos con `Stock = PRICE` o `Stock = SKU`)
+  siguen activos y corrompen inventario en cada sync — hay que
+  pausarlos/borrarlos a mano desde Flujos (ver "Próximos pasos").
 
 ## En progreso
-- [Lo que estás tocando ahora, con el archivo/módulo]
+- Nada activo ahora mismo.
 
 ## Próximos pasos
-- **Limpiar duplicados viejos de destinos Shopify ya en la base:** el fix de
-  deduplicación (ver "Hecho") solo impide que se creen duplicados NUEVOS. Los
-  que ya existían de antes (ej. varios "Shopify · SHOPOE") siguen ahí y hay
-  que pausarlos/borrarlos a mano desde Flujos — no hay limpieza automática
-  todavía (a propósito: decidir cuál de varios duplicados es "el bueno" es
-  una decisión humana, no algo para automatizar sin confirmación).
-- El preview manual ya trae `new_rows_look_broken`: mostrar en la UI un aviso
-  "posible formato de SKU roto" cuando venga en True (frontend, aún sin usar).
-- UI: mostrar/filtrar en la Master los productos con `estado = NUEVO` para que el
-  usuario los enriquezca y luego les cambie el estado.
-- Del flujo de stock quedan sin implementar: §7 anti-sobreventa (descontar stock
-  por venta confirmada) y §9 precio manual vs. automático por canal.
+- Limpiar a mano los duplicados Shopify viejos ya en la base (arriba). No
+  automatizar sin confirmación humana: decidir cuál de varios es "el bueno"
+  no es una decisión para el código.
+- UI: mostrar el aviso "posible formato de SKU roto" cuando el preview trae
+  `new_rows_look_broken=True` (el backend ya lo expone, frontend sin usar).
+- UI: filtrar/resaltar en la Master los productos con `estado = NUEVO`.
+- Sin implementar del flujo de stock: §7 anti-sobreventa (descontar por venta
+  confirmada) y §9 precio manual vs. automático por canal (ver MEJORAS_TABLASK.md).
 
 ## Decisiones tomadas
 - Dos módulos Shopify a propósito: bajada = emergencia (sin archivo BASE),
-  subida = flujo normal.
+  subida = flujo normal. No fusionar.
 - Precio sugerido = base × 2, se muestra solo en Kyte.
-- Sincronización vía archivo/API con mapeo por SKU, no a mano en la Sheet.
-- El Guardián decide por PARECIDO, no por % de coherencia: nuevos que no se
-  parecen a nada = altas legítimas (pasan); nuevos casi-idénticos a existentes
-  = formato roto (se bloquea). Umbrales configurables por env
-  (`GUARDIAN_NEAR_DUP_RATIO`=0.85, `GUARDIAN_BROKEN_FORMAT_MIN`=0.5).
-  Nota: esta regla NO frena el caso de "columna equivocada" cuyos valores no se
-  parecen a la Maestra; eso se cubre con el preview manual (humano confirma).
+- El Guardián decide por PARECIDO (near-dup del SKU), no por % de coherencia
+  a secas: nuevos que no se parecen a nada = altas legítimas (pasan); nuevos
+  casi-idénticos a existentes = formato roto (se bloquea/salta).
 
 ## Pendientes / dudas abiertas
-- [Preguntas o cosas por decidir]
+- (ninguna abierta ahora)
 
 ## Notas de lógica
-- [Detalles técnicos que no querés re-explicar la próxima sesión]
+- (nada pendiente de anotar acá — ver MEMORIA_PROYECTO.md §2-3 para el
+  detalle técnico del motor)
