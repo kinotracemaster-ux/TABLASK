@@ -61,6 +61,20 @@ def test_stock_y_precio_no_llevan_punto_cero():
     assert records[0]["Precio"] == "182000"
 
 
+def test_precio_con_ruido_de_coma_flotante_se_limpia():
+    # Visto en producción con un archivo real de POEDAGAR: una celda de precio
+    # calculada por fórmula en Excel queda guardada internamente como
+    # 125999.99999999999 aunque Excel la MUESTRE redondeada a 126000 en la
+    # planilla. Sin redondear antes de decidir si es entero, ese ruido binario
+    # llegaba tal cual a la Maestra ("125999.99999999999").
+    content = _build_xlsx([
+        ["Codigo", "Precio"],
+        ["839B-6", 125999.99999999999],
+    ])
+    records = _connector(content).fetch_data("Sheet")
+    assert records[0]["Precio"] == "126000"
+
+
 def test_sku_normal_no_se_toca():
     content = _build_xlsx([
         ["Codigo", "Nombre"],

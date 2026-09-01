@@ -126,10 +126,16 @@ class LocalFileConnector(BaseConnector):
             for c in row:
                 if c.data_type == 'd':
                     values.append(_excel_date_cell_to_str(c.value, c.number_format))
-                elif c.data_type == 'n' and isinstance(c.value, float) and c.value.is_integer():
-                    # Excel guarda todo número como float; sin esto "10" (stock)
-                    # o "182000" (precio) salían como "10.0"/"182000.0".
-                    values.append(str(int(c.value)))
+                elif c.data_type == 'n' and isinstance(c.value, float):
+                    # Excel guarda todo número como float y algunas celdas (ej.
+                    # precios calculados con fórmula) quedan con ruido binario
+                    # tipo 125999.99999999999 en vez de 126000 exacto -aunque
+                    # Excel las MUESTRE redondeadas-. Redondear a 6 decimales
+                    # antes de decidir si es entero limpia ese ruido sin tocar
+                    # decimales reales (45.5, 0.01). Sin esto "10" (stock) o
+                    # "182000" (precio) también salían como "10.0"/"182000.0".
+                    rounded = round(c.value, 6)
+                    values.append(str(int(rounded)) if rounded.is_integer() else str(rounded))
                 else:
                     values.append("" if c.value is None else str(c.value))
             # Completar/recortar para que calce con la cantidad de encabezados.
