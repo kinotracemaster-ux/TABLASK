@@ -102,6 +102,7 @@ def send_rows(sub, rows: List[Dict[str, str]], timeout: int = 30) -> Dict[str, A
     """Envía las filas al endpoint del canal. Devuelve un resumen serializable
     (para last_push_summary y para los logs). No lanza: el error queda en el
     resumen y el llamador decide cómo loggearlo."""
+    import certifi
     import requests
 
     req = build_request(sub, rows)
@@ -112,6 +113,10 @@ def send_rows(sub, rows: List[Dict[str, str]], timeout: int = 30) -> Dict[str, A
             headers=req["headers"],
             json=req["json"],
             timeout=timeout,
+            # Bundle de CAs de certifi en vez del default de requests (ver
+            # connectors/shopify.py): inmune a un REQUESTS_CA_BUNDLE/
+            # SSL_CERT_FILE roto en el contenedor de despliegue.
+            verify=certifi.where(),
         )
         return {
             "sent": len(rows),

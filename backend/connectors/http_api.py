@@ -1,7 +1,13 @@
+import certifi
 import requests
 import json
 from typing import List, Dict, Any, Tuple
 from .base import BaseConnector
+
+# Forzar el bundle de CAs de certifi en vez del default de requests (ver
+# connectors/shopify.py para el porqué: REQUESTS_CA_BUNDLE/SSL_CERT_FILE del
+# contenedor de despliegue puede quedar apuntando a una ruta inválida).
+_CA_BUNDLE = certifi.where()
 
 class HttpApiConnector(BaseConnector):
     """Conector para importar datos desde APIs HTTP externas."""
@@ -32,7 +38,8 @@ class HttpApiConnector(BaseConnector):
         response = requests.request(
             method=self.method,
             url=target_url,
-            headers=self.headers
+            headers=self.headers,
+            verify=_CA_BUNDLE,
         )
         response.raise_for_status()
         
@@ -75,7 +82,7 @@ class HttpApiConnector(BaseConnector):
             return False, "URL no configurada."
         try:
             # Hacer una petición head o get con timeout corto
-            response = requests.request(self.method, self.url, headers=self.headers, timeout=5)
+            response = requests.request(self.method, self.url, headers=self.headers, timeout=5, verify=_CA_BUNDLE)
             response.raise_for_status()
             return True, f"Conexión exitosa. Código HTTP: {response.status_code}"
         except Exception as e:
