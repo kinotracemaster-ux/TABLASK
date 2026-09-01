@@ -19,6 +19,31 @@ def _chunks(seq, size):
     for i in range(0, len(seq), size):
         yield seq[i:i + size]
 
+
+def _fmt_price(v) -> str:
+    """Para comparar 'antes' (Shopify) vs 'después' (Maestra) sin ruido de
+    formato: "182000" y "182000.00" deben verse como el mismo precio."""
+    if v in (None, ""):
+        return "(vacío)"
+    try:
+        f = round(float(str(v).replace(",", ".").strip()), 2)
+        return str(int(f)) if f == int(f) else f"{f:.2f}"
+    except (ValueError, TypeError):
+        return str(v).strip()
+
+
+def _fmt_stock(v) -> str:
+    if v in (None, ""):
+        return "(vacío)"
+    try:
+        return str(int(float(str(v).replace(",", ".").strip())))
+    except (ValueError, TypeError):
+        return str(v).strip()
+
+
+def _fmt_plain(v) -> str:
+    return str(v).strip() if v not in (None, "") else "(vacío)"
+
 # Versión por defecto de la Admin API. REST quedó legacy (oct-2024); usamos GraphQL.
 DEFAULT_API_VERSION = "2026-04"
 
@@ -154,6 +179,7 @@ class ShopifyConnector(BaseConnector):
                       sku
                       title
                       price
+                      compareAtPrice
                       barcode
                       %s
                     }
@@ -199,6 +225,7 @@ class ShopifyConnector(BaseConnector):
                         "product_title": node.get("title") or "",
                         "variant_title": v.get("title") or "",
                         "price": v.get("price") or "",
+                        "compare_at_price": v.get("compareAtPrice") or "",
                         "barcode": v.get("barcode") or "",
                         "inventory_quantity": v.get("inventoryQuantity"),
                         "inventory_item_id": inv_item.get("id") or "",
@@ -296,6 +323,12 @@ class ShopifyConnector(BaseConnector):
                 "product_id": r.get("product_id") or "",
                 "inventory_item_id": r.get("inventory_item_id") or "",
                 "sku": sku,
+                # Valores actuales en Shopify — se usan solo para armar el "antes" del
+                # preview (dry_run); la escritura real no los necesita.
+                "current_price": r.get("price") or "",
+                "current_compare_price": r.get("compare_at_price") or "",
+                "current_barcode": r.get("barcode") or "",
+                "current_stock": r.get("inventory_quantity"),
             }
         return idx
 
@@ -358,6 +391,32 @@ class ShopifyConnector(BaseConnector):
             "errors": [],
         }
         if dry_run:
+            # Vista previa SKU/campo/antes→después (mismo espíritu que el preview
+            # de "Correr flujo" en el sync Fuente→Maestra). Solo se listan cambios
+            # REALES: si el valor nuevo ya coincide con el actual en Shopify
+            # (una vez normalizado el formato), no se reporta como cambio.
+            checks = []
+            if do_price:
+                checks.append(("price", "current_price", "Precio", _fmt_price))
+            if do_stock:
+                checks.append(("stock", "current_stock", "Stock", _fmt_stock))
+            if do_compare_price:
+                checks.append(("compare_at_price", "current_compare_price", "Precio comparativo", _fmt_price))
+            if do_barcode:
+                checks.append(("barcode", "current_barcode", "Código de barras", _fmt_plain))
+
+            changes = []
+            for u, info in matched:
+                for key, cur_key, label, fmt in checks:
+                    if u.get(key) in (None, ""):
+                        continue
+                    after = fmt(u.get(key))
+                    before = fmt(info.get(cur_key))
+                    if after == before:
+                        continue
+                    changes.append({"sku": info.get("sku") or u.get("sku"), "field": label, "before": before, "after": after})
+            summary["changes"] = changes[:300]
+            summary["changes_total"] = len(changes)
             return summary
 
         # Campos de variante (precio, precio comparativo, barcode): se agrupan por

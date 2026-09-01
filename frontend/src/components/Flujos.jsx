@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, ArrowRight, Store, Send, Zap, Globe, Copy, Check, Database, AlertTriangle, UploadCloud } from 'lucide-react';
 import { extractError, formatError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
+import ShopifyPushModal from './ShopifyPushModal';
 import AutoSyncPanel from './AutoSyncPanel';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -58,7 +59,7 @@ export default function Flujos() {
   const [exports, setExports] = useState([]);
   const [connections, setConnections] = useState([]);
   const [testing, setTesting] = useState(null);
-  const [pushingShopSub, setPushingShopSub] = useState(null);
+  const [shopPushModal, setShopPushModal] = useState(null); // {id, name} del destino a previsualizar/enviar
   const [pushingApiSub, setPushingApiSub] = useState(null);
   const [copiedLink, setCopiedLink] = useState(null);
   const [runProcs, setRunProcs] = useState(null); // [{id, name}] a correr en el modal de vista previa
@@ -286,32 +287,9 @@ export default function Flujos() {
     else alert(await extractError(res));
   };
 
-  const pushNowShopSub = async (sub) => {
-    setPushingShopSub(sub.id);
-    try {
-      // 1) Preview (dry run): cuántos SKUs cruzan
-      let res = await fetch(`${API}/api/shopify-subscriptions/${sub.id}/push-now?dry_run=true`, { method: 'POST' });
-      if (!res.ok) { alert(await extractError(res)); return; }
-      const prev = await res.json();
-      const ok = window.confirm(
-        `Se actualizarán ${prev.matched} de ${prev.total} SKUs en "${prev.store}"` +
-        (prev.not_found_count > 0 ? ` (${prev.not_found_count} no existen en la tienda y NO se crean)` : '') +
-        `.\n\n¿Enviar ahora?`
-      );
-      if (!ok) return;
-      // 2) Envío real
-      res = await fetch(`${API}/api/shopify-subscriptions/${sub.id}/push-now?dry_run=false`, { method: 'POST' });
-      if (!res.ok) { alert(await extractError(res)); return; }
-      const result = await res.json();
-      alert(`✅ Enviado a "${result.store}": ${result.price_updated} precios, ${result.stock_updated} stock.` +
-        (result.errors?.length ? `\n⚠️ Errores: ${result.errors.join(' · ')}` : ''));
-      loadAll();
-    } catch (err) {
-      alert(err.message || 'Error enviando a Shopify.');
-    } finally {
-      setPushingShopSub(null);
-    }
-  };
+  // Abre el modal de preview (SKU/campo/antes→después) — el envío real queda
+  // a cargo del modal, recién al confirmar (ver ShopifyPushModal.jsx).
+  const pushNowShopSub = (sub) => setShopPushModal({ id: sub.id, name: sub.name });
 
   const shopSubDetail = (sub) => {
     const parts = [];
@@ -899,9 +877,8 @@ export default function Flujos() {
                     <Store className="w-4 h-4 text-green-600" /> {sub.name}
                   </h3>
                   <div className="flex gap-1">
-                    <button onClick={() => pushNowShopSub(sub)} title="Enviar toda la Maestra ahora"
-                      disabled={pushingShopSub === sub.id}
-                      className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 transition disabled:opacity-50">
+                    <button onClick={() => pushNowShopSub(sub)} title="Enviar toda la Maestra ahora (con vista previa)"
+                      className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 transition">
                       <Send className="w-4 h-4" />
                     </button>
                     <button onClick={() => openEditShopSub(sub)} title="Editar"
@@ -919,7 +896,7 @@ export default function Flujos() {
                 </div>
                 <p className="text-sm text-gray-500 flex items-center gap-1.5 flex-wrap"><ConnBadge id={sub.connection_id} /> · {shopSubDetail(sub)}</p>
                 <p className="text-xs text-gray-400 mt-1">
-                  {pushingShopSub === sub.id ? 'Enviando…' : shopSubLastPush(sub)}
+                  {shopSubLastPush(sub)}
                   {sub.is_active ? ' · se actualiza con cada sync' : ' · pausado'}
                 </p>
               </div>
@@ -1436,6 +1413,15 @@ export default function Flujos() {
         <RunFlowModal
           procs={runProcs}
           onClose={() => setRunProcs(null)}
+          onDone={() => loadAll()}
+        />
+      )}
+
+      {shopPushModal && (
+        <ShopifyPushModal
+          subId={shopPushModal.id}
+          subName={shopPushModal.name}
+          onClose={() => setShopPushModal(null)}
           onDone={() => loadAll()}
         />
       )}
