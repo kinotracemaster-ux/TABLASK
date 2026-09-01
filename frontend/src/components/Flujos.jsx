@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, Store, Send, Zap, Globe, Copy, Check, Database, AlertTriangle, UploadCloud } from 'lucide-react';
+import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2, Pencil, X, ChevronRight, ArrowRight, Store, Send, Zap, Globe, Copy, Check, Database, AlertTriangle, UploadCloud } from 'lucide-react';
 import { extractError, formatError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
 import AutoSyncPanel from './AutoSyncPanel';
@@ -155,7 +155,7 @@ export default function Flujos() {
         const masterRes = await fetch(`${API}/api/master`);
         const m = await masterRes.json();
         setMasterInfo(masterRes.ok && m.master_connection_id
-          ? { sheet: m.master_sheet_name, rows: m.total_rows ?? null }
+          ? { sheet: m.master_sheet_name, rows: m.total_rows ?? null, connectionId: m.master_connection_id }
           : null);
       } catch { setMasterInfo(null); }
       setMasterChecked(true);
@@ -179,6 +179,26 @@ export default function Flujos() {
   };
 
   const connName = (id) => connections.find(c => c.id === id)?.name || `Conexión ${id}`;
+
+  // Pastilla visual para mostrar "de qué Conexión viene/a qué Conexión va" en
+  // las tarjetas de Fuente/Destino — mismo look en todos lados para que se
+  // note que es LA MISMA conexión que aparece abajo, en "Conexiones".
+  const ConnBadge = ({ id }) => (
+    <span className="inline-flex items-center gap-1 bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded-md text-xs font-medium">
+      <Link2 className="w-3 h-3 text-gray-400" /> {connName(id)}
+    </span>
+  );
+
+  // Para qué se está usando una Conexión ahora mismo (Fuente y/o Destino/s).
+  // Se muestra dentro de la tarjeta de Conexiones para que no sea un dato
+  // suelto: si no se usa en nada, se avisa (útil para detectar duplicados
+  // viejos que ya no hacen falta).
+  const connUsage = (id) => [
+    ...(masterInfo?.connectionId === id ? [{ label: 'Es tu Tabla Maestra', kind: 'master' }] : []),
+    ...processes.filter(p => p.source_connection_id === id).map(p => ({ label: `Fuente: ${p.name}`, kind: 'proc' })),
+    ...shopifySubs.filter(s => s.connection_id === id).map(s => ({ label: `Destino Shopify: ${s.name}`, kind: 'shopSub' })),
+    ...subscriptions.filter(s => s.target_connection_id === id).map(s => ({ label: `Destino Sheets: ${s.name}`, kind: 'sub' })),
+  ];
 
   // Antes de correr una Fuente cuyo origen es un archivo local, ofrecemos
   // reemplazarlo por uno más nuevo (recomendación, no obligatorio).
@@ -754,6 +774,31 @@ export default function Flujos() {
         </div>
       </div>
 
+      {/* Cómo se relacionan los 3 conceptos de esta pantalla, en una línea:
+          una Conexión (el enchufe a tu tienda/Sheet/archivo) puede ser el
+          origen de una Fuente y, a la vez, el destino de uno o más Destinos
+          — por eso la misma tienda puede aparecer repetida más abajo. */}
+      {!nothing && (
+        <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-gray-700 overflow-x-auto">
+            <span className="flex items-center gap-1.5 whitespace-nowrap"><Link2 className="w-3.5 h-3.5 text-gray-400" /> Conexión</span>
+            <span className="text-gray-300 whitespace-nowrap font-normal">tu tienda / Sheet / archivo</span>
+            <ArrowRight className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
+            <span className="flex items-center gap-1.5 whitespace-nowrap"><Settings2 className="w-3.5 h-3.5 text-indigo-500" /> Fuente</span>
+            <span className="text-gray-300 whitespace-nowrap font-normal">trae datos</span>
+            <ArrowRight className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
+            <span className="flex items-center gap-1.5 whitespace-nowrap text-indigo-700"><Database className="w-3.5 h-3.5" /> Maestra</span>
+            <ArrowRight className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
+            <span className="flex items-center gap-1.5 whitespace-nowrap"><Download className="w-3.5 h-3.5 text-green-600" /> Destino</span>
+            <span className="text-gray-300 whitespace-nowrap font-normal">saca datos</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            Una misma Conexión puede ser el origen de una Fuente <span className="italic">y</span> el destino de uno o
+            varios Destinos a la vez — por eso puede aparecer repetida más abajo (mirá la pastilla 🔗 en cada tarjeta).
+          </p>
+        </div>
+      )}
+
       {/* A dónde va todo: la Maestra ya enlazada (o el aviso si falta) */}
       {masterChecked && (masterInfo ? (
         <div className="flex items-center gap-2 text-sm bg-indigo-50/60 border border-indigo-100 rounded-xl px-4 py-2.5 text-gray-600">
@@ -822,7 +867,7 @@ export default function Flujos() {
                     </button>
                   </div>
                 </div>
-                <p className="text-sm text-gray-500">{connName(proc.source_connection_id)} / "{proc.source_sheet_name}"</p>
+                <p className="text-sm text-gray-500 flex items-center gap-1.5 flex-wrap"><ConnBadge id={proc.source_connection_id} /> / "{proc.source_sheet_name}"</p>
                 <p className="text-xs text-gray-400 mt-1">Llave: {proc.sku_column_source} ↔ {proc.sku_column_master} · {Object.keys(proc.field_mappings || {}).length} campo(s)</p>
                 <button
                   onClick={() => maybeRunProc(proc)}
@@ -872,7 +917,7 @@ export default function Flujos() {
                     </button>
                   </div>
                 </div>
-                <p className="text-sm text-gray-500">Shopify · {connName(sub.connection_id)} · {shopSubDetail(sub)}</p>
+                <p className="text-sm text-gray-500 flex items-center gap-1.5 flex-wrap"><ConnBadge id={sub.connection_id} /> · {shopSubDetail(sub)}</p>
                 <p className="text-xs text-gray-400 mt-1">
                   {pushingShopSub === sub.id ? 'Enviando…' : shopSubLastPush(sub)}
                   {sub.is_active ? ' · se actualiza con cada sync' : ' · pausado'}
@@ -940,7 +985,7 @@ export default function Flujos() {
                     </button>
                   </div>
                 </div>
-                <p className="text-sm text-gray-500">Google Sheet · {connName(sub.target_connection_id)} / "{sub.target_sheet_name}"</p>
+                <p className="text-sm text-gray-500 flex items-center gap-1.5 flex-wrap"><ConnBadge id={sub.target_connection_id} /> / "{sub.target_sheet_name}"</p>
                 <p className="text-xs text-gray-400 mt-1">{Object.keys(sub.field_mappings || {}).length} campo(s)</p>
               </div>
             ))}
@@ -986,7 +1031,9 @@ export default function Flujos() {
             <Link2 className="w-4 h-4" /> Conexiones ({connections.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {connections.map(conn => (
+            {connections.map(conn => {
+              const usage = connUsage(conn.id);
+              return (
               <div key={conn.id} className={`bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-start justify-between gap-2 ${selectMode && isSelected('conn', conn.id) ? 'ring-2 ring-indigo-400' : ''}`}>
                 <div className="min-w-0 flex items-start gap-2">
                   {selectMode && (
@@ -996,6 +1043,13 @@ export default function Flujos() {
                   <div className="min-w-0">
                   <h3 className="font-semibold text-gray-800 truncate">{conn.name}</h3>
                   <p className="text-xs text-gray-500">{kindLabel(conn.connection_type)}</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {usage.length === 0 ? (
+                      <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Sin usar en ningún flujo</span>
+                    ) : usage.map((u, i) => (
+                      <span key={i} className={`text-xs rounded px-1.5 py-0.5 ${u.kind === 'master' ? 'text-indigo-700 bg-indigo-50 font-medium' : 'text-gray-600 bg-gray-100'}`}>{u.label}</span>
+                    ))}
+                  </div>
                   {(conn.connection_type === 'shopify' || conn.connection_type === 'http_api') && (
                     <button onClick={() => testConnection(conn.id)} disabled={testing === conn.id}
                       className="mt-2 text-xs px-2.5 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50">
@@ -1014,7 +1068,8 @@ export default function Flujos() {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
