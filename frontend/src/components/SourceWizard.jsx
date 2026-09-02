@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { UploadCloud, Link2, Server, Store, ChevronRight, CheckCircle2, ArrowRight, Sparkles, Download, FileDown, Eye, Send, XCircle, AlertTriangle, Globe, Database, Trash2, Zap } from 'lucide-react';
 import { extractError, formatError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
+import ShopifyFieldMapper from './ShopifyFieldMapper';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -1374,70 +1375,23 @@ export default function SourceWizard() {
                       </div>
                     )}
 
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">🔑 SKU</label>
-                        <select value={shopSkuCol} onChange={e => setShopSkuCol(e.target.value)} disabled={!shopTabCols.length}
-                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                          <option value="">—</option>
-                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Precio</label>
-                        <select value={shopPriceCol} onChange={e => setShopPriceCol(e.target.value)} disabled={!shopTabCols.length}
-                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                          <option value="">— no enviar —</option>
-                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Stock</label>
-                        <select value={shopStockCol} onChange={e => setShopStockCol(e.target.value)} disabled={!shopTabCols.length}
-                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                          <option value="">— no enviar —</option>
-                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">🔑 SKU</label>
+                      <select value={shopSkuCol} onChange={e => setShopSkuCol(e.target.value)} disabled={!shopTabCols.length}
+                        className="w-full max-w-xs border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                        <option value="">—</option>
+                        {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Precio comparativo / oferta</label>
-                        <select value={shopCompareCol} onChange={e => setShopCompareCol(e.target.value)} disabled={!shopTabCols.length}
-                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                          <option value="">— no enviar —</option>
-                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Código de barras</label>
-                        <select value={shopBarcodeCol} onChange={e => setShopBarcodeCol(e.target.value)} disabled={!shopTabCols.length}
-                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                          <option value="">— no enviar —</option>
-                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Nombre del producto</label>
-                        <select value={shopTitleCol} onChange={e => setShopTitleCol(e.target.value)} disabled={!shopTabCols.length}
-                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                          <option value="">— no enviar —</option>
-                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Categoría</label>
-                        <select value={shopProductTypeCol} onChange={e => setShopProductTypeCol(e.target.value)} disabled={!shopTabCols.length}
-                          className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                          <option value="">— no enviar —</option>
-                          {shopTabCols.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                    </div>
+                    <ShopifyFieldMapper masterCols={shopTabCols} disabled={!shopTabCols.length} fields={[
+                      { key: 'price', label: 'Precio', value: shopPriceCol, setValue: setShopPriceCol },
+                      { key: 'stock', label: 'Stock', value: shopStockCol, setValue: setShopStockCol },
+                      { key: 'compare', label: 'Precio comparativo / oferta', value: shopCompareCol, setValue: setShopCompareCol },
+                      { key: 'barcode', label: 'Código de barras', value: shopBarcodeCol, setValue: setShopBarcodeCol },
+                      { key: 'title', label: 'Nombre del producto', value: shopTitleCol, setValue: setShopTitleCol },
+                      { key: 'product_type', label: 'Categoría', value: shopProductTypeCol, setValue: setShopProductTypeCol },
+                    ]} />
                     <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
                       Nombre y categoría son a nivel PRODUCTO: si el SKU comparte producto con otras variantes, el cambio afecta al producto entero.
                     </p>
