@@ -18,6 +18,8 @@ class PushRequest(BaseModel):
     stock_column: Optional[str] = None
     compare_price_column: Optional[str] = None    # precio comparativo / oferta
     barcode_column: Optional[str] = None          # código de barras
+    title_column: Optional[str] = None            # nombre del producto (PRODUCTO)
+    product_type_column: Optional[str] = None     # categoría / tipo de producto (PRODUCTO)
     location_id: Optional[str] = None             # ubicación destino para el stock
     dry_run: bool = True
 
@@ -54,8 +56,9 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
     if not shop_conn or shop_conn.connection_type != "shopify":
         raise HTTPException(status_code=400, detail="La conexión indicada no es de tipo Shopify.")
 
-    if not any([req.price_column, req.stock_column, req.compare_price_column, req.barcode_column]):
-        raise HTTPException(status_code=400, detail="Debes mapear al menos un campo (precio, stock, precio comparativo o código de barras).")
+    if not any([req.price_column, req.stock_column, req.compare_price_column, req.barcode_column,
+                req.title_column, req.product_type_column]):
+        raise HTTPException(status_code=400, detail="Debes mapear al menos un campo (precio, stock, precio comparativo, código de barras, nombre o categoría).")
 
     src_conn_id = req.source_connection_id or _resolve_master_connection_id(db)
     src_conn = db.query(models.Connection).filter(
@@ -80,6 +83,8 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
     ti = col_idx(req.stock_column)
     ci = col_idx(req.compare_price_column)
     bi = col_idx(req.barcode_column)
+    ni = col_idx(req.title_column)
+    gi = col_idx(req.product_type_column)
     if si < 0:
         raise HTTPException(status_code=400, detail=f"La columna SKU '{req.sku_column}' no existe en la hoja.")
 
@@ -97,6 +102,10 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
             u["compare_at_price"] = row[ci] if ci < len(row) else ""
         if bi >= 0:
             u["barcode"] = row[bi] if bi < len(row) else ""
+        if ni >= 0:
+            u["title"] = row[ni] if ni < len(row) else ""
+        if gi >= 0:
+            u["product_type"] = row[gi] if gi < len(row) else ""
         updates.append(u)
 
     connector = _create_connector(shop_conn)
@@ -104,6 +113,7 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
         summary = connector.push_updates(
             updates, do_price=pi >= 0, do_stock=ti >= 0,
             do_compare_price=ci >= 0, do_barcode=bi >= 0,
+            do_title=ni >= 0, do_product_type=gi >= 0,
             dry_run=req.dry_run, location_id=req.location_id
         )
     except Exception as e:

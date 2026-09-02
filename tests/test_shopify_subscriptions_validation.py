@@ -54,6 +54,25 @@ def test_acepta_columnas_distintas_por_campo(client):
     assert res.status_code == 200, res.text
 
 
+def test_rechaza_misma_columna_para_precio_y_nombre(client):
+    conn_id = _shopify_conn(client)
+    res = client.post("/api/shopify-subscriptions/", json={
+        "name": "Destino test", "connection_id": conn_id,
+        "price_column_master": "COL", "title_column_master": "COL",
+    })
+    assert res.status_code == 400
+    assert "COL" in res.json()["detail"]
+
+
+def test_acepta_solo_nombre_y_categoria(client):
+    conn_id = _shopify_conn(client)
+    res = client.post("/api/shopify-subscriptions/", json={
+        "name": "Destino test", "connection_id": conn_id,
+        "title_column_master": "NOMBRE", "product_type_column_master": "CATEGORIA",
+    })
+    assert res.status_code == 200, res.text
+
+
 def test_update_tambien_valida(client):
     conn_id = _shopify_conn(client)
     created = client.post("/api/shopify-subscriptions/", json={

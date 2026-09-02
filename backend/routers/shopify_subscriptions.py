@@ -49,9 +49,11 @@ def _validate_payload(sub: schemas.ShopifySubscriptionCreate, db: Session):
         "stock": sub.stock_column_master,
         "precio comparativo": sub.compare_price_column_master,
         "código de barras": sub.barcode_column_master,
+        "nombre": sub.title_column_master,
+        "categoría": sub.product_type_column_master,
     }
     if not any(campos.values()):
-        raise HTTPException(status_code=400, detail="Mapeá al menos un campo de la Maestra (precio, stock, precio comparativo o código de barras).")
+        raise HTTPException(status_code=400, detail="Mapeá al menos un campo de la Maestra (precio, stock, precio comparativo, código de barras, nombre o categoría).")
     # Guardián: la misma columna de la Maestra no puede alimentar dos campos
     # distintos de Shopify (ej. mandar la columna de precio también como stock
     # escribiría el precio como cantidad de inventario en la tienda).
@@ -77,6 +79,8 @@ def _apply_payload(db_sub: models.ShopifySubscription, sub: schemas.ShopifySubsc
     db_sub.stock_column_master = sub.stock_column_master
     db_sub.compare_price_column_master = sub.compare_price_column_master
     db_sub.barcode_column_master = sub.barcode_column_master
+    db_sub.title_column_master = sub.title_column_master
+    db_sub.product_type_column_master = sub.product_type_column_master
     db_sub.location_id = sub.location_id
     db_sub.is_active = sub.is_active
 
@@ -156,7 +160,8 @@ def _get_master_context(db: Session):
 
 
 def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], stock_col: Optional[str],
-                             compare_col: Optional[str] = None, barcode_col: Optional[str] = None) -> list:
+                             compare_col: Optional[str] = None, barcode_col: Optional[str] = None,
+                             title_col: Optional[str] = None, product_type_col: Optional[str] = None) -> list:
     """Convierte la matriz de la Maestra en updates [{sku, price?, stock?, ...}] para Shopify."""
     headers = raw[0]
     si = _header_index(headers, sku_col)
@@ -166,6 +171,8 @@ def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], 
     ti = _header_index(headers, stock_col)
     ci = _header_index(headers, compare_col)
     bi = _header_index(headers, barcode_col)
+    ni = _header_index(headers, title_col)
+    gi = _header_index(headers, product_type_col)
     updates = []
     for row in raw[1:]:
         sku = row[si] if si < len(row) else ""
@@ -180,6 +187,10 @@ def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], 
             u["compare_at_price"] = row[ci] if ci < len(row) else ""
         if bi >= 0:
             u["barcode"] = row[bi] if bi < len(row) else ""
+        if ni >= 0:
+            u["title"] = row[ni] if ni < len(row) else ""
+        if gi >= 0:
+            u["product_type"] = row[gi] if gi < len(row) else ""
         updates.append(u)
     return updates
 
@@ -206,6 +217,7 @@ def push_now(sub_id: int, dry_run: bool = True, db: Session = Depends(get_db)):
     updates = build_updates_from_sheet(
         raw, sku_column, db_sub.price_column_master, db_sub.stock_column_master,
         db_sub.compare_price_column_master, db_sub.barcode_column_master,
+        db_sub.title_column_master, db_sub.product_type_column_master,
     )
 
     connector = _create_connector(shop_conn)
@@ -216,6 +228,8 @@ def push_now(sub_id: int, dry_run: bool = True, db: Session = Depends(get_db)):
             do_stock=bool(db_sub.stock_column_master),
             do_compare_price=bool(db_sub.compare_price_column_master),
             do_barcode=bool(db_sub.barcode_column_master),
+            do_title=bool(db_sub.title_column_master),
+            do_product_type=bool(db_sub.product_type_column_master),
             dry_run=dry_run,
             location_id=db_sub.location_id or None,
         )

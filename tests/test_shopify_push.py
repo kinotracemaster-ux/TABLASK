@@ -36,11 +36,13 @@ def conn(monkeypatch):
     }
     monkeypatch.setattr(c, "index_variants_by_sku", lambda: index)
 
-    calls = {"price": [], "stock": []}
+    calls = {"price": [], "stock": [], "product": []}
     monkeypatch.setattr(c, "_price_bulk_update",
                         lambda pid, variants: calls["price"].append((pid, variants)))
     monkeypatch.setattr(c, "_inventory_set",
                         lambda quantities: calls["stock"].append(quantities))
+    monkeypatch.setattr(c, "_product_update",
+                        lambda pid, fields: calls["product"].append((pid, fields)))
     monkeypatch.setattr(c, "get_primary_location_id",
                         lambda: "gid://shopify/Location/1")
     c._calls = calls
@@ -204,3 +206,68 @@ def test_extra_fields_off_by_default(conn):
     _, variants = conn._calls["price"][0]
     assert "compareAtPrice" not in variants[0]
     assert "barcode" not in variants[0]
+
+
+def test_title_and_product_type_are_product_level(conn):
+    # Nombre/categoría van por productUpdate (PRODUCTO), no por la mutación de
+    # variante — nunca deben mezclarse con la llamada de precio/stock.
+    updates = [{"sku": "1203", "title": "Reloj Deportivo", "product_type": "Relojes"}]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False,
+                                do_title=True, do_product_type=True)
+    assert summary["title_updated"] == 1
+    assert summary["product_type_updated"] == 1
+    assert conn._calls["price"] == []  # no toca la mutación de variante
+    assert len(conn._calls["product"]) == 1
+    pid, fields = conn._calls["product"][0]
+    assert pid == "gid://shopify/Product/10"
+    assert fields == {"title": "Reloj Deportivo", "productType": "Relojes"}
+
+
+def test_title_updates_grouped_one_call_per_product(conn):
+    # Dos SKUs (variantes) del MISMO producto -> una sola llamada productUpdate,
+    # gana el último valor procesado (mismo criterio simple que el resto del motor).
+    updates = [
+        {"sku": "1203", "title": "Reloj A"},
+        {"sku": "45", "title": "Reloj B"},
+    ]
+    conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False, do_title=True)
+    assert len(conn._calls["product"]) == 1
+    pid, fields = conn._calls["product"][0]
+    assert pid == "gid://shopify/Product/10"
+    assert fields == {"title": "Reloj B"}
+
+
+def test_blank_title_and_product_type_are_skipped(conn):
+    summary = conn.push_updates([{"sku": "1203", "title": "", "product_type": ""}],
+                                do_price=False, do_stock=False, dry_run=False,
+                                do_title=True, do_product_type=True)
+    assert summary["title_updated"] == 0
+    assert summary["product_type_updated"] == 0
+    assert conn._calls["product"] == []
+
+
+def test_title_off_by_default(conn):
+    conn.push_updates([{"sku": "1203", "price": "10", "title": "Reloj Nuevo"}],
+                      do_price=True, do_stock=False, dry_run=False)
+    assert conn._calls["product"] == []
+
+
+def test_dry_run_shows_title_and_product_type_changes(conn, monkeypatch):
+    index = {
+        "1203": {
+            "variant_id": "gid://shopify/ProductVariant/1",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/100",
+            "sku": "1203",
+            "current_title": "Reloj Viejo",
+            "current_product_type": "",
+        },
+    }
+    monkeypatch.setattr(conn, "index_variants_by_sku", lambda: index)
+    summary = conn.push_updates(
+        [{"sku": "1203", "title": "Reloj Nuevo", "product_type": "Relojes"}],
+        do_price=False, do_stock=False, dry_run=True, do_title=True, do_product_type=True)
+    assert summary["changes"] == [
+        {"sku": "1203", "field": "Nombre", "before": "Reloj Viejo", "after": "Reloj Nuevo"},
+        {"sku": "1203", "field": "Categoría", "before": "(vacío)", "after": "Relojes"},
+    ]

@@ -329,6 +329,8 @@ class ShopifyConnector(BaseConnector):
                 "current_compare_price": r.get("compare_at_price") or "",
                 "current_barcode": r.get("barcode") or "",
                 "current_stock": r.get("inventory_quantity"),
+                "current_title": r.get("product_title") or "",
+                "current_product_type": r.get("product_type") or "",
             }
         return idx
 
@@ -341,6 +343,21 @@ class ShopifyConnector(BaseConnector):
         }"""
         data = self._graphql(q, {"productId": product_id, "variants": variants})
         errs = (data.get("productVariantsBulkUpdate") or {}).get("userErrors", [])
+        if errs:
+            raise ValueError(str(errs)[:250])
+
+    def _product_update(self, product_id: str, fields: Dict[str, str]):
+        """Actualiza campos a nivel PRODUCTO (nombre/categoría), no de variante.
+        Si el SKU comparte producto con otras variantes, el cambio aplica al
+        producto entero — nunca crea uno nuevo, siempre requiere `id`."""
+        q = """
+        mutation ($product: ProductUpdateInput!) {
+          productUpdate(product: $product) {
+            userErrors { field message }
+          }
+        }"""
+        data = self._graphql(q, {"product": {"id": product_id, **fields}})
+        errs = (data.get("productUpdate") or {}).get("userErrors", [])
         if errs:
             raise ValueError(str(errs)[:250])
 
@@ -361,11 +378,16 @@ class ShopifyConnector(BaseConnector):
 
     def push_updates(self, updates: List[Dict[str, Any]], do_price: bool, do_stock: bool,
                      dry_run: bool = False, location_id: str = None,
-                     do_compare_price: bool = False, do_barcode: bool = False) -> Dict[str, Any]:
+                     do_compare_price: bool = False, do_barcode: bool = False,
+                     do_title: bool = False, do_product_type: bool = False) -> Dict[str, Any]:
         """
-        Escribe campos de VARIANTE en Shopify cruzando por SKU (nunca crea productos).
-        updates: [{"sku":..., "price":..., "stock":..., "compare_at_price":..., "barcode":...}].
+        Escribe campos en Shopify cruzando por SKU (nunca crea productos).
+        updates: [{"sku":..., "price":..., "stock":..., "compare_at_price":..., "barcode":...,
+                   "title":..., "product_type":...}].
         Cada do_* activa el campo correspondiente; solo se escriben los que traen valor.
+        Precio/stock/comparativo/barcode son de VARIANTE. Título/categoría son de
+        PRODUCTO: si varias variantes (SKU) del mismo producto traen valores
+        distintos, gana el último update procesado para ese producto.
         dry_run solo reporta el cruce.
         location_id: ubicación donde SET del inventario. Si None, usa la primera (arriesgado
         si hay varias bodegas) — la UI debería mandarlo explícito.
@@ -388,6 +410,8 @@ class ShopifyConnector(BaseConnector):
             "stock_updated": 0,
             "compare_price_updated": 0,
             "barcode_updated": 0,
+            "title_updated": 0,
+            "product_type_updated": 0,
             "errors": [],
         }
         if dry_run:
@@ -404,6 +428,10 @@ class ShopifyConnector(BaseConnector):
                 checks.append(("compare_at_price", "current_compare_price", "Precio comparativo", _fmt_price))
             if do_barcode:
                 checks.append(("barcode", "current_barcode", "Código de barras", _fmt_plain))
+            if do_title:
+                checks.append(("title", "current_title", "Nombre", _fmt_plain))
+            if do_product_type:
+                checks.append(("product_type", "current_product_type", "Categoría", _fmt_plain))
 
             changes = []
             for u, info in matched:
@@ -449,6 +477,37 @@ class ShopifyConnector(BaseConnector):
                     summary["barcode_updated"] += sum(1 for v in variants if "barcode" in v)
                 except Exception as e:
                     summary["errors"].append(f"variante (producto {pid[-8:]}): {str(e)[:140]}")
+
+        # Campos de PRODUCTO (nombre, categoría): una llamada por producto (no por
+        # variante). Si dos SKUs del mismo producto traen valores distintos, gana
+        # el último — mismo criterio simple que el resto del motor (última corrida
+        # gana), documentado arriba en el docstring.
+        if do_title or do_product_type:
+            by_product_fields: Dict[str, Dict[str, str]] = {}
+            for u, info in matched:
+                pid = info.get("product_id")
+                if not pid:
+                    continue
+                fields = by_product_fields.setdefault(pid, {})
+                if do_title:
+                    title = u.get("title")
+                    if title not in (None, ""):
+                        fields["title"] = str(title).strip()
+                if do_product_type:
+                    ptype = u.get("product_type")
+                    if ptype not in (None, ""):
+                        fields["productType"] = str(ptype).strip()
+            for pid, fields in by_product_fields.items():
+                if not fields:
+                    continue
+                try:
+                    self._product_update(pid, fields)
+                    if "title" in fields:
+                        summary["title_updated"] += 1
+                    if "productType" in fields:
+                        summary["product_type_updated"] += 1
+                except Exception as e:
+                    summary["errors"].append(f"producto ({pid[-8:]}): {str(e)[:140]}")
 
         # Inventario: por lotes a la ubicación elegida (o la primera si no se indicó).
         if do_stock:

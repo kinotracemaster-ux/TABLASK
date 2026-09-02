@@ -100,6 +100,18 @@ export default function ShopifyPushModal({ subId, subName, onClose, onDone }) {
                   <p className="text-lg font-bold text-gray-700">{result.barcode_updated}</p>
                 </div>
               )}
+              {result.title_updated > 0 && (
+                <div className="bg-white p-2 rounded-lg text-center border">
+                  <p className="text-xs text-gray-500">Nombres</p>
+                  <p className="text-lg font-bold text-indigo-700">{result.title_updated}</p>
+                </div>
+              )}
+              {result.product_type_updated > 0 && (
+                <div className="bg-white p-2 rounded-lg text-center border">
+                  <p className="text-xs text-gray-500">Categorías</p>
+                  <p className="text-lg font-bold text-amber-700">{result.product_type_updated}</p>
+                </div>
+              )}
             </div>
             {result.errors?.length > 0 && (
               <div className="mt-2 space-y-1">

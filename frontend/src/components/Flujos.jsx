@@ -110,6 +110,8 @@ export default function Flujos() {
   const [essStock, setEssStock] = useState('');
   const [essCompare, setEssCompare] = useState('');
   const [essBarcode, setEssBarcode] = useState('');
+  const [essTitle, setEssTitle] = useState('');
+  const [essProductType, setEssProductType] = useState('');
   const [essLocation, setEssLocation] = useState('');
 
   // --- Edición: Destino (Suscripción) ---
@@ -305,6 +307,8 @@ export default function Flujos() {
     if (sub.stock_column_master) parts.push(`Stock: ${sub.stock_column_master}`);
     if (sub.compare_price_column_master) parts.push(`Comparativo: ${sub.compare_price_column_master}`);
     if (sub.barcode_column_master) parts.push(`Barcode: ${sub.barcode_column_master}`);
+    if (sub.title_column_master) parts.push(`Nombre: ${sub.title_column_master}`);
+    if (sub.product_type_column_master) parts.push(`Categoría: ${sub.product_type_column_master}`);
     return parts.join(' · ');
   };
 
@@ -326,6 +330,8 @@ export default function Flujos() {
     setEssStock(sub.stock_column_master || '');
     setEssCompare(sub.compare_price_column_master || '');
     setEssBarcode(sub.barcode_column_master || '');
+    setEssTitle(sub.title_column_master || '');
+    setEssProductType(sub.product_type_column_master || '');
     setEssLocation(sub.location_id || '');
     try {
       const res = await fetch(`${API}/api/master-columns`);
@@ -336,7 +342,7 @@ export default function Flujos() {
 
   const saveEditShopSub = async (e) => {
     e.preventDefault();
-    if (!essPrice && !essStock && !essCompare && !essBarcode) { alert('Mapeá al menos un campo (precio, stock, precio comparativo o código de barras).'); return; }
+    if (!essPrice && !essStock && !essCompare && !essBarcode && !essTitle && !essProductType) { alert('Mapeá al menos un campo (precio, stock, precio comparativo, código de barras, nombre o categoría).'); return; }
     setEditShopSubSaving(true);
     try {
       const res = await fetch(`${API}/api/shopify-subscriptions/${editShopSub.id}`, {
@@ -349,6 +355,8 @@ export default function Flujos() {
           stock_column_master: essStock || null,
           compare_price_column_master: essCompare || null,
           barcode_column_master: essBarcode || null,
+          title_column_master: essTitle || null,
+          product_type_column_master: essProductType || null,
           location_id: essLocation || null,
           is_active: editShopSub.is_active,
         })
@@ -1365,10 +1373,28 @@ export default function Flujos() {
                   {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-green-800 mb-1">Nombre del producto</label>
+                <select value={essTitle} onChange={e => setEssTitle(e.target.value)}
+                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— sin nombre —</option>
+                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-green-800 mb-1">Categoría</label>
+                <select value={essProductType} onChange={e => setEssProductType(e.target.value)}
+                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— sin categoría —</option>
+                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
             </div>
             <p className="text-xs text-gray-500 -mt-1">
               Elegí uno o varios campos. Nunca se crean productos en Shopify: solo se
-              actualizan variantes que ya existen (cruce por SKU).
+              actualizan productos/variantes que ya existen (cruce por SKU). Nombre y
+              categoría son a nivel PRODUCTO — si el SKU comparte producto con otras
+              variantes, el cambio afecta al producto entero.
             </p>
 
             <div>
