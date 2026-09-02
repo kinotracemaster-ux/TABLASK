@@ -149,10 +149,12 @@ def _propagate_changes(db, project_id: int, changes: List[Dict[str, Any]], new_r
 
 def build_shopify_updates(changes: List[Dict[str, Any]], new_rows: List[Dict[str, Any]],
                           price_col: str, stock_col: str,
-                          compare_col: str = None, barcode_col: str = None) -> List[Dict[str, Any]]:
+                          compare_col: str = None, barcode_col: str = None,
+                          title_col: str = None, product_type_col: str = None) -> List[Dict[str, Any]]:
     """
     Convierte el diff de la Maestra en updates por SKU para Shopify:
-    [{"sku": ..., "price"?: ..., "stock"?: ..., "compare_at_price"?: ..., "barcode"?: ...}].
+    [{"sku": ..., "price"?: ..., "stock"?: ..., "compare_at_price"?: ..., "barcode"?: ...,
+      "title"?: ..., "product_type"?: ...}].
 
     Solo entran los SKUs cuyo(s) campo(s) mapeado(s) cambiaron en ESTA corrida
     (escritura quirúrgica también hacia afuera: no se re-empujan los 3.000
@@ -162,10 +164,12 @@ def build_shopify_updates(changes: List[Dict[str, Any]], new_rows: List[Dict[str
     by_sku: Dict[str, Dict[str, Any]] = {}
     # {columna_maestra: clave_en_update}
     field_map = {}
-    if price_col:   field_map[price_col] = "price"
-    if stock_col:   field_map[stock_col] = "stock"
-    if compare_col: field_map[compare_col] = "compare_at_price"
-    if barcode_col: field_map[barcode_col] = "barcode"
+    if price_col:        field_map[price_col] = "price"
+    if stock_col:        field_map[stock_col] = "stock"
+    if compare_col:      field_map[compare_col] = "compare_at_price"
+    if barcode_col:      field_map[barcode_col] = "barcode"
+    if title_col:        field_map[title_col] = "title"
+    if product_type_col: field_map[product_type_col] = "product_type"
 
     def entry(sku):
         return by_sku.setdefault(sku, {"sku": sku})
@@ -197,7 +201,8 @@ def _push_shopify_subscriptions(db, changes: List[Dict[str, Any]], new_rows: Lis
     for sub in subs:
         try:
             updates = build_shopify_updates(changes, new_rows, sub.price_column_master, sub.stock_column_master,
-                                            sub.compare_price_column_master, sub.barcode_column_master)
+                                            sub.compare_price_column_master, sub.barcode_column_master,
+                                            sub.title_column_master, sub.product_type_column_master)
             if not updates:
                 continue  # El diff no tocó ningún campo mapeado: nada que enviar a esta tienda
 
@@ -213,6 +218,8 @@ def _push_shopify_subscriptions(db, changes: List[Dict[str, Any]], new_rows: Lis
                 do_stock=bool(sub.stock_column_master) and any("stock" in u for u in updates),
                 do_compare_price=bool(sub.compare_price_column_master) and any("compare_at_price" in u for u in updates),
                 do_barcode=bool(sub.barcode_column_master) and any("barcode" in u for u in updates),
+                do_title=bool(sub.title_column_master) and any("title" in u for u in updates),
+                do_product_type=bool(sub.product_type_column_master) and any("product_type" in u for u in updates),
                 dry_run=False,
                 location_id=sub.location_id or None,
             )

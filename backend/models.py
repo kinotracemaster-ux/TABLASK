@@ -174,19 +174,24 @@ class ShopifyMasterSyncConfig(Base):
 
 class ShopifySubscription(Base):
     """Destino permanente 'Maestra → Shopify' (fase B). Al ejecutarse un sync que
-    escribe la Tabla Maestra, se empuja precio/stock de los SKUs afectados a la
-    tienda (misma corrida, en background). Regla dura: NUNCA crea productos en
-    Shopify — solo actualiza variantes que cruzan por SKU normalizado."""
+    escribe la Tabla Maestra, se empuja precio/stock (y opcionalmente más campos)
+    de los SKUs afectados a la tienda (misma corrida, en background). Regla dura:
+    NUNCA crea productos en Shopify — solo actualiza productos/variantes que
+    cruzan por SKU normalizado."""
     __tablename__ = "shopify_subscriptions"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)                     # Ej: "Shopi-Poe"
     connection_id = Column(Integer, ForeignKey("connections.id"), nullable=False)
-    # Columnas DE LA MAESTRA que alimentan la tienda (al menos una). Todas son a
-    # nivel VARIANTE (se actualizan cruzando por SKU, sin crear productos).
+    # Columnas DE LA MAESTRA que alimentan la tienda (al menos una), todas opcionales.
+    # Precio/stock/comparativo/barcode son a nivel VARIANTE. Nombre y categoría son
+    # a nivel PRODUCTO: si el SKU comparte producto con otras variantes, el cambio
+    # aplica al producto entero (no solo a esa variante).
     price_column_master = Column(String, nullable=True)
     stock_column_master = Column(String, nullable=True)
     compare_price_column_master = Column(String, nullable=True)  # precio comparativo / oferta
     barcode_column_master = Column(String, nullable=True)        # código de barras
+    title_column_master = Column(String, nullable=True)          # nombre del producto (PRODUCTO)
+    product_type_column_master = Column(String, nullable=True)   # categoría / tipo de producto (PRODUCTO)
     # Ubicación/bodega destino del stock (gid://shopify/Location/...). Si es nulo
     # y la tienda tiene una sola bodega, se usa esa.
     location_id = Column(String, nullable=True)

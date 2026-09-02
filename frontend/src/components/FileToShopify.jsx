@@ -65,6 +65,8 @@ export default function FileToShopify() {
   const [shopStockCol, setShopStockCol] = useState('');
   const [shopCompareCol, setShopCompareCol] = useState('');
   const [shopBarcodeCol, setShopBarcodeCol] = useState('');
+  const [shopTitleCol, setShopTitleCol] = useState('');
+  const [shopProductTypeCol, setShopProductTypeCol] = useState('');
   const [shopLocations, setShopLocations] = useState([]);
   const [shopLocId, setShopLocId] = useState('');
   const [shopLocError, setShopLocError] = useState(null);
@@ -240,7 +242,7 @@ export default function FileToShopify() {
   const saveShopSub = async () => {
     setShopError(null);
     if (!shopConnId) { setShopError('Elegí la tienda Shopify.'); return; }
-    if (!shopPriceCol && !shopStockCol && !shopCompareCol && !shopBarcodeCol) { setShopError('Mapeá al menos un campo (precio, stock, precio comparativo o código de barras).'); return; }
+    if (!shopPriceCol && !shopStockCol && !shopCompareCol && !shopBarcodeCol && !shopTitleCol && !shopProductTypeCol) { setShopError('Mapeá al menos un campo (precio, stock, precio comparativo, código de barras, nombre o categoría).'); return; }
     if (shopStockCol && shopLocations.length > 1 && !shopLocId) {
       setShopError('Tu tienda tiene varias bodegas: elegí la ubicación destino del stock.'); return;
     }
@@ -254,6 +256,8 @@ export default function FileToShopify() {
         stock_column_master: shopStockCol || null,
         compare_price_column_master: shopCompareCol || null,
         barcode_column_master: shopBarcodeCol || null,
+        title_column_master: shopTitleCol || null,
+        product_type_column_master: shopProductTypeCol || null,
         location_id: shopLocId || null,
         is_active: true,
       };
@@ -279,7 +283,7 @@ export default function FileToShopify() {
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando...</div>;
 
-  const shopConfigReady = shopConnId && (shopPriceCol || shopStockCol || shopCompareCol || shopBarcodeCol);
+  const shopConfigReady = shopConnId && (shopPriceCol || shopStockCol || shopCompareCol || shopBarcodeCol || shopTitleCol || shopProductTypeCol);
 
   return (
     <div className="p-8 max-w-3xl mx-auto space-y-6">
@@ -518,7 +522,26 @@ export default function FileToShopify() {
                   {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del producto</label>
+                <select value={shopTitleCol} onChange={e => { setShopTitleCol(e.target.value); setShopSubId(null); }}
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— no enviar —</option>
+                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                <select value={shopProductTypeCol} onChange={e => { setShopProductTypeCol(e.target.value); setShopSubId(null); }}
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+                  <option value="">— no enviar —</option>
+                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
             </div>
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
+              Nombre y categoría son a nivel PRODUCTO: si el SKU comparte producto con otras variantes, el cambio afecta al producto entero.
+            </p>
             {shopLocError && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">{shopLocError} Si la tienda tiene una sola ubicación, igual se puede escribir el stock.</p>}
 
             <div className="flex flex-wrap gap-2 items-center">

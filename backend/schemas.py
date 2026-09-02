@@ -237,6 +237,8 @@ class ShopifySubscriptionBase(BaseModel):
     stock_column_master: Optional[str] = None   # Columna de la Maestra con el stock
     compare_price_column_master: Optional[str] = None  # precio comparativo / oferta
     barcode_column_master: Optional[str] = None        # código de barras
+    title_column_master: Optional[str] = None          # nombre del producto (PRODUCTO)
+    product_type_column_master: Optional[str] = None   # categoría / tipo de producto (PRODUCTO)
     location_id: Optional[str] = None           # Bodega destino del stock
     is_active: bool = True
 

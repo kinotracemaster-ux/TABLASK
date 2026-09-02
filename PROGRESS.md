@@ -9,7 +9,7 @@
 > Instrucción típica de cierre: "actualizá el estado — PROGRESS.md corto acá,
 > detalle de la feature en MEMORIA_PROYECTO.md §3".
 >
-> Última actualización: 2026-09-01
+> Última actualización: 2026-09-02
 
 ## Estado actual
 - Motor y flujos principales (Fuente → Maestra → Destinos) estables. Mapa
@@ -35,6 +35,13 @@
   confirmada) y §9 precio manual vs. automático por canal (ver MEJORAS_TABLASK.md).
 
 ## Decisiones tomadas
+- Push a Shopify ahora también puede mandar **nombre** y **categoría** (a nivel
+  PRODUCTO, no variante) — pedido explícito del usuario, amplía la regla dura
+  de "solo VARIANTE" de CLAUDE.md/MEMORIA_PROYECTO.md §3. **Color queda afuera
+  a propósito:** es una opción de variante, cambiarla por API es mucho más
+  riesgoso (puede reestructurar/duplicar variantes) que actualizar un campo de
+  producto. Detalle técnico en MEMORIA_PROYECTO.md §3 ("Push a Shopify de
+  nombre y categoría").
 - Dos módulos Shopify a propósito: bajada = emergencia (sin archivo BASE),
   subida = flujo normal. No fusionar.
 - Precio sugerido = base × 2, se muestra solo en Kyte.

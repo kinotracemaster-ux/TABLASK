@@ -72,3 +72,15 @@ def test_campos_extra_compare_y_barcode_viajan():
     updates = build_shopify_updates(changes, [], price_col="price", stock_col="stock",
                                     compare_col="precio_oferta", barcode_col="cod_barras")
     assert updates == [{"sku": "1203", "compare_at_price": "150", "barcode": "779001"}]
+
+
+def test_campos_nombre_y_categoria_viajan():
+    # Nombre/categoría son a nivel PRODUCTO, pero acá siguen siendo un update más
+    # por SKU (push_updates es quien los agrupa por producto al escribir).
+    changes = [
+        {"sku": "1203", "field": "nombre_prod", "old": "Reloj", "new": "Reloj Deportivo"},
+        {"sku": "1203", "field": "categoria", "old": "", "new": "Relojes"},
+    ]
+    updates = build_shopify_updates(changes, [], price_col="price", stock_col="stock",
+                                    title_col="nombre_prod", product_type_col="categoria")
+    assert updates == [{"sku": "1203", "title": "Reloj Deportivo", "product_type": "Relojes"}]
