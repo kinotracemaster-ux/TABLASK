@@ -4,6 +4,7 @@ import { Settings2, Download, Link2, Power, Trash2, FileDown, Plus, CheckCircle2
 import { extractError, formatError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
 import ShopifyPushModal from './ShopifyPushModal';
+import ShopifyFieldMapper from './ShopifyFieldMapper';
 import AutoSyncPanel from './AutoSyncPanel';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -1340,55 +1341,15 @@ export default function Flujos() {
               </select>
             </div>
 
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-green-800 mb-1">Precio (columna Maestra)</label>
-                <select value={essPrice} onChange={e => setEssPrice(e.target.value)}
-                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— sin precio —</option>
-                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-green-800 mb-1">Stock (columna Maestra)</label>
-                <select value={essStock} onChange={e => setEssStock(e.target.value)}
-                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— sin stock —</option>
-                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-green-800 mb-1">Precio comparativo / oferta</label>
-                <select value={essCompare} onChange={e => setEssCompare(e.target.value)}
-                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— sin precio comparativo —</option>
-                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-green-800 mb-1">Código de barras</label>
-                <select value={essBarcode} onChange={e => setEssBarcode(e.target.value)}
-                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— sin código de barras —</option>
-                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-green-800 mb-1">Nombre del producto</label>
-                <select value={essTitle} onChange={e => setEssTitle(e.target.value)}
-                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— sin nombre —</option>
-                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-green-800 mb-1">Categoría</label>
-                <select value={essProductType} onChange={e => setEssProductType(e.target.value)}
-                  className="w-full border border-green-200 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— sin categoría —</option>
-                  {editShopSubCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+              <ShopifyFieldMapper masterCols={editShopSubCols} fields={[
+                { key: 'price', label: 'Precio', value: essPrice, setValue: setEssPrice },
+                { key: 'stock', label: 'Stock', value: essStock, setValue: setEssStock },
+                { key: 'compare', label: 'Precio comparativo / oferta', value: essCompare, setValue: setEssCompare },
+                { key: 'barcode', label: 'Código de barras', value: essBarcode, setValue: setEssBarcode },
+                { key: 'title', label: 'Nombre del producto', value: essTitle, setValue: setEssTitle },
+                { key: 'product_type', label: 'Categoría', value: essProductType, setValue: setEssProductType },
+              ]} />
             </div>
             <p className="text-xs text-gray-500 -mt-1">
               Elegí uno o varios campos. Nunca se crean productos en Shopify: solo se

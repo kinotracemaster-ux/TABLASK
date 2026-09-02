@@ -4,6 +4,7 @@ import { UploadCloud, Database, Store, ArrowRight, ChevronRight, CheckCircle2, A
 import { extractError, formatError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
 import ShopifyPushModal from './ShopifyPushModal';
+import ShopifyFieldMapper from './ShopifyFieldMapper';
 
 const API = import.meta.env.VITE_API_URL || '';
 const ALLOWED_FILE_EXT = ['.csv', '.xls', '.xlsx'];
@@ -270,7 +271,6 @@ export default function FileToShopify() {
       const data = await res.json();
       if (!res.ok) { setShopError(formatError(data)); return; }
       setShopSubId(data.id);
-      setShopPreview(null); setShopResult(null);
     } catch (err) { setShopError(err.message || 'No se pudo guardar el destino.'); }
     setSavingShopSub(false);
   };
@@ -470,7 +470,7 @@ export default function FileToShopify() {
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tienda Shopify</label>
-                <select value={shopConnId} onChange={e => { setShopConnId(e.target.value); setShopSubId(null); setShopPreview(null); setShopResult(null); }}
+                <select value={shopConnId} onChange={e => { setShopConnId(e.target.value); setShopSubId(null); }}
                   className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
                   <option value="">Seleccionar...</option>
                   {shopConns.map(c => <option key={c.id} value={c.id}>{c.name} ({c.shopify_domain})</option>)}
@@ -488,60 +488,22 @@ export default function FileToShopify() {
               )}
             </div>
 
-            <p className="text-xs text-gray-500 mb-2">Elegí uno o varios campos para enviar (todos por SKU, a nivel variante — no se crean productos):</p>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Precio (Maestra)</label>
-                <select value={shopPriceCol} onChange={e => { setShopPriceCol(e.target.value); setShopSubId(null); }}
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— no enviar —</option>
-                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Stock (Maestra)</label>
-                <select value={shopStockCol} onChange={e => { setShopStockCol(e.target.value); setShopSubId(null); }}
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— no enviar —</option>
-                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Precio comparativo / oferta</label>
-                <select value={shopCompareCol} onChange={e => { setShopCompareCol(e.target.value); setShopSubId(null); }}
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— no enviar —</option>
-                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Código de barras</label>
-                <select value={shopBarcodeCol} onChange={e => { setShopBarcodeCol(e.target.value); setShopSubId(null); }}
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— no enviar —</option>
-                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del producto</label>
-                <select value={shopTitleCol} onChange={e => { setShopTitleCol(e.target.value); setShopSubId(null); }}
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— no enviar —</option>
-                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
-                <select value={shopProductTypeCol} onChange={e => { setShopProductTypeCol(e.target.value); setShopSubId(null); }}
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                  <option value="">— no enviar —</option>
-                  {masterCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
+            <p className="text-xs text-gray-500 mb-2">Elegí los campos que querés enviar (por SKU; precio/stock/comparativo/barcode son de variante, nombre/categoría son de producto entero — nunca se crean productos):</p>
+            <div className="mb-3">
+              <ShopifyFieldMapper masterCols={masterCols} fields={[
+                { key: 'price', label: 'Precio', value: shopPriceCol, setValue: v => { setShopPriceCol(v); setShopSubId(null); } },
+                { key: 'stock', label: 'Stock', value: shopStockCol, setValue: v => { setShopStockCol(v); setShopSubId(null); } },
+                { key: 'compare', label: 'Precio comparativo / oferta', value: shopCompareCol, setValue: v => { setShopCompareCol(v); setShopSubId(null); } },
+                { key: 'barcode', label: 'Código de barras', value: shopBarcodeCol, setValue: v => { setShopBarcodeCol(v); setShopSubId(null); } },
+                { key: 'title', label: 'Nombre del producto', value: shopTitleCol, setValue: v => { setShopTitleCol(v); setShopSubId(null); } },
+                { key: 'product_type', label: 'Categoría', value: shopProductTypeCol, setValue: v => { setShopProductTypeCol(v); setShopSubId(null); } },
+              ]} />
             </div>
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
-              Nombre y categoría son a nivel PRODUCTO: si el SKU comparte producto con otras variantes, el cambio afecta al producto entero.
-            </p>
+            {(shopTitleCol || shopProductTypeCol) && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
+                Nombre y categoría son a nivel PRODUCTO: si el SKU comparte producto con otras variantes, el cambio afecta al producto entero.
+              </p>
+            )}
             {shopLocError && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">{shopLocError} Si la tienda tiene una sola ubicación, igual se puede escribir el stock.</p>}
 
             <div className="flex flex-wrap gap-2 items-center">
