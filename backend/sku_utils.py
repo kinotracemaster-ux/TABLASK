@@ -69,6 +69,18 @@ def sku_reference_base(sku: str) -> str:
     return _VARIANT_SUFFIX_RE.sub("", norm)
 
 
+_PRIMARY_VARIANT_RE = re.compile(r"-1$")
+
+
+def is_primary_variant_sku(sku: str) -> bool:
+    """True si `sku` es la variante "-1" de su referencia (ej. '3076-1' de
+    '3076-1'..'3076-6'): por convención del catálogo, esa es la variante
+    PRINCIPAL — su nombre es el que debe representar al producto cuando
+    varias variantes (SKU) de la misma referencia — ej. distintos colores —
+    comparten un producto en Shopify y piden nombres distintos entre sí."""
+    return bool(_PRIMARY_VARIANT_RE.search(normalize_sku_for_match(sku)))
+
+
 def find_header_index(headers, name: str) -> int:
     """Busca `name` en `headers`: primero exacto, si no case-insensitive
     (recortando espacios). Devuelve -1 si no está en ninguna forma.

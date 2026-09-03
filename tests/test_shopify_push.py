@@ -224,17 +224,97 @@ def test_title_and_product_type_are_product_level(conn):
 
 
 def test_title_updates_grouped_one_call_per_product(conn):
-    # Dos SKUs (variantes) del MISMO producto -> una sola llamada productUpdate,
-    # gana el último valor procesado (mismo criterio simple que el resto del motor).
+    # Dos SKUs (variantes) del MISMO producto piden el MISMO nombre -> se
+    # aplica en una sola llamada productUpdate.
     updates = [
         {"sku": "1203", "title": "Reloj A"},
-        {"sku": "45", "title": "Reloj B"},
+        {"sku": "45", "title": "Reloj A"},
     ]
     conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False, do_title=True)
     assert len(conn._calls["product"]) == 1
     pid, fields = conn._calls["product"][0]
     assert pid == "gid://shopify/Product/10"
-    assert fields == {"title": "Reloj B"}
+    assert fields == {"title": "Reloj A"}
+
+
+def test_title_conflict_between_variants_is_skipped_not_overwritten(conn):
+    # Dos SKUs (variantes/colores) del MISMO producto piden nombres DISTINTOS:
+    # aplicar "gana el último" a ciegas pisaría el nombre que debería quedar
+    # para la otra variante/color -> no se aplica ninguno, se reporta conflicto.
+    updates = [
+        {"sku": "1203", "title": "Reloj Rojo"},
+        {"sku": "45", "title": "Reloj Azul"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False, do_title=True)
+    assert summary["title_updated"] == 0
+    assert summary["conflicts_total"] == 1
+    assert conn._calls["product"] == []
+
+
+def test_title_conflict_resolved_by_primary_variant(conn, monkeypatch):
+    # Variantes de la MISMA referencia por sufijo "-N" (ej. "3076-1".."3076-6",
+    # distintos colores del mismo modelo "3076"): si piden nombres distintos,
+    # manda el de la variante PRINCIPAL "-1" — las demás se ignoran, no hay
+    # conflicto que bloquee el envío.
+    index = {
+        "3076-1": {
+            "variant_id": "gid://shopify/ProductVariant/1",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/100",
+            "sku": "3076-1",
+        },
+        "3076-3": {
+            "variant_id": "gid://shopify/ProductVariant/2",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/101",
+            "sku": "3076-3",
+        },
+    }
+    monkeypatch.setattr(conn, "index_variants_by_sku", lambda: index)
+    updates = [
+        {"sku": "3076-1", "title": "3076-1 POEDAGAR METAL CALENDARIO DAMA"},
+        {"sku": "3076-3", "title": "3076-3 POEDAGAR METAL CALENDARIO DAMA"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False, do_title=True)
+    assert summary["conflicts_total"] == 0
+    assert summary["title_updated"] == 1
+    pid, fields = conn._calls["product"][0]
+    assert pid == "gid://shopify/Product/10"
+    assert fields == {"title": "3076-1 POEDAGAR METAL CALENDARIO DAMA"}
+
+
+def test_dry_run_title_conflict_resolved_by_primary_variant(conn, monkeypatch):
+    # Mismo escenario en dry_run: el cambio real (si lo hay) queda a nombre de
+    # la variante principal; la propuesta de la secundaria se reporta aparte
+    # en "ignored_secondary", NO como conflicto (no bloquea el envío).
+    index = {
+        "3076-1": {
+            "variant_id": "gid://shopify/ProductVariant/1",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/100",
+            "sku": "3076-1",
+            "current_title": "3076-1 POEDAGAR METAL CALENDARIO DAMA",
+        },
+        "3076-3": {
+            "variant_id": "gid://shopify/ProductVariant/2",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/101",
+            "sku": "3076-3",
+            "current_title": "3076-1 POEDAGAR METAL CALENDARIO DAMA",
+        },
+    }
+    monkeypatch.setattr(conn, "index_variants_by_sku", lambda: index)
+    updates = [
+        {"sku": "3076-1", "title": "3076-1 POEDAGAR METAL CALENDARIO DAMA"},
+        {"sku": "3076-3", "title": "3076-3 POEDAGAR METAL CALENDARIO DAMA"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=True, do_title=True)
+    assert summary["conflicts_total"] == 0
+    assert summary["changes"] == []  # el título de la principal ya coincide con Shopify
+    assert summary["ignored_secondary"] == [
+        {"sku": "3076-3", "field": "Nombre", "value": "3076-3 POEDAGAR METAL CALENDARIO DAMA",
+         "applied": "3076-1 POEDAGAR METAL CALENDARIO DAMA"},
+    ]
 
 
 def test_blank_title_and_product_type_are_skipped(conn):
@@ -271,3 +351,17 @@ def test_dry_run_shows_title_and_product_type_changes(conn, monkeypatch):
         {"sku": "1203", "field": "Nombre", "before": "Reloj Viejo", "after": "Reloj Nuevo"},
         {"sku": "1203", "field": "Categoría", "before": "(vacío)", "after": "Relojes"},
     ]
+
+
+def test_dry_run_flags_title_conflict_between_variants(conn):
+    # Mismo escenario que el conflicto real, pero en dry_run: no se listan
+    # como "cambio" (no se van a aplicar), quedan aparte en "conflicts".
+    updates = [
+        {"sku": "1203", "title": "Reloj Rojo"},
+        {"sku": "45", "title": "Reloj Azul"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=True, do_title=True)
+    assert summary["changes"] == []
+    assert summary["conflicts_total"] == 2
+    assert {"sku": "1203", "field": "Nombre", "value": "Reloj Rojo"} in summary["conflicts"]
+    assert {"sku": "45", "field": "Nombre", "value": "Reloj Azul"} in summary["conflicts"]
