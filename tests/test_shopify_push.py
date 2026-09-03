@@ -224,17 +224,31 @@ def test_title_and_product_type_are_product_level(conn):
 
 
 def test_title_updates_grouped_one_call_per_product(conn):
-    # Dos SKUs (variantes) del MISMO producto -> una sola llamada productUpdate,
-    # gana el último valor procesado (mismo criterio simple que el resto del motor).
+    # Dos SKUs (variantes) del MISMO producto piden el MISMO nombre -> se
+    # aplica en una sola llamada productUpdate.
     updates = [
         {"sku": "1203", "title": "Reloj A"},
-        {"sku": "45", "title": "Reloj B"},
+        {"sku": "45", "title": "Reloj A"},
     ]
     conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False, do_title=True)
     assert len(conn._calls["product"]) == 1
     pid, fields = conn._calls["product"][0]
     assert pid == "gid://shopify/Product/10"
-    assert fields == {"title": "Reloj B"}
+    assert fields == {"title": "Reloj A"}
+
+
+def test_title_conflict_between_variants_is_skipped_not_overwritten(conn):
+    # Dos SKUs (variantes/colores) del MISMO producto piden nombres DISTINTOS:
+    # aplicar "gana el último" a ciegas pisaría el nombre que debería quedar
+    # para la otra variante/color -> no se aplica ninguno, se reporta conflicto.
+    updates = [
+        {"sku": "1203", "title": "Reloj Rojo"},
+        {"sku": "45", "title": "Reloj Azul"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False, do_title=True)
+    assert summary["title_updated"] == 0
+    assert summary["conflicts_total"] == 1
+    assert conn._calls["product"] == []
 
 
 def test_blank_title_and_product_type_are_skipped(conn):
@@ -271,3 +285,17 @@ def test_dry_run_shows_title_and_product_type_changes(conn, monkeypatch):
         {"sku": "1203", "field": "Nombre", "before": "Reloj Viejo", "after": "Reloj Nuevo"},
         {"sku": "1203", "field": "Categoría", "before": "(vacío)", "after": "Relojes"},
     ]
+
+
+def test_dry_run_flags_title_conflict_between_variants(conn):
+    # Mismo escenario que el conflicto real, pero en dry_run: no se listan
+    # como "cambio" (no se van a aplicar), quedan aparte en "conflicts".
+    updates = [
+        {"sku": "1203", "title": "Reloj Rojo"},
+        {"sku": "45", "title": "Reloj Azul"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=True, do_title=True)
+    assert summary["changes"] == []
+    assert summary["conflicts_total"] == 2
+    assert {"sku": "1203", "field": "Nombre", "value": "Reloj Rojo"} in summary["conflicts"]
+    assert {"sku": "45", "field": "Nombre", "value": "Reloj Azul"} in summary["conflicts"]

@@ -24,6 +24,7 @@ export default function ShopifyPushModal({ subId, subName, onClose, onDone }) {
   const [result, setResult] = useState(null);
   const [showChanges, setShowChanges] = useState(true);
   const [showNotFound, setShowNotFound] = useState(false);
+  const [showConflicts, setShowConflicts] = useState(false);
 
   useEffect(() => { loadPreview(); /* eslint-disable-next-line */ }, []);
 
@@ -56,7 +57,9 @@ export default function ShopifyPushModal({ subId, subName, onClose, onDone }) {
 
   const changes = preview?.changes || [];
   const notFound = preview?.not_found || [];
+  const conflicts = preview?.conflicts || [];
   const changesTotal = preview?.changes_total ?? changes.length;
+  const conflictsTotal = preview?.conflicts_total ?? conflicts.length;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -113,6 +116,13 @@ export default function ShopifyPushModal({ subId, subName, onClose, onDone }) {
                 </div>
               )}
             </div>
+            {result.conflicts_total > 0 && (
+              <p className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">
+                {result.conflicts_total} producto(s) con Nombre/Categoría en conflicto entre variantes (ej.
+                colores distintos pidiendo nombres distintos) NO se actualizaron — corregilo a mano en Shopify o
+                unificá el valor en la Maestra para esas variantes.
+              </p>
+            )}
             {result.errors?.length > 0 && (
               <div className="mt-2 space-y-1">
                 {result.errors.map((e, i) => (
@@ -149,6 +159,15 @@ export default function ShopifyPushModal({ subId, subName, onClose, onDone }) {
               </p>
             )}
 
+            {conflictsTotal > 0 && (
+              <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2 mb-3">
+                {conflictsTotal} cambio(s) de Nombre/Categoría NO se van a enviar: son variantes (ej. distintos
+                colores) del MISMO producto en Shopify pidiendo valores distintos — mandar cualquiera de los dos
+                pisaría el nombre que debería quedar para la otra variante. Unificá el nombre/categoría en la
+                Maestra para esas variantes, o cambialo a mano en Shopify.
+              </p>
+            )}
+
             <div className="flex gap-2 flex-wrap mb-2">
               {changes.length > 0 && (
                 <button type="button" onClick={() => setShowChanges(v => !v)}
@@ -162,6 +181,13 @@ export default function ShopifyPushModal({ subId, subName, onClose, onDone }) {
                   className="flex items-center gap-1 text-xs font-medium text-amber-700 bg-white border border-amber-200 rounded-lg px-3 py-1.5 hover:bg-amber-50">
                   {showNotFound ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                   Ver los {preview.not_found_count} sin cruzar
+                </button>
+              )}
+              {conflicts.length > 0 && (
+                <button type="button" onClick={() => setShowConflicts(v => !v)}
+                  className="flex items-center gap-1 text-xs font-medium text-red-700 bg-white border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50">
+                  {showConflicts ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  Ver los {conflictsTotal} en conflicto
                 </button>
               )}
             </div>
@@ -190,6 +216,30 @@ export default function ShopifyPushModal({ subId, subName, onClose, onDone }) {
                 </div>
                 {changesTotal > DETAIL_LIMIT && (
                   <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">Mostrando {DETAIL_LIMIT} de {changesTotal}.</div>
+                )}
+              </div>
+            )}
+
+            {showConflicts && conflicts.length > 0 && (
+              <div className="mb-4 bg-white border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto max-h-48 overflow-y-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
+                      <tr><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Campo</th><th className="px-3 py-2">Valor pedido (no se envía)</th></tr>
+                    </thead>
+                    <tbody>
+                      {conflicts.slice(0, DETAIL_LIMIT).map((c, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{c.sku}</td>
+                          <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{c.field}</td>
+                          <td className="px-3 py-1.5 text-red-700">{c.value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {conflictsTotal > DETAIL_LIMIT && (
+                  <div className="bg-gray-50 text-center text-xs text-gray-500 p-2 border-t">Mostrando {DETAIL_LIMIT} de {conflictsTotal}.</div>
                 )}
               </div>
             )}

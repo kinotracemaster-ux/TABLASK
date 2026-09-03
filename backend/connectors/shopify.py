@@ -386,8 +386,13 @@ class ShopifyConnector(BaseConnector):
                    "title":..., "product_type":...}].
         Cada do_* activa el campo correspondiente; solo se escriben los que traen valor.
         Precio/stock/comparativo/barcode son de VARIANTE. Título/categoría son de
-        PRODUCTO: si varias variantes (SKU) del mismo producto traen valores
-        distintos, gana el último update procesado para ese producto.
+        PRODUCTO: si varias variantes (SKU) del mismo producto — ej. distintos
+        colores del mismo modelo — traen valores DISTINTOS para el mismo campo,
+        no se aplica ninguno (aplicar el último a ciegas pisaría el nombre que
+        debería quedar para las otras variantes/colores) — se reporta como
+        conflicto (`conflicts`/`conflicts_total`) para que el usuario lo resuelva
+        a mano. Solo se escribe cuando todas las variantes del producto piden el
+        mismo valor.
         dry_run solo reporta el cruce.
         location_id: ubicación donde SET del inventario. Si None, usa la primera (arriesgado
         si hay varias bodegas) — la UI debería mandarlo explícito.
@@ -412,8 +417,34 @@ class ShopifyConnector(BaseConnector):
             "barcode_updated": 0,
             "title_updated": 0,
             "product_type_updated": 0,
+            "conflicts_total": 0,
             "errors": [],
         }
+
+        # Título/categoría son de PRODUCTO: si dos SKU (variantes/colores) del
+        # MISMO producto piden valores distintos para el mismo campo, ninguno se
+        # puede aplicar sin arriesgar pisar el nombre de las otras variantes.
+        # Se detecta acá (se usa tanto en dry_run como en la escritura real) qué
+        # productos quedan en conflicto por campo.
+        conflict_pids = {"title": set(), "product_type": set()}
+        if do_title or do_product_type:
+            by_product_values: Dict[str, Dict[str, set]] = {}
+            for u, info in matched:
+                pid = info.get("product_id")
+                if not pid:
+                    continue
+                vals = by_product_values.setdefault(pid, {"title": set(), "product_type": set()})
+                if do_title and u.get("title") not in (None, ""):
+                    vals["title"].add(str(u["title"]).strip())
+                if do_product_type and u.get("product_type") not in (None, ""):
+                    vals["product_type"].add(str(u["product_type"]).strip())
+            for pid, vals in by_product_values.items():
+                if len(vals["title"]) > 1:
+                    conflict_pids["title"].add(pid)
+                if len(vals["product_type"]) > 1:
+                    conflict_pids["product_type"].add(pid)
+        summary["conflicts_total"] = len(conflict_pids["title"]) + len(conflict_pids["product_type"])
+
         if dry_run:
             # Vista previa SKU/campo/antes→después (mismo espíritu que el preview
             # de "Correr flujo" en el sync Fuente→Maestra). Solo se listan cambios
@@ -421,22 +452,27 @@ class ShopifyConnector(BaseConnector):
             # (una vez normalizado el formato), no se reporta como cambio.
             checks = []
             if do_price:
-                checks.append(("price", "current_price", "Precio", _fmt_price))
+                checks.append(("price", "current_price", "Precio", _fmt_price, None))
             if do_stock:
-                checks.append(("stock", "current_stock", "Stock", _fmt_stock))
+                checks.append(("stock", "current_stock", "Stock", _fmt_stock, None))
             if do_compare_price:
-                checks.append(("compare_at_price", "current_compare_price", "Precio comparativo", _fmt_price))
+                checks.append(("compare_at_price", "current_compare_price", "Precio comparativo", _fmt_price, None))
             if do_barcode:
-                checks.append(("barcode", "current_barcode", "Código de barras", _fmt_plain))
+                checks.append(("barcode", "current_barcode", "Código de barras", _fmt_plain, None))
             if do_title:
-                checks.append(("title", "current_title", "Nombre", _fmt_plain))
+                checks.append(("title", "current_title", "Nombre", _fmt_plain, "title"))
             if do_product_type:
-                checks.append(("product_type", "current_product_type", "Categoría", _fmt_plain))
+                checks.append(("product_type", "current_product_type", "Categoría", _fmt_plain, "product_type"))
 
             changes = []
+            conflicts = []
             for u, info in matched:
-                for key, cur_key, label, fmt in checks:
+                pid = info.get("product_id")
+                for key, cur_key, label, fmt, conflict_key in checks:
                     if u.get(key) in (None, ""):
+                        continue
+                    if conflict_key and pid in conflict_pids[conflict_key]:
+                        conflicts.append({"sku": info.get("sku") or u.get("sku"), "field": label, "value": fmt(u.get(key))})
                         continue
                     after = fmt(u.get(key))
                     before = fmt(info.get(cur_key))
@@ -445,6 +481,8 @@ class ShopifyConnector(BaseConnector):
                     changes.append({"sku": info.get("sku") or u.get("sku"), "field": label, "before": before, "after": after})
             summary["changes"] = changes[:300]
             summary["changes_total"] = len(changes)
+            summary["conflicts"] = conflicts[:300]
+            summary["conflicts_total"] = len(conflicts)
             return summary
 
         # Campos de variante (precio, precio comparativo, barcode): se agrupan por
@@ -479,9 +517,10 @@ class ShopifyConnector(BaseConnector):
                     summary["errors"].append(f"variante (producto {pid[-8:]}): {str(e)[:140]}")
 
         # Campos de PRODUCTO (nombre, categoría): una llamada por producto (no por
-        # variante). Si dos SKUs del mismo producto traen valores distintos, gana
-        # el último — mismo criterio simple que el resto del motor (última corrida
-        # gana), documentado arriba en el docstring.
+        # variante). Si dos SKUs (variantes/colores) del mismo producto traen
+        # valores DISTINTOS para el mismo campo, ninguno se aplica — quedó
+        # marcado como conflicto arriba (conflict_pids) — para no pisar el
+        # nombre que debería quedar para las otras variantes.
         if do_title or do_product_type:
             by_product_fields: Dict[str, Dict[str, str]] = {}
             for u, info in matched:
@@ -489,11 +528,11 @@ class ShopifyConnector(BaseConnector):
                 if not pid:
                     continue
                 fields = by_product_fields.setdefault(pid, {})
-                if do_title:
+                if do_title and pid not in conflict_pids["title"]:
                     title = u.get("title")
                     if title not in (None, ""):
                         fields["title"] = str(title).strip()
-                if do_product_type:
+                if do_product_type and pid not in conflict_pids["product_type"]:
                     ptype = u.get("product_type")
                     if ptype not in (None, ""):
                         fields["productType"] = str(ptype).strip()

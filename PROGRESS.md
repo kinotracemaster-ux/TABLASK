@@ -9,7 +9,7 @@
 > Instrucción típica de cierre: "actualizá el estado — PROGRESS.md corto acá,
 > detalle de la feature en MEMORIA_PROYECTO.md §3".
 >
-> Última actualización: 2026-09-02
+> Última actualización: 2026-09-03
 
 ## Estado actual
 - Motor y flujos principales (Fuente → Maestra → Destinos) estables. Mapa
@@ -35,6 +35,14 @@
   confirmada) y §9 precio manual vs. automático por canal (ver MEJORAS_TABLASK.md).
 
 ## Decisiones tomadas
+- **Fix push Shopify Nombre/Categoría (sep 2026):** cuando varias variantes (SKU)
+  del mismo producto en Shopify (ej. distintos colores del mismo modelo) pedían
+  nombres distintos, el push aplicaba "gana el último" en silencio y pisaba el
+  nombre de las otras — reportado por el usuario como "se rompen los colores".
+  Ahora se detecta el conflicto y NO se aplica ninguno (se reporta en el preview
+  y en el resultado del envío); el usuario tiene que unificar el nombre/categoría
+  para esas variantes en la Maestra, o corregirlo a mano en Shopify. Detalle en
+  MEMORIA_PROYECTO.md §3.
 - Push a Shopify ahora también puede mandar **nombre** y **categoría** (a nivel
   PRODUCTO, no variante) — pedido explícito del usuario, amplía la regla dura
   de "solo VARIANTE" de CLAUDE.md/MEMORIA_PROYECTO.md §3. **Color queda afuera
