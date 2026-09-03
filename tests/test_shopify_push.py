@@ -251,6 +251,72 @@ def test_title_conflict_between_variants_is_skipped_not_overwritten(conn):
     assert conn._calls["product"] == []
 
 
+def test_title_conflict_resolved_by_primary_variant(conn, monkeypatch):
+    # Variantes de la MISMA referencia por sufijo "-N" (ej. "3076-1".."3076-6",
+    # distintos colores del mismo modelo "3076"): si piden nombres distintos,
+    # manda el de la variante PRINCIPAL "-1" — las demás se ignoran, no hay
+    # conflicto que bloquee el envío.
+    index = {
+        "3076-1": {
+            "variant_id": "gid://shopify/ProductVariant/1",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/100",
+            "sku": "3076-1",
+        },
+        "3076-3": {
+            "variant_id": "gid://shopify/ProductVariant/2",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/101",
+            "sku": "3076-3",
+        },
+    }
+    monkeypatch.setattr(conn, "index_variants_by_sku", lambda: index)
+    updates = [
+        {"sku": "3076-1", "title": "3076-1 POEDAGAR METAL CALENDARIO DAMA"},
+        {"sku": "3076-3", "title": "3076-3 POEDAGAR METAL CALENDARIO DAMA"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False, do_title=True)
+    assert summary["conflicts_total"] == 0
+    assert summary["title_updated"] == 1
+    pid, fields = conn._calls["product"][0]
+    assert pid == "gid://shopify/Product/10"
+    assert fields == {"title": "3076-1 POEDAGAR METAL CALENDARIO DAMA"}
+
+
+def test_dry_run_title_conflict_resolved_by_primary_variant(conn, monkeypatch):
+    # Mismo escenario en dry_run: el cambio real (si lo hay) queda a nombre de
+    # la variante principal; la propuesta de la secundaria se reporta aparte
+    # en "ignored_secondary", NO como conflicto (no bloquea el envío).
+    index = {
+        "3076-1": {
+            "variant_id": "gid://shopify/ProductVariant/1",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/100",
+            "sku": "3076-1",
+            "current_title": "3076-1 POEDAGAR METAL CALENDARIO DAMA",
+        },
+        "3076-3": {
+            "variant_id": "gid://shopify/ProductVariant/2",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/101",
+            "sku": "3076-3",
+            "current_title": "3076-1 POEDAGAR METAL CALENDARIO DAMA",
+        },
+    }
+    monkeypatch.setattr(conn, "index_variants_by_sku", lambda: index)
+    updates = [
+        {"sku": "3076-1", "title": "3076-1 POEDAGAR METAL CALENDARIO DAMA"},
+        {"sku": "3076-3", "title": "3076-3 POEDAGAR METAL CALENDARIO DAMA"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=True, do_title=True)
+    assert summary["conflicts_total"] == 0
+    assert summary["changes"] == []  # el título de la principal ya coincide con Shopify
+    assert summary["ignored_secondary"] == [
+        {"sku": "3076-3", "field": "Nombre", "value": "3076-3 POEDAGAR METAL CALENDARIO DAMA",
+         "applied": "3076-1 POEDAGAR METAL CALENDARIO DAMA"},
+    ]
+
+
 def test_blank_title_and_product_type_are_skipped(conn):
     summary = conn.push_updates([{"sku": "1203", "title": "", "product_type": ""}],
                                 do_price=False, do_stock=False, dry_run=False,

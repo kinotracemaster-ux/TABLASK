@@ -4,7 +4,7 @@ import certifi
 import requests
 from typing import List, Dict, Any, Tuple
 from .base import BaseConnector
-from ..sku_utils import normalize_sku_for_match
+from ..sku_utils import normalize_sku_for_match, is_primary_variant_sku
 
 # Se fuerza el bundle de CAs de certifi (en vez del default de requests, que
 # puede quedar pisado por REQUESTS_CA_BUNDLE/SSL_CERT_FILE del contenedor de
@@ -388,11 +388,14 @@ class ShopifyConnector(BaseConnector):
         Precio/stock/comparativo/barcode son de VARIANTE. Título/categoría son de
         PRODUCTO: si varias variantes (SKU) del mismo producto — ej. distintos
         colores del mismo modelo — traen valores DISTINTOS para el mismo campo,
-        no se aplica ninguno (aplicar el último a ciegas pisaría el nombre que
-        debería quedar para las otras variantes/colores) — se reporta como
+        manda la variante PRINCIPAL de la referencia (el SKU con sufijo "-1", ej.
+        "3076-1" para "3076-1".."3076-6" — `is_primary_variant_sku`): su valor es
+        el que se aplica al producto, los demás se ignoran (no la pisan). Si
+        ninguna de las variantes en conflicto es la "-1" (o no se puede
+        identificar una principal única), no se aplica ninguna — se reporta como
         conflicto (`conflicts`/`conflicts_total`) para que el usuario lo resuelva
         a mano. Solo se escribe cuando todas las variantes del producto piden el
-        mismo valor.
+        mismo valor, o cuando se resuelve por la variante principal.
         dry_run solo reporta el cruce.
         location_id: ubicación donde SET del inventario. Si None, usa la primera (arriesgado
         si hay varias bodegas) — la UI debería mandarlo explícito.
@@ -422,27 +425,41 @@ class ShopifyConnector(BaseConnector):
         }
 
         # Título/categoría son de PRODUCTO: si dos SKU (variantes/colores) del
-        # MISMO producto piden valores distintos para el mismo campo, ninguno se
-        # puede aplicar sin arriesgar pisar el nombre de las otras variantes.
-        # Se detecta acá (se usa tanto en dry_run como en la escritura real) qué
-        # productos quedan en conflicto por campo.
+        # MISMO producto piden valores distintos para el mismo campo, se
+        # resuelve por la variante PRINCIPAL de la referencia (sufijo "-1" del
+        # SKU, ej. "3076-1" entre "3076-1".."3076-6") — su valor manda, los
+        # demás se ignoran. Sin una "-1" única entre las que difieren, queda
+        # como conflicto sin resolver (no se aplica ninguno). Se detecta acá
+        # (se usa tanto en dry_run como en la escritura real) el valor
+        # resuelto por producto/campo, y qué productos quedan en conflicto.
         conflict_pids = {"title": set(), "product_type": set()}
+        resolved_values: Dict[str, Dict[str, str]] = {"title": {}, "product_type": {}}
         if do_title or do_product_type:
-            by_product_values: Dict[str, Dict[str, set]] = {}
+            by_product_entries: Dict[str, Dict[str, list]] = {}
             for u, info in matched:
                 pid = info.get("product_id")
                 if not pid:
                     continue
-                vals = by_product_values.setdefault(pid, {"title": set(), "product_type": set()})
+                sku = info.get("sku") or u.get("sku")
+                entries = by_product_entries.setdefault(pid, {"title": [], "product_type": []})
                 if do_title and u.get("title") not in (None, ""):
-                    vals["title"].add(str(u["title"]).strip())
+                    entries["title"].append((sku, str(u["title"]).strip()))
                 if do_product_type and u.get("product_type") not in (None, ""):
-                    vals["product_type"].add(str(u["product_type"]).strip())
-            for pid, vals in by_product_values.items():
-                if len(vals["title"]) > 1:
-                    conflict_pids["title"].add(pid)
-                if len(vals["product_type"]) > 1:
-                    conflict_pids["product_type"].add(pid)
+                    entries["product_type"].append((sku, str(u["product_type"]).strip()))
+            for pid, entries in by_product_entries.items():
+                for field in ("title", "product_type"):
+                    vals = entries[field]
+                    if not vals:
+                        continue
+                    distinct = {v for _, v in vals}
+                    if len(distinct) == 1:
+                        resolved_values[field][pid] = next(iter(distinct))
+                        continue
+                    primary_vals = {v for sku, v in vals if is_primary_variant_sku(sku)}
+                    if len(primary_vals) == 1:
+                        resolved_values[field][pid] = next(iter(primary_vals))
+                    else:
+                        conflict_pids[field].add(pid)
         summary["conflicts_total"] = len(conflict_pids["title"]) + len(conflict_pids["product_type"])
 
         if dry_run:
@@ -466,23 +483,35 @@ class ShopifyConnector(BaseConnector):
 
             changes = []
             conflicts = []
+            ignored_secondary = []
             for u, info in matched:
                 pid = info.get("product_id")
+                sku = info.get("sku") or u.get("sku")
                 for key, cur_key, label, fmt, conflict_key in checks:
                     if u.get(key) in (None, ""):
                         continue
-                    if conflict_key and pid in conflict_pids[conflict_key]:
-                        conflicts.append({"sku": info.get("sku") or u.get("sku"), "field": label, "value": fmt(u.get(key))})
-                        continue
+                    if conflict_key:
+                        if pid in conflict_pids[conflict_key]:
+                            conflicts.append({"sku": sku, "field": label, "value": fmt(u.get(key))})
+                            continue
+                        resolved = resolved_values[conflict_key].get(pid)
+                        if resolved is not None and str(u.get(key)).strip() != resolved:
+                            # Variante secundaria: la principal ("-1") ya fijó
+                            # el valor del producto, esta propuesta se ignora.
+                            ignored_secondary.append({"sku": sku, "field": label, "value": fmt(u.get(key)),
+                                                       "applied": fmt(resolved)})
+                            continue
                     after = fmt(u.get(key))
                     before = fmt(info.get(cur_key))
                     if after == before:
                         continue
-                    changes.append({"sku": info.get("sku") or u.get("sku"), "field": label, "before": before, "after": after})
+                    changes.append({"sku": sku, "field": label, "before": before, "after": after})
             summary["changes"] = changes[:300]
             summary["changes_total"] = len(changes)
             summary["conflicts"] = conflicts[:300]
             summary["conflicts_total"] = len(conflicts)
+            summary["ignored_secondary"] = ignored_secondary[:300]
+            summary["ignored_secondary_total"] = len(ignored_secondary)
             return summary
 
         # Campos de variante (precio, precio comparativo, barcode): se agrupan por
@@ -517,25 +546,16 @@ class ShopifyConnector(BaseConnector):
                     summary["errors"].append(f"variante (producto {pid[-8:]}): {str(e)[:140]}")
 
         # Campos de PRODUCTO (nombre, categoría): una llamada por producto (no por
-        # variante). Si dos SKUs (variantes/colores) del mismo producto traen
-        # valores DISTINTOS para el mismo campo, ninguno se aplica — quedó
-        # marcado como conflicto arriba (conflict_pids) — para no pisar el
-        # nombre que debería quedar para las otras variantes.
+        # variante). El valor a escribir por producto/campo ya viene resuelto
+        # arriba (resolved_values): único si todas las variantes coincidían, o
+        # el de la variante principal "-1" si había conflicto y se pudo
+        # resolver. Los productos que quedaron en conflict_pids no aparecen acá.
         if do_title or do_product_type:
             by_product_fields: Dict[str, Dict[str, str]] = {}
-            for u, info in matched:
-                pid = info.get("product_id")
-                if not pid:
-                    continue
-                fields = by_product_fields.setdefault(pid, {})
-                if do_title and pid not in conflict_pids["title"]:
-                    title = u.get("title")
-                    if title not in (None, ""):
-                        fields["title"] = str(title).strip()
-                if do_product_type and pid not in conflict_pids["product_type"]:
-                    ptype = u.get("product_type")
-                    if ptype not in (None, ""):
-                        fields["productType"] = str(ptype).strip()
+            for pid, value in resolved_values["title"].items():
+                by_product_fields.setdefault(pid, {})["title"] = value
+            for pid, value in resolved_values["product_type"].items():
+                by_product_fields.setdefault(pid, {})["productType"] = value
             for pid, fields in by_product_fields.items():
                 if not fields:
                     continue

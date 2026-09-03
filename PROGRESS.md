@@ -39,10 +39,13 @@
   del mismo producto en Shopify (ej. distintos colores del mismo modelo) pedían
   nombres distintos, el push aplicaba "gana el último" en silencio y pisaba el
   nombre de las otras — reportado por el usuario como "se rompen los colores".
-  Ahora se detecta el conflicto y NO se aplica ninguno (se reporta en el preview
-  y en el resultado del envío); el usuario tiene que unificar el nombre/categoría
-  para esas variantes en la Maestra, o corregirlo a mano en Shopify. Detalle en
-  MEMORIA_PROYECTO.md §3.
+  Primero se cambió a "bloquear y reportar conflicto"; el usuario aclaró la
+  convención real: el SKU con sufijo **"-1"** (ej. "3076-1" entre
+  "3076-1".."3076-6") es la variante **principal** de la referencia — su
+  nombre es el que manda. Ahora, ante nombres distintos, se aplica el de la
+  "-1" y las demás propuestas se ignoran (no bloquean el envío, quedan
+  expuestas para transparencia); solo sigue siendo conflicto sin resolver si
+  ninguna de las que difieren es la "-1". Detalle en MEMORIA_PROYECTO.md §3.
 - Push a Shopify ahora también puede mandar **nombre** y **categoría** (a nivel
   PRODUCTO, no variante) — pedido explícito del usuario, amplía la regla dura
   de "solo VARIANTE" de CLAUDE.md/MEMORIA_PROYECTO.md §3. **Color queda afuera
