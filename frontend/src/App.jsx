@@ -3,11 +3,10 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 import MasterTable from './components/MasterTable';
 import ActivityLogs from './components/ActivityLogs';
 import ConnectedApps from './components/ConnectedApps';
-import SourceWizard from './components/SourceWizard';
+import UpdateMaster from './components/UpdateMaster';
 import Flujos from './components/Flujos';
 import ShopifyMasterSync from './components/ShopifyMasterSync';
-import FileToShopify from './components/FileToShopify';
-import { Database, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, Sparkles, ListChecks, Store, UploadCloud } from 'lucide-react';
+import { Database, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, RefreshCw, ListChecks, Store } from 'lucide-react';
 
 // Detecta si estamos en un entorno de PREVIEW (no producción).
 // Railway nombra los previews como "...-pr-<n>.up.railway.app".
@@ -45,7 +44,7 @@ function Sidebar() {
       <nav className="flex-1 p-3 space-y-1">
         <Link to="/nueva-fuente"
           className="flex items-center gap-2 p-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition mb-1">
-          <Sparkles className="w-5 h-5" /> + Nueva Fuente
+          <RefreshCw className="w-5 h-5" /> Actualizar Maestra
         </Link>
 
         <Link to="/" className={linkClass('/')}>
@@ -53,9 +52,6 @@ function Sidebar() {
         </Link>
         <Link to="/flujos" className={linkClass('/flujos')}>
           <ListChecks className="w-5 h-5" /> Mis Flujos
-        </Link>
-        <Link to="/subir-shopify" className={linkClass('/subir-shopify')}>
-          <UploadCloud className="w-5 h-5" /> Archivo → Maestra → Shopify
         </Link>
         <Link to="/shopify-sync" className={linkClass('/shopify-sync')}>
           <Store className="w-5 h-5" /> Shopify → Maestra
@@ -97,9 +93,8 @@ function App() {
         <main className="flex-1 overflow-auto bg-gray-50/50">
           <Routes>
             <Route path="/" element={<MasterTable />} />
-            <Route path="/nueva-fuente" element={<SourceWizard />} />
+            <Route path="/nueva-fuente" element={<UpdateMaster />} />
             <Route path="/flujos" element={<Flujos />} />
-            <Route path="/subir-shopify" element={<FileToShopify />} />
             <Route path="/shopify-sync" element={<ShopifyMasterSync />} />
             <Route path="/intake" element={<ConnectedApps />} />
             <Route path="/logs" element={<ActivityLogs />} />

@@ -33,8 +33,32 @@
 - UI: filtrar/resaltar en la Master los productos con `estado = NUEVO`.
 - Sin implementar del flujo de stock: §7 anti-sobreventa (descontar por venta
   confirmada) y §9 precio manual vs. automático por canal (ver MEJORAS_TABLASK.md).
+- Probar "Actualizar Maestra" (abajo) con credenciales reales de Google Sheets —
+  en esta sesión solo se pudo verificar contra un sandbox sin
+  `GOOGLE_CREDENTIALS_JSON`, así que la parte de mapeo/preview contra la
+  Maestra real (incluida la UI de mapeo ambiguo) quedó verificada por tests
+  y por lectura de código, no por click-through real con una Maestra viva.
 
 ## Decisiones tomadas
+- **Consolidar "Actualizar Maestra" en una sola pantalla (sep 2026):** el
+  usuario pidió simplificar el flujo de actualizar la Master — hoy requería
+  pasar por "+ Nueva Fuente" (wizard de 3 pasos: origen → mapeo → destinos,
+  obligando a configurar destinos aunque no hiciera falta) o por "Archivo →
+  Maestra → Shopify" (más directo pero atado a Shopify como único destino).
+  Se reemplazan ambas por `UpdateMaster.jsx` (ruta `/nueva-fuente`, mismo
+  URL): dos caminos sin navegar entre páginas — (1) fuentes ya conectadas
+  arriba, con "Correr ahora" (ofrece reemplazar archivo antes, igual que "Mis
+  Flujos") para el caso más común de actualización recurrente; (2) conectar
+  un origen nuevo (archivo/API al frente, Google Sheet detrás de "más
+  opciones" — decisión explícita del usuario) con mapeo inline que abre la
+  vista previa (`RunFlowModal`) apenas se guarda, y un destino nuevo
+  opcional/colapsado después (reusa el paso "Destinos" de la wizard vieja,
+  sin cambios de lógica). "Mis Flujos" y el módulo "Shopify → Maestra"
+  (bajada) quedan intactos a propósito. De paso se cerró un hueco real: el
+  auto-mapeo de columnas (`intelligent_engine.auto_map_columns`) elegía en
+  silencio cuando dos columnas de la Maestra eran sinónimos del mismo campo
+  (ej. "Precio" y "Costo") — ahora avisa "mapeo ambiguo" y pide elegir a
+  mano. Detalle técnico en MEMORIA_PROYECTO.md §3.
 - **Fix push Shopify Nombre/Categoría (sep 2026):** cuando varias variantes (SKU)
   del mismo producto en Shopify (ej. distintos colores del mismo modelo) pedían
   nombres distintos, el push aplicaba "gana el último" en silencio y pisaba el
