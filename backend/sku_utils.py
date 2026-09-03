@@ -69,16 +69,35 @@ def sku_reference_base(sku: str) -> str:
     return _VARIANT_SUFFIX_RE.sub("", norm)
 
 
-_PRIMARY_VARIANT_RE = re.compile(r"-1$")
+_PRIMARY_VARIANT_RE = re.compile(r"-[a-z]*1$")
 
 
 def is_primary_variant_sku(sku: str) -> bool:
     """True si `sku` es la variante "-1" de su referencia (ej. '3076-1' de
-    '3076-1'..'3076-6'): por convención del catálogo, esa es la variante
-    PRINCIPAL — su nombre es el que debe representar al producto cuando
-    varias variantes (SKU) de la misma referencia — ej. distintos colores —
-    comparten un producto en Shopify y piden nombres distintos entre sí."""
+    '3076-1'..'3076-6'), o la "-1" de una sub-familia con letra (ej. '827-C1'
+    de '827-C1'/'827-C2' — variantes de cuero de la referencia '827'; '892B-D1'
+    de la línea deportiva/silicona) — el prefijo de letra (C, D...) marca una
+    referencia/línea propia (confirmado por el usuario: "C" = cuero, "D" =
+    deportivo), y dentro de ESA línea, la "-1" es la PRINCIPAL: su nombre es
+    el que debe representar al producto cuando varias variantes (SKU) del
+    mismo producto Shopify piden nombres distintos entre sí."""
     return bool(_PRIMARY_VARIANT_RE.search(normalize_sku_for_match(sku)))
+
+
+def strip_sku_label(sku: str, text: str) -> str:
+    """Si `text` empieza con `sku` (ej. Nombre = "3076-3 POEDAGAR..." para el
+    SKU "3076-3"), devuelve el resto sin ese prefijo ("POEDAGAR..."); si no,
+    devuelve `text` tal cual. Se usa para distinguir, entre variantes de un
+    mismo producto con nombres "distintos", si la diferencia es SOLO el
+    código de SKU que cada una trae pegado adelante (caso seguro para
+    resolver por la variante principal) o si el contenido real difiere (ej.
+    una variante agrega "TIPO PATEK PHILIPPE" que las demás no tienen) — ese
+    segundo caso no debe resolverse solo, hay que reportarlo."""
+    t = (text or "").strip()
+    s = (sku or "").strip()
+    if s and t.upper().startswith(s.upper()):
+        return t[len(s):].strip()
+    return t
 
 
 def find_header_index(headers, name: str) -> int:

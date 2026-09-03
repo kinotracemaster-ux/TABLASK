@@ -4,7 +4,7 @@ import certifi
 import requests
 from typing import List, Dict, Any, Tuple
 from .base import BaseConnector
-from ..sku_utils import normalize_sku_for_match, is_primary_variant_sku
+from ..sku_utils import normalize_sku_for_match, is_primary_variant_sku, strip_sku_label
 
 # Se fuerza el bundle de CAs de certifi (en vez del default de requests, que
 # puede quedar pisado por REQUESTS_CA_BUNDLE/SSL_CERT_FILE del contenedor de
@@ -387,15 +387,20 @@ class ShopifyConnector(BaseConnector):
         Cada do_* activa el campo correspondiente; solo se escriben los que traen valor.
         Precio/stock/comparativo/barcode son de VARIANTE. Título/categoría son de
         PRODUCTO: si varias variantes (SKU) del mismo producto — ej. distintos
-        colores del mismo modelo — traen valores DISTINTOS para el mismo campo,
-        manda la variante PRINCIPAL de la referencia (el SKU con sufijo "-1", ej.
-        "3076-1" para "3076-1".."3076-6" — `is_primary_variant_sku`): su valor es
-        el que se aplica al producto, los demás se ignoran (no la pisan). Si
-        ninguna de las variantes en conflicto es la "-1" (o no se puede
-        identificar una principal única), no se aplica ninguna — se reporta como
-        conflicto (`conflicts`/`conflicts_total`) para que el usuario lo resuelva
-        a mano. Solo se escribe cuando todas las variantes del producto piden el
-        mismo valor, o cuando se resuelve por la variante principal.
+        colores del mismo modelo, o de una sub-línea con letra (cuero "-C1..",
+        deportiva "-D1..") — traen valores DISTINTOS para el mismo campo, manda
+        la variante PRINCIPAL de esa referencia/línea (el SKU con sufijo "-1" o
+        "-<letra>1", ej. "3076-1" o "827-C1" — `is_primary_variant_sku`): su
+        valor es el que se aplica al producto, los demás se ignoran (no la
+        pisan) — pero SOLO si la diferencia entre las variantes es nomás el
+        código de SKU que cada una trae pegado adelante (`strip_sku_label`); si
+        el contenido real difiere (ej. una variante agrega texto que las demás
+        no tienen — podría ser información real, no ruido de formato), no se
+        resuelve solo. Sin una principal única, o con contenido real distinto,
+        no se aplica ninguna — se reporta como conflicto (`conflicts`/
+        `conflicts_total`) para que el usuario lo resuelva a mano. Solo se
+        escribe cuando todas las variantes del producto piden el mismo valor,
+        o cuando se resuelve de forma segura por la variante principal.
         dry_run solo reporta el cruce.
         location_id: ubicación donde SET del inventario. Si None, usa la primera (arriesgado
         si hay varias bodegas) — la UI debería mandarlo explícito.
@@ -456,7 +461,15 @@ class ShopifyConnector(BaseConnector):
                         resolved_values[field][pid] = next(iter(distinct))
                         continue
                     primary_vals = {v for sku, v in vals if is_primary_variant_sku(sku)}
-                    if len(primary_vals) == 1:
+                    # Antes de aplicar la de la principal, chequear que la
+                    # diferencia sea SOLO el código de SKU que cada variante
+                    # trae pegado adelante (ej. "3076-3 POEDAGAR..." vs
+                    # "3076-1 POEDAGAR..." → mismo resto) — si el CONTENIDO
+                    # real difiere (ej. una variante agrega "TIPO PATEK
+                    # PHILIPPE" que la principal no tiene), no se resuelve
+                    # solo: podría perderse información real del catálogo.
+                    residues = {strip_sku_label(sku, v) for sku, v in vals}
+                    if len(primary_vals) == 1 and len(residues) == 1:
                         resolved_values[field][pid] = next(iter(primary_vals))
                     else:
                         conflict_pids[field].add(pid)

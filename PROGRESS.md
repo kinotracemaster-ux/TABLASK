@@ -45,7 +45,13 @@
   nombre es el que manda. Ahora, ante nombres distintos, se aplica el de la
   "-1" y las demás propuestas se ignoran (no bloquean el envío, quedan
   expuestas para transparencia); solo sigue siendo conflicto sin resolver si
-  ninguna de las que difieren es la "-1". Detalle en MEMORIA_PROYECTO.md §3.
+  ninguna de las que difieren es la "-1". El usuario mandó el archivo real de
+  nombres (BASE-SYS) y de ahí salieron dos ajustes más: los sufijos con letra
+  ("-C1" = cuero, "-D1" = deportivo) son su PROPIA referencia y también tienen
+  principal; y si el nombre difiere en algo más que el código de SKU pegado
+  adelante (ej. una variante agrega "TIPO PATEK PHILIPPE" que las demás no
+  tienen), ya no se resuelve solo — se trata como conflicto sin resolver, para
+  no perder esa info real. Detalle en MEMORIA_PROYECTO.md §3.
 - Push a Shopify ahora también puede mandar **nombre** y **categoría** (a nivel
   PRODUCTO, no variante) — pedido explícito del usuario, amplía la regla dura
   de "solo VARIANTE" de CLAUDE.md/MEMORIA_PROYECTO.md §3. **Color queda afuera

@@ -317,6 +317,70 @@ def test_dry_run_title_conflict_resolved_by_primary_variant(conn, monkeypatch):
     ]
 
 
+def test_title_conflict_resolved_by_primary_variant_with_letter_suffix(conn, monkeypatch):
+    # Sub-línea con letra (ej. "-C1"/"-C2" = variantes de CUERO de la
+    # referencia "827", confirmado por el usuario): "C1" es la principal de
+    # ESA línea, igual que "-1" para la numérica simple.
+    # index_variants_by_sku() de verdad indexa por el SKU NORMALIZADO
+    # (minúsculas) pero guarda el "sku" original con su casing real — replicar
+    # eso acá, si no el cruce por SKU falla (mismo bug para cualquier SKU con
+    # letras: "827-C1" != "827-c1").
+    index = {
+        "827-c1": {
+            "variant_id": "gid://shopify/ProductVariant/1",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/100",
+            "sku": "827-C1",
+        },
+        "827-c2": {
+            "variant_id": "gid://shopify/ProductVariant/2",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/101",
+            "sku": "827-C2",
+        },
+    }
+    monkeypatch.setattr(conn, "index_variants_by_sku", lambda: index)
+    updates = [
+        {"sku": "827-C1", "title": "827-C1 POEDAGAR CALENDARIO CUERO HOMBRE"},
+        {"sku": "827-C2", "title": "827-C2 POEDAGAR CALENDARIO CUERO HOMBRE"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False, do_title=True)
+    assert summary["conflicts_total"] == 0
+    assert summary["title_updated"] == 1
+    pid, fields = conn._calls["product"][0]
+    assert fields == {"title": "827-C1 POEDAGAR CALENDARIO CUERO HOMBRE"}
+
+
+def test_title_conflict_not_resolved_when_content_differs_beyond_sku_label(conn, monkeypatch):
+    # Si la diferencia entre variantes es más que el código de SKU pegado
+    # adelante (ej. una variante agrega "TIPO PATEK PHILIPPE" que la
+    # principal no tiene), NO se resuelve solo aunque haya una "-1" única:
+    # podría perderse información real del catálogo. Queda como conflicto.
+    index = {
+        "789b-1": {
+            "variant_id": "gid://shopify/ProductVariant/1",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/100",
+            "sku": "789B-1",
+        },
+        "789b-6": {
+            "variant_id": "gid://shopify/ProductVariant/2",
+            "product_id": "gid://shopify/Product/10",
+            "inventory_item_id": "gid://shopify/InventoryItem/101",
+            "sku": "789B-6",
+        },
+    }
+    monkeypatch.setattr(conn, "index_variants_by_sku", lambda: index)
+    updates = [
+        {"sku": "789B-1", "title": "789B-1 POEDAGAR METAL CALENDARIO DAMA"},
+        {"sku": "789B-6", "title": "789B-6 POEDAGAR TIPO PATEK PHILIPPE CALENDARIO METAL DAMA"},
+    ]
+    summary = conn.push_updates(updates, do_price=False, do_stock=False, dry_run=False, do_title=True)
+    assert summary["title_updated"] == 0
+    assert summary["conflicts_total"] == 1
+    assert conn._calls["product"] == []
+
+
 def test_blank_title_and_product_type_are_skipped(conn):
     summary = conn.push_updates([{"sku": "1203", "title": "", "product_type": ""}],
                                 do_price=False, do_stock=False, dry_run=False,
