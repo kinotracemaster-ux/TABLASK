@@ -1,4 +1,5 @@
 import math
+import re
 from typing import List, Dict, Any, Tuple
 
 # ═══════════════════════════════════════════════════════════════════
@@ -119,21 +120,40 @@ SEMANTIC_GROUPS = {
     "categoria": ["categoria", "categoría", "category", "tipo", "type", "departamento", "department", "familia", "family"]
 }
 
+def _normalize_header(name: str) -> str:
+    """Forma normalizada de un encabezado SOLO para comparar (no se usa para
+    mostrar ni escribir nada). Los archivos reales traen ruido tipográfico
+    que rompe el match exacto/semántico sin aportar significado: mayúsculas,
+    espacios de más, y marcadores como "*" o ":" pegados al final para
+    indicar "obligatorio" (ej. "Precio*", "Nombre*" en un BASE-SYS real).
+    Sin esto, "Precio*" nunca matchea con "precio" ni por exacto ni por
+    semántico, aunque sean el mismo campo."""
+    n = (name or "").strip().lower()
+    n = re.sub(r"[\s*:]+$", "", n)  # marcador de "obligatorio" al final
+    n = re.sub(r"\s+", " ", n)      # espacios internos de más
+    return n.strip()
+
+
 def get_semantic_group(column_name: str) -> str:
     """Retorna el nombre del grupo semántico al que pertenece una columna, o None si no hay coincidencia."""
-    name_lower = column_name.lower().strip()
+    name_norm = _normalize_header(column_name)
     for group_name, synonyms in SEMANTIC_GROUPS.items():
-        if name_lower in synonyms:
+        if name_norm in synonyms:
             return group_name
     return None
 
 def auto_map_columns(source_headers: List[str], target_headers: List[str]) -> List[Dict[str, Any]]:
     """
     Intenta mapear columnas de origen a destino usando matching exacto y semántico.
-    Devuelve una lista de sugerencias.
+    Devuelve una lista de sugerencias. Si un campo de origen matchea el mismo
+    grupo semántico que MÁS DE UNA columna destino (ej. la Master tiene
+    "Precio" y "Costo", ambos sinónimos de "precio"), no se elige ninguna a
+    ciegas: se devuelve confidence "ambiguous" con todas las candidatas en
+    "candidates", para que el usuario elija a mano en vez de que el sistema
+    adivine en silencio.
     """
     mappings = []
-    
+
     # Crear un índice de los grupos semánticos de las columnas destino
     target_semantic_map = {}
     for tgt_head in target_headers:
@@ -144,8 +164,9 @@ def auto_map_columns(source_headers: List[str], target_headers: List[str]) -> Li
             target_semantic_map[group].append(tgt_head)
 
     for src_head in source_headers:
-        # 1. Matching Exacto (Case Insensitive)
-        exact_match = next((t for t in target_headers if t.lower() == src_head.lower()), None)
+        # 1. Matching Exacto (normalizado: minúsculas, sin espacios/asterisco de más)
+        src_norm = _normalize_header(src_head)
+        exact_match = next((t for t in target_headers if _normalize_header(t) == src_norm), None)
         if exact_match:
             mappings.append({
                 "source_field": src_head,
@@ -154,15 +175,23 @@ def auto_map_columns(source_headers: List[str], target_headers: List[str]) -> Li
                 "reason": "Nombre exacto"
             })
             continue
-            
+
         # 2. Matching Semántico
         group = get_semantic_group(src_head)
         if group and group in target_semantic_map:
-            # Sugerimos el primer target de este grupo semántico
-            suggested_tgt = target_semantic_map[group][0]
+            candidates = target_semantic_map[group]
+            if len(candidates) > 1:
+                mappings.append({
+                    "source_field": src_head,
+                    "target_field": "",
+                    "confidence": "ambiguous",
+                    "reason": f"Varias columnas de la Maestra podrían ser \"{group}\": elegí cuál",
+                    "candidates": candidates,
+                })
+                continue
             mappings.append({
                 "source_field": src_head,
-                "target_field": suggested_tgt,
+                "target_field": candidates[0],
                 "confidence": "semantic",
                 "reason": f"Sugerencia semántica ({group})"
             })

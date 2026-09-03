@@ -45,12 +45,15 @@ def suggest_sku(connection_id: int, sheet_name: str, db: Session = Depends(get_d
 def api_auto_map_columns(source_headers: List[str], target_headers: List[str]):
     """
     Toma listas de columnas de origen y destino y sugiere un mapeo semántico.
-    Devuelve un diccionario { "source": "target" } para la UI.
+    Devuelve tanto el mapeo aplanado { "source": "target" } (compatibilidad,
+    NO incluye los campos "ambiguous" — esos no tienen un target elegido) como
+    la lista completa de sugerencias con confidence/reason/candidates, para
+    que la UI pueda avisar cuando el mapeo es ambiguo en vez de adivinar.
     """
     suggestions = auto_map_columns(source_headers, target_headers)
     mapping_dict = {}
     for sug in suggestions:
         if sug["target_field"]:
             mapping_dict[sug["source_field"]] = sug["target_field"]
-            
-    return {"mapping": mapping_dict}
+
+    return {"mapping": mapping_dict, "mappings": suggestions}
