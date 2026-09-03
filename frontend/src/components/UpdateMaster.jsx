@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   UploadCloud, Link2, Server, Store, Database, ChevronRight, ChevronDown, ChevronUp,
-  ArrowRight, Download, FileDown, Eye, Send, XCircle, AlertTriangle,
+  ArrowRight, Download, FileDown, Eye, Send, XCircle, AlertTriangle, CheckCircle2,
   Globe, Zap, X, Trash2, RefreshCw, Save,
 } from 'lucide-react';
 import { extractError, formatError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
 import ShopifyFieldMapper from './ShopifyFieldMapper';
+import { ShopifyPushPreviewDetails, ShopifyPushResultSummary } from './ShopifyPushDetails';
 
 const API = import.meta.env.VITE_API_URL || '';
 const ALLOWED_FILE_EXT = ['.csv', '.xls', '.xlsx'];
@@ -1359,19 +1360,16 @@ export default function UpdateMaster() {
                           <XCircle className="w-4 h-4 shrink-0" /> {shopError}
                         </div>
                       )}
-                      {shopPreview && (
-                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
-                          Cruzan (se actualizarán): <b className="text-green-700">{shopPreview.matched}</b> de {shopPreview.total}
-                          {shopPreview.not_found_count > 0 && <span className="text-amber-700"> · sin cruzar: {shopPreview.not_found_count}</span>}
+                      {shopResult ? (
+                        <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                          <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                            <CheckCircle2 className="w-5 h-5 text-green-600" /> Enviado a "{shopResult.store}"
+                          </h4>
+                          <ShopifyPushResultSummary result={shopResult} />
                         </div>
-                      )}
-                      {shopResult && (
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
-                          ✅ Precios: {shopResult.price_updated} · Stock: {shopResult.stock_updated}
-                          {shopResult.compare_price_updated ? ` · Comparativo: ${shopResult.compare_price_updated}` : ''}
-                          {shopResult.barcode_updated ? ` · Barcode: ${shopResult.barcode_updated}` : ''}
-                          {shopResult.title_updated ? ` · Nombre: ${shopResult.title_updated}` : ''}
-                          {shopResult.product_type_updated ? ` · Categoría: ${shopResult.product_type_updated}` : ''}
+                      ) : shopPreview && (
+                        <div className="bg-white border border-gray-200 rounded-xl p-4">
+                          <ShopifyPushPreviewDetails preview={shopPreview} />
                         </div>
                       )}
 
