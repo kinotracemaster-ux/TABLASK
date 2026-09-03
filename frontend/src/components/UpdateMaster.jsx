@@ -109,7 +109,8 @@ export default function UpdateMaster() {
         fetch(`${API}/api/exports/presets`),
       ]);
       const projs = await projsRes.json();
-      if (Array.isArray(projs) && projs.length > 0) setProjectId(projs[0].id);
+      let pid = null;
+      if (Array.isArray(projs) && projs.length > 0) { pid = projs[0].id; setProjectId(pid); }
       const m = await masterRes.json();
       if (masterRes.ok) {
         setMasterConnId(m.master_connection_id || null);
@@ -131,6 +132,10 @@ export default function UpdateMaster() {
       const procs = await procsRes.json();
       setProcesses(Array.isArray(procs) ? procs : []);
       if (presetsRes.ok) setExportPresets(await presetsRes.json());
+      // Destinos ya configurados: se muestran de una, no hace falta crear una
+      // Fuente nueva para verlos/agregar otro (un destino Shopify/Sheet/CSV/API
+      // se conecta a la Maestra en general, no a una Fuente puntual).
+      if (pid) await loadDestinations(pid);
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -1046,23 +1051,25 @@ export default function UpdateMaster() {
         </div>
       )}
 
-      {/* ── Sección 5 (opcional): agregar un destino nuevo para la Fuente recién creada ── */}
-      {createdProc && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      {/* ── Sección 5: destinos (Shopify, otra hoja, CSV, API) — independiente
+          de cualquier Fuente puntual, se conectan a la Maestra en general.
+          Siempre visible: no hace falta crear un origen nuevo para llegar acá. ── */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           {!showDestinos ? (
             <button type="button" onClick={() => setShowDestinos(true)}
               className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-indigo-700">
-              <ChevronDown className="w-4 h-4" /> ¿Este origen también debe alimentar un destino nuevo (Shopify, otra hoja, CSV, API)?
+              <ChevronDown className="w-4 h-4" /> Destinos (Shopify, otra hoja, CSV, API): crear o agregar uno nuevo
             </button>
           ) : (
             <>
               <button type="button" onClick={() => setShowDestinos(false)}
                 className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-indigo-700 mb-4">
-                <ChevronUp className="w-4 h-4" /> Agregar un destino nuevo (opcional)
+                <ChevronUp className="w-4 h-4" /> Destinos (Shopify, otra hoja, CSV, API)
               </button>
               <p className="text-xs text-gray-500 mb-4">
-                Esto es solo para destinos NUEVOS. Los que ya tenías configurados para otras Fuentes se
-                actualizan solos en cada corrida — no hace falta reconfigurar nada acá.
+                Se conectan a la Maestra en general (no a una Fuente puntual): se actualizan solos en
+                cada sync, sin importar qué Fuente la disparó. Para editar/pausar/borrar uno ya
+                guardado, andá a "Mis Flujos" — acá es solo para crear uno nuevo.
               </p>
 
               {destinations.length > 0 && (
@@ -1394,8 +1401,7 @@ export default function UpdateMaster() {
               )}
             </>
           )}
-        </div>
-      )}
+      </div>
 
       {fileSwapProc && (() => {
         const conn = connById(fileSwapProc.source_connection_id);
