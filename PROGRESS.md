@@ -9,7 +9,7 @@
 > Instrucción típica de cierre: "actualizá el estado — PROGRESS.md corto acá,
 > detalle de la feature en MEMORIA_PROYECTO.md §3".
 >
-> Última actualización: 2026-09-03
+> Última actualización: 2026-09-04
 
 ## Estado actual
 - Motor y flujos principales (Fuente → Maestra → Destinos) estables. Mapa
@@ -40,6 +40,24 @@
   y por lectura de código, no por click-through real con una Maestra viva.
 
 ## Decisiones tomadas
+- **"Actualizar Maestra" ya no obliga a guardar un flujo (sep 2026):** el
+  usuario aclaró que en su uso real cada actualización es puntual (archivo de
+  origen distinto cada vez, no se repite) — obligar a "guardar" una Fuente
+  para poder correrla generaba flujos de un solo uso juntándose en "Mis
+  Flujos" sin necesidad. Ahora el mapeo inline de `UpdateMaster.jsx` tiene un
+  checkbox "Guardar este flujo para repetirlo más adelante", **destildado por
+  defecto**: al correr y cerrar la vista previa, si no se tildó, se borra el
+  `Process` de soporte (`DELETE /api/processes/{id}`, ya existía y desvincula
+  el `ExecutionLog` en vez de borrarlo — el registro de que corrió queda) y
+  se limpia el formulario para la próxima carga. Tildado, el comportamiento
+  es el de antes (queda listado en Sección 1 / "Mis Flujos"). Sin cambios de
+  backend: se reusa el endpoint de borrado existente. De paso se agregó, en
+  el cartel de la Maestra, un link "Abrir en Google Sheets" (directo a
+  `spreadsheet_id`, ya lo devolvía `/api/connections/`) al lado del "Ver
+  Maestra →" interno. El módulo de destino Shopify (Sección 5) ya tenía este
+  mismo patrón de "correr sin guardar, guardar es aparte" — no necesitó
+  cambios, solo se confirmó que ya cubre el pedido de "integrar Shopify como
+  otro destino" sin forzar persistencia.
 - **Consolidar "Actualizar Maestra" en una sola pantalla (sep 2026):** el
   usuario pidió simplificar el flujo de actualizar la Master — hoy requería
   pasar por "+ Nueva Fuente" (wizard de 3 pasos: origen → mapeo → destinos,

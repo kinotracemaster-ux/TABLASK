@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   UploadCloud, Link2, Server, Store, Database, ChevronRight, ChevronDown, ChevronUp,
   ArrowRight, Download, FileDown, Eye, Send, XCircle, AlertTriangle, CheckCircle2,
-  Globe, Zap, X, Trash2, RefreshCw, Save,
+  Globe, Zap, X, Trash2, RefreshCw, ExternalLink,
 } from 'lucide-react';
 import { extractError, formatError } from '../utils/errors';
 import RunFlowModal from './RunFlowModal';
@@ -147,6 +147,12 @@ export default function UpdateMaster() {
   // Sección 1 — Fuentes ya conectadas: reemplazar archivo + correr ahora
   // ══════════════════════════════════════════════════════════════════
   const [runProcs, setRunProcs] = useState(null);
+  // Id del Process creado solo para esta corrida puntual (no tildó "guardar
+  // este flujo"): al cerrar el modal de vista previa se borra, para que no
+  // quede juntando polvo en "Mis Flujos" — la corrida ya quedó en el
+  // historial (ExecutionLog, desvinculado). null = la corrida es de un
+  // flujo ya guardado (Sección 1 / Mis Flujos): nunca se borra.
+  const [ephemeralRunProcId, setEphemeralRunProcId] = useState(null);
   const [fileSwapProc, setFileSwapProc] = useState(null);
   const [fileSwapBusy, setFileSwapBusy] = useState(false);
   const [fileSwapError, setFileSwapError] = useState(null);
@@ -155,6 +161,7 @@ export default function UpdateMaster() {
   // reemplazarlo por uno más nuevo (recomendación, no obligatorio) — mismo
   // patrón que "Mis Flujos".
   const maybeRunProc = (proc) => {
+    setEphemeralRunProcId(null); // siempre es un flujo ya guardado
     const conn = connById(proc.source_connection_id);
     if (conn && conn.connection_type === 'local_file') {
       setFileSwapError(null);
@@ -294,7 +301,11 @@ export default function UpdateMaster() {
   const [processName, setProcessName] = useState('');
   const [loadingMap, setLoadingMap] = useState(false);
   const [savingProcess, setSavingProcess] = useState(false);
-  const [createdProc, setCreatedProc] = useState(null);
+  // Por defecto NO se guarda como flujo reutilizable: cada actualización acá
+  // es puntual (archivo/origen distinto la próxima vez), así que alcanza con
+  // correr y que quede el registro de que corrió. Tildar esto es la
+  // excepción, para cuando sí se va a repetir la misma fuente.
+  const [saveAsFlow, setSaveAsFlow] = useState(false);
 
   const sourceCols = sourceSheet && sourceSheets[sourceSheet] ? sourceSheets[sourceSheet] : [];
   // Columnas de destino: la pestaña de la Maestra elegida (si hay varias), si no las de /api/master-columns.
@@ -329,7 +340,6 @@ export default function UpdateMaster() {
 
   const loadSourceMeta = async (conn) => {
     setSourceConn(conn);
-    setCreatedProc(null);
     setProcessName(`Traer ${conn.name} → Maestra`);
     setLoadingMap(true);
     try {
@@ -383,8 +393,11 @@ export default function UpdateMaster() {
       });
       if (!res.ok) throw new Error(await extractError(res));
       const created = await res.json();
-      setCreatedProc({ id: created.id, name: created.name });
-      setProcesses(prev => [...prev, created]);
+      // Solo entra a la lista de "Mis Flujos" / Sección 1 si el usuario
+      // tildó guardarlo; si no, es una corrida puntual que se borra sola
+      // al cerrar la vista previa (ver ephemeralRunProcId).
+      if (saveAsFlow) setProcesses(prev => [...prev, created]);
+      else setEphemeralRunProcId(created.id);
       setShowDestinos(false);
       if (projectId) await loadDestinations(projectId);
       // Vista previa inmediata: sin paso extra para llegar a confirmar el envío.
@@ -393,6 +406,27 @@ export default function UpdateMaster() {
       alert(err.message || 'No se pudo guardar.');
     }
     setSavingProcess(false);
+  };
+
+  // Se llama al cerrar la vista previa de una corrida puntual (no guardada):
+  // borra el Process de soporte (el motor de staging necesita uno) — el
+  // historial de la corrida ya quedó en ExecutionLog, desvinculado — y
+  // limpia el formulario para la próxima actualización (siempre distinta).
+  const handleRunModalClose = async () => {
+    setRunProcs(null);
+    if (!ephemeralRunProcId) return;
+    const id = ephemeralRunProcId;
+    setEphemeralRunProcId(null);
+    try { await fetch(`${API}/api/processes/${id}`, { method: 'DELETE' }); } catch (err) { console.error(err); }
+    setSourceConn(null);
+    setFile(null); setFileError('');
+    setSourceName(''); setSheetUrl(''); setApiUrl(''); setApiHeaders(''); setExistingConnId('');
+    setSourceSheets({}); setSourceSheet('');
+    setSkuColSource(''); setMasterSkuCol('');
+    setFieldMappings([{ src: '', dst: '' }]);
+    setProcessName(''); setSaveAsFlow(false);
+    setShowNewSource(false);
+    await loadAll();
   };
 
   // ══════════════════════════════════════════════════════════════════
@@ -780,7 +814,16 @@ export default function UpdateMaster() {
             Tu Maestra:&nbsp;<span className="font-semibold text-gray-800">"{masterSheetName}"</span>
             {masterRows != null && <span className="text-gray-400"> · {masterRows} filas</span>}
           </span>
-          <Link to="/" className="ml-auto text-indigo-600 font-medium hover:underline flex-shrink-0">Ver Maestra →</Link>
+          <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+            <Link to="/" className="text-indigo-600 font-medium hover:underline">Ver Maestra →</Link>
+            {connById(masterConnId)?.spreadsheet_id && (
+              <a href={`https://docs.google.com/spreadsheets/d/${connById(masterConnId).spreadsheet_id}/edit`}
+                target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-indigo-600 font-medium hover:underline">
+                Abrir en Google Sheets <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
         </div>
       ) : (
         <div className="flex items-center gap-2 text-sm bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-amber-800">
@@ -1040,12 +1083,24 @@ export default function UpdateMaster() {
               <button type="button" onClick={() => setFieldMappings([...fieldMappings, { src: '', dst: '' }])}
                 className="text-indigo-600 text-sm font-medium hover:underline mt-1">+ Añadir campo</button>
 
+              <div className="mt-4 border-t border-indigo-200 pt-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={saveAsFlow} onChange={e => setSaveAsFlow(e.target.checked)}
+                    className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4" />
+                  <span className="text-sm font-medium text-indigo-800">Guardar este flujo para repetirlo más adelante</span>
+                </label>
+                <p className="text-xs text-indigo-600 mt-1 ml-6">
+                  Por defecto no hace falta: esto corre una vez y queda el registro de que corrió,
+                  nada más para mantener. Tildá esto solo si vas a repetir esta misma fuente con
+                  este mismo mapeo (queda en "Mis Flujos").
+                </p>
+              </div>
+
               <div className="mt-4">
                 <button type="button" onClick={saveProcess} disabled={savingProcess}
                   className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 text-sm">
-                  <Save className="w-4 h-4" /> {savingProcess ? 'Guardando...' : (createdProc ? 'Guardado — correr de nuevo' : 'Guardar y ver vista previa')}
+                  <Zap className="w-4 h-4" /> {savingProcess ? 'Procesando...' : 'Ver vista previa y actualizar Maestra'}
                 </button>
-                {createdProc && <span className="ml-2 text-sm text-green-700">✓ Fuente lista.</span>}
               </div>
             </div>
           )}
@@ -1431,7 +1486,7 @@ export default function UpdateMaster() {
       {runProcs && (
         <RunFlowModal
           procs={runProcs}
-          onClose={() => setRunProcs(null)}
+          onClose={handleRunModalClose}
           onDone={() => { refreshMaster(); loadAll(); }}
         />
       )}
