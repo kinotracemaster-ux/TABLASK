@@ -141,6 +141,14 @@ class ShopifyConnector(BaseConnector):
                 last_err = f"HTTP {resp.status_code}: {resp.text[:200]}"
                 time.sleep(2 ** attempt)
                 continue
+            if resp.status_code == 401:
+                # Token inválido/vencido o client_id+secret incorrectos — no es un
+                # tema de scopes (eso llega como ACCESS_DENIED en el body, no 401).
+                # Reintentar no ayuda: hay que corregir la credencial en la conexión.
+                raise ValueError(
+                    "Credenciales de Shopify inválidas o vencidas (401). Revisá el "
+                    "Access Token o el Client ID/Secret de la conexión."
+                )
             if resp.status_code != 200:
                 raise ValueError(f"Error GraphQL Shopify ({resp.status_code}): {resp.text[:300]}")
             body = resp.json()
