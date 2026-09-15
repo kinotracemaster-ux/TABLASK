@@ -69,6 +69,21 @@ def sku_reference_base(sku: str) -> str:
     return _VARIANT_SUFFIX_RE.sub("", norm)
 
 
+def sku_variant_suffix(sku: str):
+    """El número de variante al final del SKU ('968B-3' -> '3'), sin ceros a
+    la izquierda para comparar por VALOR ('968B-03' y '968B-3' son la misma
+    variante). None si el SKU no termina en "-<número>" (no tiene sufijo de
+    variante). Se usa junto con `sku_reference_base` para distinguir un alta
+    LEGÍTIMA de la misma referencia (mismo base, número de variante DISTINTO
+    al existente más parecido) de un típico typo de formato (mismo base,
+    MISMO número de variante escrito distinto — ver Guardián en services.py)."""
+    norm = normalize_sku_for_match(sku)
+    m = _VARIANT_SUFFIX_RE.search(norm)
+    if not m:
+        return None
+    return m.group(0)[1:].lstrip("0") or "0"
+
+
 _PRIMARY_VARIANT_RE = re.compile(r"-[a-z]*1$")
 
 
