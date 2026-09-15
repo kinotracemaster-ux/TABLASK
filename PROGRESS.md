@@ -9,7 +9,7 @@
 > Instrucción típica de cierre: "actualizá el estado — PROGRESS.md corto acá,
 > detalle de la feature en MEMORIA_PROYECTO.md §3".
 >
-> Última actualización: 2026-09-04
+> Última actualización: 2026-09-15
 
 ## Estado actual
 - Motor y flujos principales (Fuente → Maestra → Destinos) estables. Mapa
@@ -40,6 +40,20 @@
   y por lectura de código, no por click-through real con una Maestra viva.
 
 ## Decisiones tomadas
+- **Fix aviso engañoso de ubicación Shopify (sep 2026):** en "Enviar a Shopify"
+  (`UpdateMaster.jsx`), cuando fallaba `GET /api/shopify/locations` se mostraba
+  SIEMPRE "...Si la tienda tiene una sola ubicación, igual se puede escribir
+  el stock" — reportado por el usuario con un caso real donde esa promesa era
+  falsa: la tienda tenía credenciales inválidas/vencidas (401 "Invalid API
+  key or access token"), así que NADA se podía escribir, tenga una o varias
+  bodegas. Esa reassurance solo es cierta cuando el error es específicamente
+  el scope `read_locations` faltante (ahí `get_primary_location_id()` sí
+  funciona igual, porque solo pide el `id`, no el `name`). Ahora el frontend
+  distingue por el texto del error: si es el caso de scope, muestra el aviso
+  de siempre; cualquier otro error (credenciales, red, etc.) se muestra en
+  rojo como error real, sin la promesa. De paso, `shopify.py` traduce el 401
+  crudo de Shopify a un mensaje claro en español (antes se mostraba el JSON
+  tal cual llega de la API).
 - **"Actualizar Maestra" ya no obliga a guardar un flujo (sep 2026):** el
   usuario aclaró que en su uso real cada actualización es puntual (archivo de
   origen distinto cada vez, no se repite) — obligar a "guardar" una Fuente
