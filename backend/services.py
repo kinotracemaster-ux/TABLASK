@@ -59,7 +59,7 @@ def invalidate_read_cache(spreadsheet_id=None, sheet_name=None):
 
 # La normalización de SKU vive en sku_utils (única fuente de verdad, compartida
 # con el conector de Shopify). Se re-exporta acá para no romper imports previos.
-from .sku_utils import normalize_sku_for_match, sku_reference_base
+from .sku_utils import normalize_sku_for_match, sku_reference_base, sku_variant_suffix
 
 
 # Configuración de credenciales (Service Account)
@@ -420,6 +420,7 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
     rows_added = 0
     rows_unchanged = 0
     rows_skipped = 0  # filas de origen descartadas por SKU vacío o inválido
+    rows_new_ignored = 0  # SKU nuevo pero add_new_rows=False: no se crea
 
     # Formato granular (El Guardián)
     granular_changes = []
@@ -519,6 +520,12 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
                 granular_unchanged_skus.append(master_sku)
 
         else:
+            if not getattr(req, "add_new_rows", True):
+                # La Fuente tiene destildado "Agregar filas nuevas que no
+                # existan en la Maestra": un SKU que no cruza se ignora (no se
+                # crea), en vez de darlo de alta igual.
+                rows_new_ignored += 1
+                continue
             # NO está en la Maestra: como "todo lo de BASE debe estar en Master",
             # se CREA con los datos de núcleo (el enriquecimiento queda vacío para
             # llenarse luego). Se indexa para no duplicar si BASE lo trae 2 veces.
@@ -649,7 +656,24 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
         src_norm = normalize_sku_for_match(nr["sku"])
         if not src_norm:
             continue
-        if difflib.get_close_matches(src_norm, original_norms, n=1, cutoff=NEAR_DUP_RATIO):
+        close = difflib.get_close_matches(src_norm, original_norms, n=1, cutoff=NEAR_DUP_RATIO)
+        if not close:
+            continue
+        matched_sku = orig_norm_to_sku.get(close[0], close[0])
+        # Alta legítima de la MISMA referencia (ej. "300834723-3" nuevo cuando
+        # ya está "300834723-2"): comparte base con el más parecido pero el
+        # NÚMERO de variante es distinto — es un color/talle nuevo, no un typo
+        # del mismo SKU (eso da el mismo número de variante escrito distinto,
+        # ej. "726B-04" vs "726B-4"). Sin esta excepción, cualquier alta nueva
+        # de una referencia con sufijo "-<número>" ya existente (el formato de
+        # SKU más común del catálogo) se contaba como "formato roto" solo por
+        # parecerse a su hermano — bloqueando altas 100% legítimas.
+        same_family_new_variant = (
+            sku_reference_base(nr["sku"]) == sku_reference_base(matched_sku)
+            and sku_variant_suffix(nr["sku"]) is not None
+            and sku_variant_suffix(nr["sku"]) != sku_variant_suffix(matched_sku)
+        )
+        if not same_family_new_variant:
             near_dup_count += 1
     new_rows_suspect_ratio = round(near_dup_count / len(suspect_sample), 3) if suspect_sample else 0.0
     # "Formato roto" solo si HAY con qué comparar (Maestra no vacía) y la mayoría
@@ -665,6 +689,7 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
         "rows_added": rows_added,          # faltaban en Master y se crearon
         "rows_unchanged": rows_unchanged,
         "rows_skipped": rows_skipped,
+        "rows_new_ignored": rows_new_ignored,  # SKU nuevo pero "Agregar filas nuevas" está apagado
         "rows_orphan": rows_orphan,        # en Master pero no en BASE (revisar)
         "rows_zeroed": rows_zeroed,        # agotados (stock -> 0) por "agotar faltantes"
         "detail_zeroed": [c for c in granular_changes if c.get("orphan_zero")],  # sku/campo/

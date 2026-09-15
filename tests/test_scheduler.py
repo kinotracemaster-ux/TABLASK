@@ -84,6 +84,66 @@ def test_guardian_deja_pasar_altas_legitimas(client, monkeypatch):
     assert all(nr["fields"].get("estado") == "NUEVO" for nr in written["new_rows"])
 
 
+def test_guardian_deja_pasar_variante_nueva_de_referencia_existente(client, monkeypatch):
+    _clear_processes(client)  # aislar de otros tests
+    # Maestra con "300834723-1"; BASE trae "300834723-2": un color/talle NUEVO
+    # de la MISMA referencia (formato real y común del catálogo: código largo +
+    # "-<número>" de variante). Es textualmente muy parecido a su hermano, pero
+    # es un alta legítima, no un typo del mismo SKU -> el Guardián NO debe
+    # bloquearlo (antes del fix, cualquier variante nueva de una referencia ya
+    # existente con sufijo numérico caía en "formato roto" solo por el parecido).
+    master = _upload_csv(client, "master_sib", "sku,name,price\n300834723-1,Reloj A,100\n")
+    base = _upload_csv(client, "base_sib", "Codigo,PRECIO\n300834723-2,45000\n")
+
+    written = {}
+    import backend.services as services
+    import backend.propagation as propagation
+    monkeypatch.setattr(services, "write_sheet_data_surgical",
+                        lambda **kw: written.update(kw) or {"total_updates": 0})
+    monkeypatch.setattr(propagation, "propagate_changes", lambda *a, **k: None)
+
+    client.post("/api/processes/", json={
+        "name": "Guardian-Hermano", "source_connection_id": base, "source_sheet_name": "CSV Data",
+        "target_connection_id": master, "target_sheet_name": "CSV Data",
+        "sku_column_source": "Codigo", "sku_column_master": "sku",
+        "field_mappings": {"PRECIO": "price"}, "add_new_rows": True, "is_active": True,
+    })
+
+    summary = client.post("/api/schedule/run-now").json()
+    proc_result = next(r for r in summary["results"] if r["process"] == "Guardian-Hermano")
+    assert proc_result.get("skipped") is not True
+    assert proc_result.get("rows_added") == 1
+    assert len(written.get("new_rows", [])) == 1
+
+
+def test_add_new_rows_false_no_crea_skus_nuevos(client, monkeypatch):
+    _clear_processes(client)  # aislar de otros tests
+    # Fuente con "Agregar filas nuevas" DESACTIVADO: un SKU que no cruza debe
+    # ignorarse (no crearse), no darse de alta igual.
+    master = _upload_csv(client, "master_nonew", "sku,name,price\nAAA,Existente,100\n")
+    base = _upload_csv(client, "base_nonew", "Codigo,PRECIO\n1203,45000\n45,38000\n")
+
+    written = {}
+    import backend.services as services
+    import backend.propagation as propagation
+    monkeypatch.setattr(services, "write_sheet_data_surgical",
+                        lambda **kw: written.update(kw) or {"total_updates": 0})
+    monkeypatch.setattr(propagation, "propagate_changes", lambda *a, **k: None)
+
+    client.post("/api/processes/", json={
+        "name": "Sin-Altas", "source_connection_id": base, "source_sheet_name": "CSV Data",
+        "target_connection_id": master, "target_sheet_name": "CSV Data",
+        "sku_column_source": "Codigo", "sku_column_master": "sku",
+        "field_mappings": {"PRECIO": "price"}, "add_new_rows": False, "is_active": True,
+    })
+
+    summary = client.post("/api/schedule/run-now").json()
+    proc_result = next(r for r in summary["results"] if r["process"] == "Sin-Altas")
+    assert proc_result.get("skipped") is not True
+    assert proc_result.get("rows_added") == 0
+    assert not written.get("new_rows")
+
+
 def test_config_por_defecto_y_activacion(client):
     cfg = client.get("/api/schedule").json()
     assert cfg["enabled"] is False and cfg["next_run_at"] is None

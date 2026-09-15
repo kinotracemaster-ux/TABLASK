@@ -66,8 +66,12 @@ pytest -q
   por el túnel real) → Maestra → cada canal sale por API (`ApiSubscription`, diff
   quirúrgico) o archivo (CSV con link fijo `?token=`). El túnel (Lavadero → Guardián →
   escritura quirúrgica) es el mismo venga de donde venga.
-- **El Guardián:** si un sync cruza <10% de SKUs, se bloquea (manual) o se salta
-  (automático, log `AUTO_SYNC_SKIP`). No contaminar la Maestra.
+- **El Guardián** decide por PARECIDO, no por % de coherencia a secas: un SKU nuevo
+  casi-idéntico a uno ya existente (`NEAR_DUP_RATIO`, `services.py`) es "formato
+  roto" y bloquea (manual) o salta (automático, log `AUTO_SYNC_SKIP`); un SKU nuevo
+  que no se parece a nada es alta legítima y pasa, aunque la coherencia sea baja.
+  Altas de la MISMA referencia (ej. "…-3" cuando ya existe "…-2") no cuentan como
+  parecido sospechoso — mismo `sku_reference_base` con distinto número de variante.
 - **El Lavadero** limpia precio/stock/nombre antes de escribir; lo que no se puede
   limpiar se retiene y se reporta (`rejected`/`review`), no se escribe sucio.
 - **Cuota de Sheets (429):** respetar el retry con backoff y la caché de lecturas;
