@@ -116,6 +116,13 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   - **Fix (mismo día):** la sección 5 (destinos) había quedado mal acoplada — solo se mostraba tras crear una Fuente NUEVA en esa misma sesión (`{createdProc && (...)}`), calcada sin pensarlo del comportamiento de la wizard vieja. El usuario notó la regresión recordando que la vieja `FileToShopify.jsx` mostraba la tarjeta de Shopify SIEMPRE, sin depender de haber subido un archivo nuevo. Es un acoplamiento real e innecesario: un `ShopifySubscription`/`FieldSubscription`/`ExportFormat`/`ApiSubscription` se conecta a la Maestra en general (por `connection_id`, sin `process_id`), nunca a una Fuente puntual — así que no hay motivo para esconder la sección de destinos detrás de "recién creaste un origen". Se sacó esa condición (la sección ahora es siempre visible, colapsada por default) y `loadAll()` carga `destinations` de una con `loadDestinations(projectId)`, no solo tras guardar un proceso. Verificado con Playwright: la sección aparece y funciona sin haber creado ninguna Fuente en la sesión.
   - **Fix (mismo día, 2):** en la tarjeta Shopify de la sección de destinos, "Previsualizar" solo mostraba un resumen de una línea ("Cruzan: X de Y · sin cruzar: Z") — el usuario notó que no mostraba el detalle SKU/campo/antes→después como el resto de la app. El backend (`/api/shopify/push` dry_run) ya devuelve `changes`/`conflicts`/`ignored_secondary`/`not_found` completos (mismo shape que usa `ShopifyPushModal.jsx`); el problema era que esta tarjeta (heredada del paso "Destinos" de `SourceWizard.jsx`) nunca los renderizaba. En vez de duplicar de nuevo las ~150 líneas de tablas expandibles que ya existían en `ShopifyPushModal.jsx`, se extrajeron a un componente compartido nuevo, `frontend/src/components/ShopifyPushDetails.jsx`: `ShopifyPushPreviewDetails({ preview })` (stat tiles + avisos de conflicto/variantes secundarias + botones "Ver los N..." + las 4 tablas expandibles) y `ShopifyPushResultSummary({ result })` (contadores por campo + avisos + errores tras el envío real). `ShopifyPushModal.jsx` pasó a usarlos (bajó de ~330 a ~100 líneas, mismo comportamiento) y la tarjeta Shopify de `UpdateMaster.jsx` los usa igual — así ambos lugares muestran el mismo detalle completo y quedan sincronizados a futuro (un solo lugar para arreglar/extender esta UI). Verificado con `npm run build` + `pytest -q` (sin cambios de backend en este fix); no se pudo re-verificar visualmente el detalle expandido en el navegador por no haber una tienda Shopify real conectada en el sandbox — la extracción es texto movido tal cual (no reescrito), así que el riesgo de regresión es bajo, pero conviene que el usuario lo confirme con una tienda real.
 
+* **"Actualizar Maestra" deja de obligar a guardar un flujo (sep 2026):** el usuario aclaró que en su uso real cada actualización es puntual (archivo de origen distinto cada vez, no se repite) — obligar a "guardar" una Fuente para poder correrla juntaba flujos de un solo uso en "Mis Flujos" sin necesidad. `UpdateMaster.jsx` suma un checkbox "Guardar este flujo para repetirlo más adelante", **destildado por defecto**: al cerrar la vista previa sin tildarlo, se borra el `Process` de soporte (`DELETE /api/processes/{id}`, desvincula el `ExecutionLog` en vez de borrarlo — el registro de que corrió queda) y se limpia el formulario. Tildado, el comportamiento es el de antes (queda en "Mis Flujos"). Sin cambios de backend. De paso, el cartel de la Maestra suma un link "Abrir en Google Sheets" (directo a `spreadsheet_id`) al lado de "Ver Maestra →".
+* **Fix: aviso de ubicación Shopify prometía stock que no se podía escribir (sep 2026):** en "Enviar a Shopify" (`UpdateMaster.jsx`), cuando fallaba `GET /api/shopify/locations` se mostraba SIEMPRE "...si la tienda tiene una sola ubicación, igual se puede escribir el stock" — caso real reportado por el usuario donde la promesa era falsa: credenciales Shopify inválidas/vencidas (401), así que nada se podía escribir. Esa reassurance solo es cierta cuando el error es específicamente el scope `read_locations` faltante (ahí `get_primary_location_id()` funciona igual, porque solo pide `id`, no `name`). El frontend ahora distingue por el texto del error: caso de scope → aviso de siempre; cualquier otro error → rojo, sin promesa. `shopify.py::_graphql` traduce el 401 crudo de Shopify a mensaje claro en español. De paso se encontró y corrigió un bug relacionado: `_TOKEN_CACHE` (client_credentials) usaba `(domain, client_id)` como clave, sin el secret — si se rotaba el secret en Shopify, el proceso podía seguir devolviendo hasta 24h un token pedido con el secret viejo (que Shopify invalida al rotar). Ahora el secret entra en la clave del caché.
+* **Fix: Guardián bloqueaba altas legítimas de una referencia ya existente + `add_new_rows` no hacía nada (sep 2026):** dos fallos lógicos encontrados en auditoría del motor, a raíz de un reporte de "productos nuevos que no se mapean a la Maestra".
+  1. El near-dup del Guardián (`NEAR_DUP_RATIO=0.85`) comparaba el SKU nuevo contra el más parecido de la Maestra SIN distinguir "mismo producto mal escrito" de "variante nueva legítima de una referencia ya existente" — para códigos largos con sufijo `-<número>` (ej. `300834723-3` nuevo cuando ya existe `300834723-2`, el formato más común del catálogo), la similitud textual con su hermano supera el umbral aunque sea un alta 100% legítima, bloqueando TODO el lote (no solo esa fila) en automático/push. Fix en `_compute_master_sync`: si el SKU nuevo comparte `sku_reference_base` con el más parecido pero el número de variante (`sku_variant_suffix`, nuevo helper en `sku_utils.py`) es DISTINTO, no cuenta como sospechoso — sigue contando si el número de variante es el MISMO (ese caso es el typo real, ej. `726B-04` vs `726B-4`, que el Guardián debe seguir bloqueando). Tests: `test_guardian_deja_pasar_variante_nueva_de_referencia_existente`.
+  2. `Process.add_new_rows` (checkbox "Agregar filas nuevas que no existan en la Maestra" en `Flujos.jsx`) se guardaba en la DB y viajaba hasta `_compute_master_sync` pero la función nunca lo leía — un SKU nuevo SIEMPRE se creaba, tuviera el flag el valor que tuviera. Fix: la rama "no está en la Maestra" ahora respeta `req.add_new_rows` (default `True`, sin cambio de comportamiento para quien nunca tocó el checkbox); si está en `False`, el SKU se ignora (`rows_new_ignored`, nuevo contador expuesto en el resultado). Tests: `test_add_new_rows_false_no_crea_skus_nuevos`.
+  Ambos fijados en `tests/test_scheduler.py` (mismo patrón que los tests del Guardián existentes: se verificó que fallan contra el código pre-fix antes de darlos por buenos).
+
 ## 4. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):
 - Suscripciones a hijas con la regla de negocio "Sobreescribir SOLO si la celda hija está vacía". Actualmente, la distribución siempre sobreescribe con el valor de la Maestra.
@@ -130,34 +137,30 @@ Se discutieron y se marcaron explícitamente como "fuera de scope" (no implement
 
 ---
 
-## 6. Flujo de Trabajo de Git (PREMISA NO NEGOCIABLE)
+## 6. Flujo de Trabajo de Git (vigente desde que se usa Claude Code on the web)
 
-> ⛔ **PREMISA NO NEGOCIABLE:** En este proyecto **SIEMPRE y SOLO se maneja UNA rama de trabajo: `pruebas`**.
-> **NO se crean otras ramas. NUNCA. Por ninguna razón.** Ni ramas de "feature", ni ramas
-> automáticas tipo `claude/*` generadas por el entorno web. Si una sesión arranca en otra
-> rama, lo PRIMERO que se hace es moverse a `pruebas` y trabajar ahí.
+> Nota histórica: este proyecto usó una única rama `pruebas` (nunca `main` directo,
+> nunca ramas nuevas). Quedó obsoleto solo: el entorno web asigna una rama `claude/*`
+> propia por sesión y no se puede evitar. Lo que se mantiene intacto del espíritu
+> original: `main` nunca se toca sin permiso explícito del usuario.
 
-Este proyecto se maneja con **solo dos ramas en total** (una de trabajo + una estable). Cualquier sesión de IA o desarrollo manual DEBE respetar esto:
-
-* **`pruebas`** → **ÚNICA** rama de trabajo. TODO el desarrollo, los commits y los `push` van aquí. **Es la única rama que se edita.**
-* **`main`** → Rama estable y desplegable. Railway publica desde aquí. **NUNCA se edita ni se commitea directo en `main`.** Solo recibe fusiones (merge) ya probadas, y solo cuando el usuario lo pida.
-
-### Obligación al iniciar CUALQUIER sesión (IA o manual)
-1. `git fetch origin`
-2. `git checkout pruebas` (si no existe local: `git checkout -b pruebas origin/pruebas`).
-3. `git pull origin pruebas` → empezar siempre desde lo último.
-4. Si el entorno te puso en una rama `claude/*` u otra cualquiera: **cámbiate a `pruebas` antes de tocar nada.** No commitees en la rama autogenerada.
-
-### Ciclo de trabajo
-1. Se edita en la carpeta local (o en la sesión web), **siempre sobre `pruebas`**.
-2. `git push origin pruebas` → sube los cambios a `pruebas` (jamás a `main`, jamás a otra rama).
-3. El usuario **prueba** la app (local y/o deploy de pruebas).
-4. **Solo cuando el USUARIO lo pida explícitamente**, se fusiona `pruebas` → `main` (vía Pull Request o merge). La IA NO debe fusionar a `main` por iniciativa propia.
-
-### Reglas de oro
-* **PROHIBIDO crear ramas nuevas** (feature, fix, experimentales, `claude/*`, etc.). Todo vive en `pruebas`.
-* Antes de empezar a trabajar: `git checkout pruebas && git pull origin pruebas`.
-* No guardar tokens/credenciales dentro del repo ni en la URL del remoto (usar `gh auth login` o SSH).
+* Cada sesión trabaja en la rama `claude/*` que el entorno le asigna (o la crea si
+  no existe). No hay que migrarla a `pruebas` ni renombrarla.
+* `main` → rama estable, Railway publica desde acá. Se llega por **Pull Request**,
+  nunca por push directo ni commit directo.
+* Fusionar a `main` **solo cuando el usuario lo pide explícitamente** (por PR, revisando
+  que no haya conflictos ni checks rotos) — nunca por iniciativa propia de la IA.
+* Si la rama de la sesión ya se fusionó y hay trabajo nuevo: reiniciarla desde el
+  `main` actual (mismo nombre) en vez de apilar sobre historia ya fusionada.
+* No guardar tokens/credenciales dentro del repo ni en la URL del remoto.
 
 ---
-*Última actualización: 1 de Septiembre de 2026 (sección 3 ampliada: guardián de columna duplicada en destino Shopify, dedup de un destino Shopify por tienda, "reemplazar archivo" de una Fuente, separar agotados de actualizaciones en el preview, fix de SKU corrompidos por fecha de Excel. De paso, PROGRESS.md se recortó a un estado corto — el detalle de cada feature vive acá porque PROGRESS.md se carga completo en cada turno vía CLAUDE.md y esto era gasto de contexto innecesario).*
+*Última actualización: 15 de Septiembre de 2026 (sección 3 ampliada: fix de aviso de
+ubicación Shopify + cache de token por secret, fix de Guardián bloqueando altas
+legítimas de una referencia existente + `add_new_rows` que no hacía nada; sección 6
+(Git) corregida para reflejar el flujo real con Claude Code on the web (rama `claude/*`
+por sesión + PR a `main`) en vez de la regla vieja de una sola rama `pruebas`. Nota:
+varias entradas de §3 referencian "MEJORAS_TABLASK.md" (§5, §7, §9, §11…) — ese
+archivo no existe en el repo (no está en el historial de git); o se restaura o esas
+referencias quedan sin destino. No se tocó en esta pasada para no reescribir
+historia ya asentada.)*
