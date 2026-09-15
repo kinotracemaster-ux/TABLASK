@@ -49,7 +49,8 @@ DEFAULT_API_VERSION = "2026-04"
 
 # Cache de tokens en memoria del proceso. El client_credentials grant devuelve
 # un token que dura 24h, así que lo reutilizamos hasta poco antes de que expire.
-# Clave: (domain, client_id) -> {"token": str, "expires_at": float epoch}
+# Clave: (domain, client_id, client_secret) -> {"token": str, "expires_at": float epoch}
+# El secret va en la clave para que rotarlo invalide el caché al toque.
 _TOKEN_CACHE: Dict[tuple, Dict[str, Any]] = {}
 
 
@@ -102,7 +103,11 @@ class ShopifyConnector(BaseConnector):
                 "o un par Client ID + Client Secret."
             )
 
-        cache_key = (self.domain, self.client_id)
+        # El secret entra en la clave a propósito: si se rota en Shopify y se
+        # actualiza la conexión, un secret distinto es un cache_key distinto,
+        # así que se pide un token nuevo en vez de arriesgarse a reusar uno
+        # viejo (que Shopify puede haber invalidado al rotar) hasta por 24h.
+        cache_key = (self.domain, self.client_id, self.client_secret)
         cached = _TOKEN_CACHE.get(cache_key)
         # Margen de 5 min antes de la expiración real.
         if cached and cached["expires_at"] - 300 > time.time():
