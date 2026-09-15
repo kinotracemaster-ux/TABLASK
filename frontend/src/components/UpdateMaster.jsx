@@ -1365,7 +1365,11 @@ export default function UpdateMaster() {
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Ubicación / Bodega (para el stock)</label>
                           {shopLocError ? (
-                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">{shopLocError} Si la tienda tiene una sola ubicación, igual se puede escribir el stock.</p>
+                            shopLocError.includes('read_locations') ? (
+                              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">{shopLocError} Si la tienda tiene una sola ubicación, igual se puede escribir el stock.</p>
+                            ) : (
+                              <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{shopLocError} Revisá la conexión (credenciales) antes de enviar stock.</p>
+                            )
                           ) : (
                             <select value={shopLocId} onChange={e => setShopLocId(e.target.value)}
                               className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white max-w-sm">
