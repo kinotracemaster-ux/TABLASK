@@ -1,2 +1,4 @@
 -r requirements.txt
 pytest==8.1.1
+# TestClient de FastAPI/Starlette lo necesita (sin él fallan ~38 tests). <0.28: esa versión quitó el `app=` que usa esta Starlette.
+httpx==0.27.0

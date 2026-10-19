@@ -10,27 +10,92 @@ crear son casi-idénticas a SKUs que ya están en la Maestra (probable formato d
 SKU roto), SALTA ese proceso y registra una alerta, en vez de contaminar la
 Maestra sin un humano que confirme. Los productos genuinamente nuevos (que no se
 parecen a nada existente) SÍ se crean, aunque la coherencia sea baja.
+
+Modos (ScheduleConfig.mode): "auto" escribe solo (lo de arriba); "review" arma
+la Revisión diaria (backend/review.py): calcula qué cambiaría en la Maestra y
+en las tiendas Shopify SIN escribir, y espera aprobación humana. Horario: cada
+interval_hours, o una vez al día a la hora local daily_hour (TABLASK_TZ).
 """
 import json
+import os
+import secrets
 import threading
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .database import SessionLocal
 from . import models
 
 TICK_SECONDS = 300          # cada 5 min revisa si toca correr
 
+# Zona horaria para "una vez al día a las X" (Colombia no tiene horario de
+# verano, así que el fallback a UTC-5 fijo es exacto si falta tzdata).
+TZ_NAME = os.getenv("TABLASK_TZ", "America/Bogota")
+
+
+def _local_tz():
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(TZ_NAME)
+    except Exception:
+        return timezone(timedelta(hours=-5))
+
+
+def next_daily_run(now_utc: datetime, hour: int, tz=None) -> datetime:
+    """Próxima vez que el reloj LOCAL marca `hour`:00, estrictamente después de
+    `now_utc`. Entra y sale en UTC naive (como el resto de la app)."""
+    tz = tz or _local_tz()
+    local_now = now_utc.replace(tzinfo=timezone.utc).astimezone(tz)
+    candidate = local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if candidate <= local_now:
+        candidate = candidate + timedelta(days=1)
+    return candidate.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def compute_next_run(cfg, now_utc: datetime) -> datetime:
+    """Una vez al día a la hora fijada (daily_hour) o cada interval_hours."""
+    if cfg.daily_hour is not None:
+        return next_daily_run(now_utc, int(cfg.daily_hour) % 24)
+    return now_utc + timedelta(hours=max(cfg.interval_hours or 6, 1))
+
 
 def get_or_create_config(db):
     cfg = db.query(models.ScheduleConfig).first()
     if not cfg:
-        cfg = models.ScheduleConfig(enabled=False, interval_hours=6)
+        cfg = models.ScheduleConfig(enabled=False, interval_hours=6, mode="auto")
         db.add(cfg)
         db.commit()
         db.refresh(cfg)
+    changed = False
+    if not cfg.mode:
+        cfg.mode = "auto"
+        changed = True
+    if not cfg.report_token:
+        cfg.report_token = secrets.token_urlsafe(24)
+        changed = True
+    if changed:
+        db.commit()
+        db.refresh(cfg)
     return cfg
+
+
+def build_sync_request(proc):
+    """MasterSyncRequest de un Proceso guardado (lo usan el piloto automático y
+    la Revisión diaria, para que ambos corran exactamente el mismo túnel)."""
+    from . import schemas
+    field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
+    return schemas.MasterSyncRequest(
+        source_connection_id=proc.source_connection_id,
+        source_sheet_name=proc.source_sheet_name,
+        target_connection_id=proc.target_connection_id,
+        target_sheet_name=proc.target_sheet_name,
+        sku_column_source=proc.sku_column_source,
+        sku_column_master=proc.sku_column_master,
+        field_mappings=field_mappings,
+        add_new_rows=proc.add_new_rows,
+        zero_missing_stock=proc.zero_missing_stock,
+    )
 
 
 def run_scheduled_sync(db) -> dict:
@@ -41,7 +106,6 @@ def run_scheduled_sync(db) -> dict:
     from .services import _compute_master_sync, write_sheet_data_surgical, invalidate_read_cache
     from .routers.logs import log_event
     from .propagation import propagate_changes
-    from . import schemas
 
     invalidate_read_cache()  # leer fresco
 
@@ -55,18 +119,7 @@ def run_scheduled_sync(db) -> dict:
 
     for proc in processes:
         try:
-            field_mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
-            req = schemas.MasterSyncRequest(
-                source_connection_id=proc.source_connection_id,
-                source_sheet_name=proc.source_sheet_name,
-                target_connection_id=proc.target_connection_id,
-                target_sheet_name=proc.target_sheet_name,
-                sku_column_source=proc.sku_column_source,
-                sku_column_master=proc.sku_column_master,
-                field_mappings=field_mappings,
-                add_new_rows=proc.add_new_rows,
-                zero_missing_stock=proc.zero_missing_stock,
-            )
+            req = build_sync_request(proc)
             result = _compute_master_sync(project, req, db)
             changes = result.get("changes", [])
             new_rows = result.get("new_rows", [])
@@ -130,9 +183,22 @@ def run_scheduled_sync(db) -> dict:
     }
 
 
+def run_for_mode(db, cfg, trigger: str) -> dict:
+    """Corre lo que corresponde al modo del piloto: "review" arma la Revisión
+    diaria (no escribe nada); "auto" sincroniza y escribe (comportamiento
+    original). Devuelve un resumen apto para last_summary."""
+    if (cfg.mode or "auto") == "review":
+        from .review import run_review
+        rev = run_review(db, trigger=trigger)
+        report = json.loads(rev.report) if rev.report else {}
+        return {"ran": True, "mode": "review", "review_id": rev.id, "status": rev.status,
+                "totals": report.get("totals", {}), "reason": report.get("reason")}
+    return run_scheduled_sync(db)
+
+
 def _tick():
     """Un latido: si el piloto automático está activo y ya venció next_run_at,
-    corre la sync y reprograma."""
+    corre (sync o revisión, según el modo) y reprograma."""
     db = SessionLocal()
     try:
         cfg = db.query(models.ScheduleConfig).first()
@@ -142,11 +208,11 @@ def _tick():
         if cfg.next_run_at and now < cfg.next_run_at:
             return  # todavía no toca
 
-        summary = run_scheduled_sync(db)
+        summary = run_for_mode(db, cfg, trigger="programada")
 
         cfg.last_run_at = now
-        cfg.next_run_at = now + timedelta(hours=max(cfg.interval_hours or 6, 1))
-        cfg.last_summary = json.dumps(summary, ensure_ascii=False)
+        cfg.next_run_at = compute_next_run(cfg, now)
+        cfg.last_summary = json.dumps(summary, ensure_ascii=False, default=str)
         db.commit()
     except Exception as e:
         print("Error en el tick del scheduler:", e)

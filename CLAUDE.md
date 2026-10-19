@@ -26,12 +26,14 @@ final. Si una feature complica el uso, no va.
   - `lavadero.py` — limpieza/validación por campo en el intake
   - `propagation.py` — distribución a hojas hijas + push a Shopify y canales API (background)
   - `api_push.py` — payload Maestra → API genérica (plantilla del canal, diff por SKU)
-  - `scheduler.py` — piloto automático (thread daemon, estado en DB)
+  - `scheduler.py` — piloto automático (thread daemon, estado en DB; modo "auto" escribe, modo "review" no)
+  - `review.py` — Revisión diaria: calcula Fuentes→Maestra→Shopify sin escribir; al aprobar aplica solo lo revisado que siga vigente
   - `export_engine.py` / `export_presets.py` — plantillas CSV con transformaciones
   - `intelligent_engine.py` — auto-detección de SKU y mapeo semántico
   - `sheets_retry.py` — backoff ante 429/5xx de Google Sheets
 - `frontend/` — React + Vite + Tailwind (`src/components/`, `src/utils/`)
 - `tests/` — pytest (usan DB temporal vía `conftest.py`, no tocan red)
+- `herramientas/subir_excel/` — script del PC (solo stdlib) que sube los Excel a sus Fuentes antes de la revisión
 
 ## Comandos
 Backend (desde `backend/`):

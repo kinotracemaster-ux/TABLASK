@@ -1,0 +1,4 @@
+# Datos locales de cada PC (URL del servidor, rutas, historial)
+config.json
+.subir_excel_estado.json
+subir_excel.log
