@@ -392,7 +392,8 @@ class ShopifyConnector(BaseConnector):
     def push_updates(self, updates: List[Dict[str, Any]], do_price: bool, do_stock: bool,
                      dry_run: bool = False, location_id: str = None,
                      do_compare_price: bool = False, do_barcode: bool = False,
-                     do_title: bool = False, do_product_type: bool = False) -> Dict[str, Any]:
+                     do_title: bool = False, do_product_type: bool = False,
+                     only: Dict[str, set] = None, preview_limit: int = 300) -> Dict[str, Any]:
         """
         Escribe campos en Shopify cruzando por SKU (nunca crea productos).
         updates: [{"sku":..., "price":..., "stock":..., "compare_at_price":..., "barcode":...,
@@ -417,6 +418,15 @@ class ShopifyConnector(BaseConnector):
         dry_run solo reporta el cruce.
         location_id: ubicación donde SET del inventario. Si None, usa la primera (arriesgado
         si hay varias bodegas) — la UI debería mandarlo explícito.
+        only: (opcional, solo escritura real) {sku_normalizado: {"price", "stock", ...}}
+        — limita QUÉ se escribe a esos SKU/campos (lo aprobado en la Revisión
+        diaria). El cruce y la resolución de conflictos de nombre/categoría se
+        siguen haciendo con la lista COMPLETA de updates (así la variante
+        principal "-1" sigue mandando aunque no esté en `only`); solo se filtra
+        el envío. Un producto recibe nombre/categoría si alguna de sus variantes
+        tiene ese campo en `only`. None = sin filtro (comportamiento de siempre).
+        preview_limit: cuántas líneas de `changes` devuelve el dry_run (300 por
+        defecto; `changes_total` siempre trae el total real).
         """
         idx = self.index_variants_by_sku()
         matched, not_found = [], []
@@ -532,13 +542,31 @@ class ShopifyConnector(BaseConnector):
                     if after == before:
                         continue
                     changes.append({"sku": sku, "field": label, "before": before, "after": after})
-            summary["changes"] = changes[:300]
+            # preview_limit: la UI muestra hasta 300; la Revisión diaria pide la
+            # lista completa porque es lo que después se aprueba y aplica.
+            summary["changes"] = changes[:preview_limit]
             summary["changes_total"] = len(changes)
             summary["conflicts"] = conflicts[:300]
             summary["conflicts_total"] = len(conflicts)
             summary["ignored_secondary"] = ignored_secondary[:300]
             summary["ignored_secondary_total"] = len(ignored_secondary)
             return summary
+
+        # Filtro `only` (Revisión diaria): solo se escribe lo aprobado. Sin
+        # `only`, todo pasa (comportamiento de siempre).
+        def _allowed(u, key):
+            if only is None:
+                return True
+            return key in only.get(self._normalize_sku(u.get("sku", "")), ())
+
+        allowed_pids = None
+        if only is not None and (do_title or do_product_type):
+            allowed_pids = {"title": set(), "product_type": set()}
+            for u, info in matched:
+                keys = only.get(self._normalize_sku(u.get("sku", "")), ())
+                for f in ("title", "product_type"):
+                    if f in keys and info.get("product_id"):
+                        allowed_pids[f].add(info["product_id"])
 
         # Campos de variante (precio, precio comparativo, barcode): se agrupan por
         # producto y se mandan en una sola llamada bulk (productVariantsBulkUpdate).
@@ -550,15 +578,15 @@ class ShopifyConnector(BaseConnector):
                 vin: Dict[str, str] = {"id": info["variant_id"]}
                 if do_price:
                     price = u.get("price")
-                    if price not in (None, ""):
+                    if price not in (None, "") and _allowed(u, "price"):
                         vin["price"] = str(price).replace(",", ".").strip()
                 if do_compare_price:
                     cmp_price = u.get("compare_at_price")
-                    if cmp_price not in (None, ""):
+                    if cmp_price not in (None, "") and _allowed(u, "compare_at_price"):
                         vin["compareAtPrice"] = str(cmp_price).replace(",", ".").strip()
                 if do_barcode:
                     barcode = u.get("barcode")
-                    if barcode not in (None, ""):
+                    if barcode not in (None, "") and _allowed(u, "barcode"):
                         vin["barcode"] = str(barcode).strip()
                 if len(vin) > 1:  # además del id, trae al menos un campo
                     by_product.setdefault(info["product_id"], []).append(vin)
@@ -579,9 +607,11 @@ class ShopifyConnector(BaseConnector):
         if do_title or do_product_type:
             by_product_fields: Dict[str, Dict[str, str]] = {}
             for pid, value in resolved_values["title"].items():
-                by_product_fields.setdefault(pid, {})["title"] = value
+                if allowed_pids is None or pid in allowed_pids["title"]:
+                    by_product_fields.setdefault(pid, {})["title"] = value
             for pid, value in resolved_values["product_type"].items():
-                by_product_fields.setdefault(pid, {})["productType"] = value
+                if allowed_pids is None or pid in allowed_pids["product_type"]:
+                    by_product_fields.setdefault(pid, {})["productType"] = value
             for pid, fields in by_product_fields.items():
                 if not fields:
                     continue
@@ -602,7 +632,7 @@ class ShopifyConnector(BaseConnector):
             quantities = []
             for u, info in matched:
                 raw = u.get("stock")
-                if raw in (None, "") or not info.get("inventory_item_id"):
+                if raw in (None, "") or not info.get("inventory_item_id") or not _allowed(u, "stock"):
                     continue
                 try:
                     qty = int(float(str(raw).replace(",", ".").strip()))

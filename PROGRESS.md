@@ -24,12 +24,15 @@
   pausarlos/borrarlos a mano desde Flujos (ver "Próximos pasos").
 
 ## En progreso
-> Railway tuvo una caída global de builds el 20 oct; al volver hubo que
-> fusionar y, si el deploy no arranca solo, darle Redeploy a mano.
-- **#67 Revisión diaria:** el piloto revisa y avisa antes de tocar la web.
-  Abierto, sin fusionar.
-- **#69 Entrada desde Drive:** conector de carpeta; se toma el archivo más
-  reciente, sin subir nada a mano. Abierto, sin fusionar.
+> Los tres PR de octubre (#67 revisión diaria, #68 clave + multiplicador,
+> #69 carpeta de Drive) quedaron fusionados. Falta activarlos en producción:
+- Crear/confirmar `TABLASK_PASSWORD` en Railway y entrar con la clave.
+- Poner el multiplicador **2,8** en el destino Shopi-Poe.
+- Compartir la carpeta de Drive con la cuenta de servicio de Google y
+  habilitar la API de Drive; después conectarla como origen.
+- Activar la Revisión diaria (Revisar y avisar · 7:00 a. m. · Shopi-Kino +
+  Shopi-Poe), programar `herramientas/subir_excel/` en el PC y pasar el link
+  del auditor a la tarea de Claude.
 
 ## Próximos pasos
 - Tras fusionar la clave: **rotar las credenciales de Shopify y de Google** que
@@ -67,6 +70,10 @@
   tenían su propio token (descarga CSV por canal e intake de apps conectadas).
 - **Multiplicador de precio por canal (oct 2026):** cada destino Shopify tiene su
   `price_multiplier` (default 1.0). La web de Poedagar vende a precio base × 2,8.
+- **Revisión diaria (oct 2026):** el piloto puede "revisar y avisar" en vez de
+  escribir solo: una vez al día calcula Fuentes → Maestra → tiendas sin tocar
+  nada; al aprobar se aplica SOLO lo revisado que siga vigente. Elegido por el
+  usuario: revisar y reportar, 1 vez al día, Shopi-Kino + Shopi-Poe + Maestra.
 - **Fix Guardián + `add_new_rows` (sep 2026):** el Guardián bloqueaba altas
   legítimas de una referencia ya existente (ej. "...-3" nuevo cuando ya está
   "...-2") por parecerse demasiado a su hermano; y el checkbox "Agregar filas

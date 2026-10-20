@@ -1,0 +1,14 @@
+{
+  "servidor": "https://TU-APP.up.railway.app",
+  "revisar_al_terminar": false,
+  "archivos": [
+    {
+      "fuente": "BASE-SYS",
+      "ruta": "C:\\Users\\TU_USUARIO\\Documents\\Inventario\\BASE-SYS*.xlsx"
+    },
+    {
+      "conexion_id": 12,
+      "ruta": "C:\\Users\\TU_USUARIO\\Documents\\Inventario\\precios_poedagar.xlsx"
+    }
+  ]
+}

@@ -249,7 +249,38 @@ class ScheduleConfig(Base):
     last_run_at = Column(DateTime, nullable=True)
     next_run_at = Column(DateTime, nullable=True)
     last_summary = Column(Text, nullable=True)  # JSON del último corrido automático
+    # Modo del piloto: "auto" = escribe solo (comportamiento original);
+    # "review" = Revisión diaria: calcula qué cambiaría (Fuentes → Maestra →
+    # tiendas Shopify) SIN escribir nada, y deja un reporte pendiente de
+    # aprobación (DailyReview). Nada sale hacia la web sin el OK humano.
+    mode = Column(String, default="auto")
+    # Hora local (0-23, zona TABLASK_TZ, default America/Bogota) para correr
+    # una vez al día. Si es nula, se usa interval_hours.
+    daily_hour = Column(Integer, nullable=True)
+    # JSON: ids de ShopifySubscription que entran en la revisión. Nulo = todas
+    # las activas.
+    review_shopify_ids = Column(Text, nullable=True)
+    # Token del link de solo lectura del último reporte (para el auditor
+    # externo: /api/reviews/latest/public?token=...).
+    report_token = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DailyReview(Base):
+    """Revisión diaria (modo "review" del piloto): foto de lo que cambiaría en
+    la Maestra y en cada tienda Shopify revisada, calculada SIN escribir. Queda
+    "pendiente" hasta que un humano la aprueba (se aplica SOLO lo revisado que
+    siga vigente) o la descarta. Una revisión nueva reemplaza a la pendiente
+    anterior (estado "reemplazada")."""
+    __tablename__ = "daily_reviews"
+    id = Column(Integer, primary_key=True, index=True)
+    # pendiente | sin_cambios | aplicada | con_errores | descartada | reemplazada | vencida | error
+    status = Column(String, default="pendiente", index=True)
+    trigger = Column(String, default="programada")  # programada | manual
+    report = Column(Text, nullable=False)            # JSON del reporte completo
+    apply_summary = Column(Text, nullable=True)      # JSON del resultado al aplicar
+    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)    # cuándo se aplicó/descartó
 
 
 class ExecutionLog(Base):

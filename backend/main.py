@@ -168,6 +168,22 @@ for _col_sql in (
     except Exception as e:
         print("Migración price_multiplier omitida:", e)
 
+# Revisión diaria (modo "review" del piloto): columnas nuevas de schedule_config.
+# La tabla daily_reviews la crea create_all (es nueva).
+for _col_sql in (
+    "ALTER TABLE schedule_config ADD COLUMN mode VARCHAR DEFAULT 'auto'",
+    "ALTER TABLE schedule_config ADD COLUMN daily_hour INTEGER",
+    "ALTER TABLE schedule_config ADD COLUMN review_shopify_ids TEXT",
+    "ALTER TABLE schedule_config ADD COLUMN report_token VARCHAR",
+):
+    try:
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            conn.execute(text(_col_sql))
+            conn.commit()
+    except Exception as e:
+        print(f"Migración schedule_config omitida ({_col_sql.split('ADD COLUMN ')[1]}):", e)
+
 app = FastAPI(title="Actualizar Tablas K API")
 
 # Clave de acceso (backend/auth.py). Se agrega ANTES que el CORS a propósito:
@@ -318,7 +334,7 @@ _backfill_export_tokens()
 # ██ ROUTERS (deben importarse DESPUÉS de las funciones internas)
 # ═══════════════════════════════════════════════════════════════════
 
-from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions, api_subscriptions, pipeline, schedule
+from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions, api_subscriptions, pipeline, schedule, reviews
 from .auth import router as auth_router
 app.include_router(auth_router)
 app.include_router(logs.router)
@@ -334,6 +350,7 @@ app.include_router(shopify_master_sync.router)
 app.include_router(shopify_subscriptions.router)
 app.include_router(pipeline.router)
 app.include_router(schedule.router)
+app.include_router(reviews.router)
 
 # Piloto automático (sync programada §5): thread daemon que corre los procesos
 # activos cada X horas. Idempotente; el estado vive en la DB.

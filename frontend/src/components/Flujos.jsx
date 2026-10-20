@@ -6,6 +6,7 @@ import RunFlowModal from './RunFlowModal';
 import ShopifyPushModal from './ShopifyPushModal';
 import ShopifyFieldMapper from './ShopifyFieldMapper';
 import AutoSyncPanel from './AutoSyncPanel';
+import DailyReviewPanel from './DailyReviewPanel';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -53,6 +54,8 @@ function MappingEditor({ mappings, setMappings, srcOptions, dstOptions, srcLabel
 
 export default function Flujos() {
   const [loading, setLoading] = useState(true);
+  // Sube cada vez que el piloto corre a mano, para refrescar la Revisión diaria.
+  const [reviewKey, setReviewKey] = useState(0);
   const [processes, setProcesses] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   const [shopifySubs, setShopifySubs] = useState([]);
@@ -816,7 +819,8 @@ export default function Flujos() {
         </div>
       ))}
 
-      {processes.length > 0 && <AutoSyncPanel />}
+      {processes.length > 0 && <AutoSyncPanel onRan={() => setReviewKey(k => k + 1)} />}
+      {processes.length > 0 && <DailyReviewPanel refreshKey={reviewKey} />}
 
       {nothing && (
         <div className="text-center py-16 text-gray-400">
