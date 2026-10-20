@@ -11,7 +11,7 @@
 > Instrucción típica de cierre: "actualizá el estado — PROGRESS.md corto acá,
 > detalle de la feature en MEMORIA_PROYECTO.md §3".
 >
-> Última actualización: 2026-09-15
+> Última actualización: 2026-10-20
 
 ## Estado actual
 - Motor y flujos principales (Fuente → Maestra → Destinos) estables. Mapa
@@ -24,9 +24,18 @@
   pausarlos/borrarlos a mano desde Flujos (ver "Próximos pasos").
 
 ## En progreso
-- Nada activo ahora mismo.
+- **Clave de acceso + multiplicador por canal (oct 2026), PR abierto:** cierra la
+  app (hoy está en internet sin clave) y permite que cada destino Shopify mande
+  `precio base × su multiplicador`. **Antes de fusionar hay que crear la variable
+  `TABLASK_PASSWORD` en Railway**, o la API responde 503.
+- **Revisión diaria (oct 2026), PR #67 abierto, sin fusionar:** modo "Revisar y
+  avisar" del piloto + panel en Mis Flujos + `herramientas/subir_excel/`.
 
 ## Próximos pasos
+- Tras fusionar la clave: **rotar las credenciales de Shopify y de Google** que
+  estuvieron accesibles mientras la app estuvo abierta en internet.
+- Proyecto "Actualización web Poedagar" (carpeta de Drive): entrada desde Drive y
+  cola de pendientes para que el agente resuelva solo las excepciones.
 - Limpiar a mano los duplicados Shopify viejos ya en la base (arriba). No
   automatizar sin confirmación humana: decidir cuál de varios es "el bueno"
   no es una decisión para el código.
@@ -50,6 +59,11 @@
 ## Decisiones tomadas
 > Una línea por decisión + de qué se trata. El porqué y el detalle técnico
 > (archivos, tests) viven en MEMORIA_PROYECTO.md §3.
+- **Clave de acceso (oct 2026):** toda la API pide `TABLASK_PASSWORD` por header.
+  Falla cerrada si no está configurada. Siguen abiertas solo las rutas que ya
+  tenían su propio token (descarga CSV por canal e intake de apps conectadas).
+- **Multiplicador de precio por canal (oct 2026):** cada destino Shopify tiene su
+  `price_multiplier` (default 1.0). La web de Poedagar vende a precio base × 2,8.
 - **Fix Guardián + `add_new_rows` (sep 2026):** el Guardián bloqueaba altas
   legítimas de una referencia ya existente (ej. "...-3" nuevo cuando ya está
   "...-2") por parecerse demasiado a su hermano; y el checkbox "Agregar filas

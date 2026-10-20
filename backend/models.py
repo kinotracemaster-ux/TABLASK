@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, DateTime, Text, LargeBinary, func
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, DateTime, Text, LargeBinary, Float, func
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -192,6 +192,10 @@ class ShopifySubscription(Base):
     barcode_column_master = Column(String, nullable=True)        # código de barras
     title_column_master = Column(String, nullable=True)          # nombre del producto (PRODUCTO)
     product_type_column_master = Column(String, nullable=True)   # categoría / tipo de producto (PRODUCTO)
+    # Margen del canal: el precio que se envía es el de la columna mapeada ×
+    # este multiplicador (ej. la web de Poedagar vende a precio base × 2,8).
+    # 1.0 = la columna se manda tal cual, que es como funcionaba antes.
+    price_multiplier = Column(Float, default=1.0)
     # Ubicación/bodega destino del stock (gid://shopify/Location/...). Si es nulo
     # y la tienda tiene una sola bodega, se usa esa.
     location_id = Column(String, nullable=True)

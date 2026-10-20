@@ -239,6 +239,9 @@ class ShopifySubscriptionBase(BaseModel):
     barcode_column_master: Optional[str] = None        # código de barras
     title_column_master: Optional[str] = None          # nombre del producto (PRODUCTO)
     product_type_column_master: Optional[str] = None   # categoría / tipo de producto (PRODUCTO)
+    # Margen del canal: precio enviado = columna mapeada × este multiplicador.
+    # 1.0 = se manda tal cual (comportamiento de siempre).
+    price_multiplier: float = 1.0
     location_id: Optional[str] = None           # Bodega destino del stock
     is_active: bool = True
 
