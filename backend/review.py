@@ -188,11 +188,15 @@ def _shopify_flags(sub) -> dict:
 
 
 def _updates_for(sub, raw, sku_column):
+    """Los mismos updates que mandaría el envío real — multiplicador del canal
+    incluido. Si acá no se aplicara, la revisión mostraría un precio y después
+    se escribiría otro, y lo aprobado no coincidiría con lo que se envía."""
     from .routers.shopify_subscriptions import build_updates_from_sheet
     return build_updates_from_sheet(
         raw, sku_column, sub.price_column_master, sub.stock_column_master,
         sub.compare_price_column_master, sub.barcode_column_master,
         sub.title_column_master, sub.product_type_column_master,
+        price_multiplier=sub.price_multiplier or 1.0,
     )
 
 

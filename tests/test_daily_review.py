@@ -405,3 +405,27 @@ def test_si_la_maestra_falla_queda_con_errores_y_no_empuja_lo_que_dependia(env, 
     # A3 no dependía de la Maestra (la tienda difería de lo que ya está): sí va.
     assert s["A3"]["stock"] == 4
     assert done["apply_summary"]["stores"][0]["applied"] == 1
+
+
+def test_la_revision_usa_el_multiplicador_del_canal(env):
+    """Si la revisión no aplicara el margen del canal, mostraría un precio y
+    después se escribiría otro: lo aprobado no sería lo que se envía."""
+    c = env["client"]
+    sub_id = env["sub"]["id"]
+    c.put(f"/api/shopify-subscriptions/{sub_id}", json={
+        "name": "Shopi-Kino", "connection_id": env["sub"]["connection_id"],
+        "price_column_master": "price", "stock_column_master": "stock",
+        "price_multiplier": 2.8, "is_active": True})
+
+    rev = c.post("/api/reviews/run-now").json()
+    tienda = rev["report"]["stores"][0]
+    precios = {ch["sku"]: ch["after"] for ch in tienda["changes"] if ch["field"] == "Precio"}
+    # A1 pasa a 150 en la Maestra → la tienda recibe 150 × 2,8 = 420.
+    assert precios["A1"] == "420"
+    # A2 y A3 no cambian de precio en el archivo, pero igual quedan fuera de la
+    # regla: la tienda tiene 200 y 300 y deberían ser 200×2,8 y 300×2,8.
+    assert precios["A2"] == "560" and precios["A3"] == "840"
+
+    c.post(f"/api/reviews/{rev['id']}/apply")
+    # Y lo que se escribió en la tienda es exactamente eso, no el precio pelado.
+    assert float(env["store"].p["A1"]["price"]) == 420
