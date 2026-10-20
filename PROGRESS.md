@@ -17,17 +17,28 @@
 - Motor y flujos principales (Fuente → Maestra → Destinos) estables. Mapa
   completo en MEMORIA_PROYECTO.md §2-3.
 - La Master todavía tiene campos de enriquecimiento por llenar.
-- **Pendiente urgente (dato ya escrito, no lo arregla código nuevo):** los
-  destinos Shopify duplicados creados ANTES del fix de deduplicación (varias
-  tarjetas para la misma tienda, algunos con `Stock = PRICE` o `Stock = SKU`)
-  siguen activos y corrompen inventario en cada sync — hay que
-  pausarlos/borrarlos a mano desde Flujos (ver "Próximos pasos").
+- **La clave ya está activa en Railway** (verificado 2026-10-20: sin clave y con
+  clave mala la API responde 401; con la clave, 200).
+- **Nada configurado para Poedagar todavía** (verificado en la base de
+  producción, 2026-10-20): 0 destinos Shopify, 0 procesos. La única conexión
+  Shopify es `ii1apd-ws.myshopify.com`, que NO es la tienda de Poedagar. Hay 4
+  Fuentes de archivo de septiembre, tres son el mismo `EXISTENCIAS POEDAGAR
+  (2).xlsx` (ids 57/58/59) — borrar las sobrantes a mano.
+- Los destinos Shopify duplicados que corrompían inventario **ya no existen**
+  (la lista de destinos está vacía): ese pendiente urgente quedó resuelto.
 
 ## En progreso
 > Los tres PR de octubre (#67 revisión diaria, #68 clave + multiplicador,
-> #69 carpeta de Drive) quedaron fusionados. Falta activarlos en producción:
-- Crear/confirmar `TABLASK_PASSWORD` en Railway y entrar con la clave.
-- Poner el multiplicador **2,8** en el destino Shopi-Poe.
+> #69 carpeta de Drive) quedaron fusionados y desplegados. Falta la
+> configuración en producción (ninguna requiere código nuevo):
+- **Conexión Shopify de la tienda de Poedagar**: token de app de Shopify con
+  `read_products`, `write_products`, `read_inventory`, `write_inventory`,
+  `read_locations`. Lo pega el usuario en el app, nunca por chat.
+- Crear el destino **Shopi-Poe** con multiplicador **2,8**.
+- Crear el Proceso Fuente → Maestra. Mapeo del archivo del SYS
+  (`INVENTARIO_POEDAGAR`, 621 filas): `Artículo`→SKU, `Descripción`→nombre,
+  `Exist. unidades`→stock, `Precio`→precio base. Precio y stock llegan como
+  texto (`"45,000.00"`, `"2.00"`) — los limpia el Lavadero.
 - Compartir la carpeta de Drive con la cuenta de servicio de Google y
   habilitar la API de Drive; después conectarla como origen.
 - Activar la Revisión diaria (Revisar y avisar · 7:00 a. m. · Shopi-Kino +
