@@ -114,6 +114,7 @@ export default function Flujos() {
   const [essTitle, setEssTitle] = useState('');
   const [essProductType, setEssProductType] = useState('');
   const [essLocation, setEssLocation] = useState('');
+  const [essMultiplier, setEssMultiplier] = useState(1);
 
   // --- Edición: Destino (Suscripción) ---
   const [editSub, setEditSub] = useState(null);
@@ -328,6 +329,7 @@ export default function Flujos() {
     setEssName(sub.name);
     setEssConnId(sub.connection_id);
     setEssPrice(sub.price_column_master || '');
+    setEssMultiplier(sub.price_multiplier ?? 1);
     setEssStock(sub.stock_column_master || '');
     setEssCompare(sub.compare_price_column_master || '');
     setEssBarcode(sub.barcode_column_master || '');
@@ -353,6 +355,7 @@ export default function Flujos() {
           name: essName || editShopSub.name,
           connection_id: Number(essConnId),
           price_column_master: essPrice || null,
+          price_multiplier: parseFloat(essMultiplier) || 1,
           stock_column_master: essStock || null,
           compare_price_column_master: essCompare || null,
           barcode_column_master: essBarcode || null,
@@ -1342,7 +1345,8 @@ export default function Flujos() {
             </div>
 
             <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-              <ShopifyFieldMapper masterCols={editShopSubCols} fields={[
+              <ShopifyFieldMapper masterCols={editShopSubCols}
+                priceMultiplier={essMultiplier} setPriceMultiplier={setEssMultiplier} fields={[
                 { key: 'price', label: 'Precio', value: essPrice, setValue: setEssPrice },
                 { key: 'stock', label: 'Stock', value: essStock, setValue: setEssStock },
                 { key: 'compare', label: 'Precio comparativo / oferta', value: essCompare, setValue: setEssCompare },

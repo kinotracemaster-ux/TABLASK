@@ -24,7 +24,8 @@ export const SHOPIFY_FIELDS = [
  *   masterCols: columnas disponibles de la Maestra.
  *   disabled: si es true, deshabilita los selects (ej. todavía no se leyeron columnas).
  */
-export default function ShopifyFieldMapper({ fields, masterCols, disabled = false }) {
+export default function ShopifyFieldMapper({ fields, masterCols, disabled = false,
+                                             priceMultiplier, setPriceMultiplier }) {
   const [rows, setRows] = useState(() => {
     const init = fields.filter(f => f.value).map(f => f.key);
     return init.length > 0 ? init : [''];
@@ -75,6 +76,23 @@ export default function ShopifyFieldMapper({ fields, masterCols, disabled = fals
         <button type="button" onClick={addRow} disabled={disabled} className="text-indigo-600 text-sm font-medium hover:underline disabled:opacity-40 disabled:no-underline">
           + Añadir campo
         </button>
+      )}
+
+      {/* Margen del canal: solo tiene sentido si se está enviando el precio. */}
+      {setPriceMultiplier && usedKeys.includes('price') && (
+        <div className="pt-2 mt-1 border-t border-gray-100">
+          <label className="flex items-center gap-2 text-sm text-gray-700 flex-wrap">
+            Precio enviado = columna ×
+            <input type="number" step="0.1" min="0.1" max="100" disabled={disabled}
+              value={priceMultiplier} onChange={e => setPriceMultiplier(e.target.value)}
+              aria-label="Multiplicador de precio del canal"
+              className="w-20 border border-gray-300 rounded-lg p-1.5 text-sm bg-white disabled:bg-gray-50" />
+          </label>
+          <p className="text-xs text-gray-400 mt-1">
+            Dejá 1 para mandar la columna tal cual. Ej.: la web de Poedagar vende a precio base × 2,8.
+            No afecta al stock ni al precio comparativo.
+          </p>
+        </div>
       )}
     </div>
   );

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..database import get_db
 from ..sku_utils import find_header_index
+from ..pricing import MULTIPLICADOR_MAX, aplicar_multiplicador, es_multiplicador_valido
 
 router = APIRouter(prefix="/api/shopify", tags=["shopify"])
 
@@ -21,6 +22,7 @@ class PushRequest(BaseModel):
     title_column: Optional[str] = None            # nombre del producto (PRODUCTO)
     product_type_column: Optional[str] = None     # categoría / tipo de producto (PRODUCTO)
     location_id: Optional[str] = None             # ubicación destino para el stock
+    price_multiplier: float = 1.0                 # margen del canal (solo afecta al precio)
     dry_run: bool = True
 
 
@@ -60,6 +62,13 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
                 req.title_column, req.product_type_column]):
         raise HTTPException(status_code=400, detail="Debes mapear al menos un campo (precio, stock, precio comparativo, código de barras, nombre o categoría).")
 
+    if not es_multiplicador_valido(req.price_multiplier):
+        raise HTTPException(
+            status_code=400,
+            detail=f"El multiplicador de precio debe ser mayor que 0 y hasta {MULTIPLICADOR_MAX:g} "
+                   f"(usá 1 para enviar la columna tal cual).",
+        )
+
     src_conn_id = req.source_connection_id or _resolve_master_connection_id(db)
     src_conn = db.query(models.Connection).filter(
         models.Connection.id == src_conn_id
@@ -95,7 +104,7 @@ def push_to_shopify(req: PushRequest, db: Session = Depends(get_db)):
             continue
         u = {"sku": sku}
         if pi >= 0:
-            u["price"] = row[pi] if pi < len(row) else ""
+            u["price"] = aplicar_multiplicador(row[pi] if pi < len(row) else "", req.price_multiplier)
         if ti >= 0:
             u["stock"] = row[ti] if ti < len(row) else ""
         if ci >= 0:

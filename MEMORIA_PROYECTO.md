@@ -123,6 +123,20 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   2. `Process.add_new_rows` (checkbox "Agregar filas nuevas que no existan en la Maestra" en `Flujos.jsx`) se guardaba en la DB y viajaba hasta `_compute_master_sync` pero la función nunca lo leía — un SKU nuevo SIEMPRE se creaba, tuviera el flag el valor que tuviera. Fix: la rama "no está en la Maestra" ahora respeta `req.add_new_rows` (default `True`, sin cambio de comportamiento para quien nunca tocó el checkbox); si está en `False`, el SKU se ignora (`rows_new_ignored`, nuevo contador expuesto en el resultado). Tests: `test_add_new_rows_false_no_crea_skus_nuevos`.
   Ambos fijados en `tests/test_scheduler.py` (mismo patrón que los tests del Guardián existentes: se verificó que fallan contra el código pre-fix antes de darlos por buenos).
 
+* **Clave de acceso de la app (oct 2026).** La app estaba desplegada en Railway **sin ninguna autenticación**: con el link, cualquiera leía la Maestra completa (`GET /api/master`) y podía disparar un envío a una tienda Shopify real (`POST /api/shopify/push`) o borrar la base (`/api/debug/reset-db`). Se cierra con una clave compartida.
+  - **`backend/auth.py`**: middleware sobre todo `/api/`, clave en la variable `TABLASK_PASSWORD` y header `X-TablasK-Key`, comparada con `hmac.compare_digest` (tiempo constante). **Falla cerrada**: si la variable no está configurada la API responde 503 con el texto de qué hacer, en vez de quedar abierta en silencio — por eso hay que crear la variable en Railway ANTES de fusionar. Pequeño router `GET /api/auth/check` para que la pantalla de ingreso valide.
+  - **Lista de rutas abiertas explícita por método + ruta exacta** (`_ABIERTAS`), no por prefijo: `GET /api/exports/{id}/download` (link fijo del canal CSV, ya tiene su `?token=`) y `POST /api/intake/push` (app conectada, ya tiene su header `api-key`). Abrir por prefijo `/api/exports/` habría dejado `regenerate-token` accesible sin clave — hay un test que lo fija.
+  - **Orden del middleware:** se registra ANTES del CORS porque en Starlette el último agregado queda por fuera; así el CORS envuelve a la clave y los 401/503 salen con cabeceras CORS (si no, en desarrollo el navegador no muestra el error real).
+  - **Frontend:** `utils/auth.js` parcha `window.fetch` UNA vez y le agrega la clave a toda llamada que contenga `/api/` — así no hubo que tocar los ~100 `fetch` repartidos por los componentes; un 401 borra la clave guardada y vuelve a pedirla. `components/LoginGate.jsx` envuelve la app entera en `App.jsx`: hasta que la clave no es correcta no se monta ninguna pantalla. Estado `sin-config` propio para el 503.
+  - **Tests sin tocar los existentes:** `tests/conftest.py` fija `TABLASK_PASSWORD` y parcha `TestClient.__init__` para que todo cliente mande el header solo; los tests de la clave lo borran a mano. Así los 208 tests previos siguieron pasando sin editarlos. Nuevo `tests/test_auth.py`.
+  - Es una clave compartida para el equipo, no usuarios con permisos distintos: alcanza para cerrar la puerta y el middleware es el único lugar a cambiar si algún día hace falta separar por persona.
+
+* **Multiplicador de precio por canal (oct 2026).** La Maestra guarda el precio base del proveedor y cada canal vende con su propio margen. Kyte ya lo hacía con el ×2 de sus plantillas de export (§11), pero los destinos Shopify mandaban la columna mapeada **tal cual** — y la web de Poedagar vende a `base × 2,8`, así que no había forma de alimentarla desde la Maestra sin una columna calculada aparte.
+  - **`backend/pricing.py`**: `aplicar_multiplicador(raw, mult)` reusa `lavadero.clean_price` para leer precios sucios (`"$ 45.000"`, `"38000,00"`) y redondea a entero (el peso no usa centavos). Un precio ilegible se manda **tal cual**, no se inventa un número. `es_multiplicador_valido` acota a `0 < m <= 100`: un 0 pondría toda la tienda gratis.
+  - **`ShopifySubscription.price_multiplier`** (Float, default 1.0, auto-migración en `main.py`). Se aplica en los dos lugares donde se arman los updates: `propagation.build_shopify_updates` (diff automático tras cada sync) y `routers/shopify_subscriptions.build_updates_from_sheet` ("Enviar ahora", Maestra completa). También en el push directo `POST /api/shopify/push` (`price_multiplier` en el request).
+  - **Solo afecta al precio**, no al stock ni al precio comparativo (este último suele venir ya como valor final). Default 1.0 = comportamiento idéntico al anterior, así que ningún destino ya configurado cambia de conducta.
+  - **UI:** campo en `ShopifyFieldMapper.jsx` (componente compartido), visible solo cuando el destino está enviando el precio; cableado en los dos puntos de entrada que quedan (`Flujos.jsx` modal de edición y `UpdateMaster.jsx`). Tests: `tests/test_price_multiplier.py`.
+
 ## 4. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):
 - Suscripciones a hijas con la regla de negocio "Sobreescribir SOLO si la celda hija está vacía". Actualmente, la distribución siempre sobreescribe con el valor de la Maestra.
@@ -155,7 +169,7 @@ Se discutieron y se marcaron explícitamente como "fuera de scope" (no implement
 * No guardar tokens/credenciales dentro del repo ni en la URL del remoto.
 
 ---
-*Última actualización: 15 de Septiembre de 2026 (sección 3 ampliada: fix de aviso de
+*Última actualización: 20 de Octubre de 2026 (sección 3: clave de acceso de la app y multiplicador de precio por canal). Anterior: 15 de Septiembre de 2026 (sección 3 ampliada: fix de aviso de
 ubicación Shopify + cache de token por secret, fix de Guardián bloqueando altas
 legítimas de una referencia existente + `add_new_rows` que no hacía nada; sección 6
 (Git) corregida para reflejar el flujo real con Claude Code on the web (rama `claude/*`

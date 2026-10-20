@@ -469,6 +469,7 @@ export default function UpdateMaster() {
   const [shopProductTypeCol, setShopProductTypeCol] = useState('');
   const [shopLocations, setShopLocations] = useState([]);
   const [shopLocId, setShopLocId] = useState('');
+  const [shopMultiplier, setShopMultiplier] = useState(1);
   const [shopLocError, setShopLocError] = useState(null);
   const [shopBusy, setShopBusy] = useState(false);
   const [shopPreview, setShopPreview] = useState(null);
@@ -697,6 +698,7 @@ export default function UpdateMaster() {
           name: shopDestName || `Shopify · ${store?.name || store?.shopify_domain || 'tienda'}`,
           connection_id: parseInt(shopConnId),
           price_column_master: shopPriceCol || null,
+          price_multiplier: parseFloat(shopMultiplier) || 1,
           stock_column_master: shopStockCol || null,
           compare_price_column_master: shopCompareCol || null,
           barcode_column_master: shopBarcodeCol || null,
@@ -768,6 +770,7 @@ export default function UpdateMaster() {
           source_sheet_name: shopTab,
           sku_column: shopSkuCol,
           price_column: shopPriceCol || null,
+          price_multiplier: parseFloat(shopMultiplier) || 1,
           stock_column: shopStockCol || null,
           compare_price_column: shopCompareCol || null,
           barcode_column: shopBarcodeCol || null,
@@ -1389,7 +1392,8 @@ export default function UpdateMaster() {
                         </select>
                       </div>
 
-                      <ShopifyFieldMapper masterCols={shopTabCols} disabled={!shopTabCols.length} fields={[
+                      <ShopifyFieldMapper masterCols={shopTabCols} disabled={!shopTabCols.length}
+                        priceMultiplier={shopMultiplier} setPriceMultiplier={setShopMultiplier} fields={[
                         { key: 'price', label: 'Precio', value: shopPriceCol, setValue: setShopPriceCol },
                         { key: 'stock', label: 'Stock', value: shopStockCol, setValue: setShopStockCol },
                         { key: 'compare', label: 'Precio comparativo / oferta', value: shopCompareCol, setValue: setShopCompareCol },

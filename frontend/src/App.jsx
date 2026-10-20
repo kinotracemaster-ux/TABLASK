@@ -6,6 +6,7 @@ import ConnectedApps from './components/ConnectedApps';
 import UpdateMaster from './components/UpdateMaster';
 import Flujos from './components/Flujos';
 import ShopifyMasterSync from './components/ShopifyMasterSync';
+import LoginGate from './components/LoginGate';
 import { Database, Table2, Terminal, Network, MoreHorizontal, ChevronDown, ChevronUp, RefreshCw, ListChecks, Store } from 'lucide-react';
 
 // Detecta si estamos en un entorno de PREVIEW (no producción).
@@ -87,6 +88,7 @@ function Sidebar() {
 
 function App() {
   return (
+    <LoginGate>
     <Router>
       <div className="min-h-screen bg-gray-50 flex">
         <Sidebar />
@@ -102,6 +104,7 @@ function App() {
         </main>
       </div>
     </Router>
+    </LoginGate>
   );
 }
 

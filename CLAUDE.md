@@ -21,6 +21,8 @@ final. Si una feature complica el uso, no va.
   - `services.py` — motor de sync (`_compute_master_sync`, `normalize_sku_for_match`, `get_sheet_data`)
   - `models.py` / `schemas.py` — SQLAlchemy / Pydantic
   - `connectors/` — `google_sheets.py`, `local_file.py`, `http_api.py`, `shopify.py` (base común en `base.py`)
+  - `auth.py` — clave de acceso de la API (`TABLASK_PASSWORD`, header `X-TablasK-Key`)
+  - `pricing.py` — multiplicador de precio por canal (precio base × margen del canal)
   - `lavadero.py` — limpieza/validación por campo en el intake
   - `propagation.py` — distribución a hojas hijas + push a Shopify y canales API (background)
   - `api_push.py` — payload Maestra → API genérica (plantilla del canal, diff por SKU)
@@ -74,6 +76,13 @@ pytest -q
   parecido sospechoso — mismo `sku_reference_base` con distinto número de variante.
 - **El Lavadero** limpia precio/stock/nombre antes de escribir; lo que no se puede
   limpiar se retiene y se reporta (`rejected`/`review`), no se escribe sucio.
+- **La API pide clave** (`auth.py`): variable `TABLASK_PASSWORD` + header `X-TablasK-Key`.
+  Si la variable falta, la API responde 503 — **falla cerrada**, nunca abierta. Quedan
+  sin clave solo las rutas con candado propio: `GET /api/exports/{id}/download?token=`
+  y `POST /api/intake/push` (header `api-key`).
+- **Multiplicador por canal** (`pricing.py`): cada destino Shopify tiene
+  `price_multiplier` (default 1.0 = la columna va tal cual). Aplica SOLO al precio,
+  no al stock ni al precio comparativo. La web de Poedagar usa 2,8.
 - **Cuota de Sheets (429):** respetar el retry con backoff y la caché de lecturas;
   invalidarla al escribir (`invalidate_read_cache`).
 - Código y comentarios en **español**, igual que el resto del repo.

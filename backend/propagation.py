@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 from .models import FieldSubscription, Connection, ShopifySubscription, ApiSubscription, Project, Process
 from .services import get_sheet_data, write_sheet_data_surgical
 from .database import SessionLocal
+from .pricing import aplicar_multiplicador
 
 def propagate_changes(project_id: int, changes: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]):
     """
@@ -150,7 +151,8 @@ def _propagate_changes(db, project_id: int, changes: List[Dict[str, Any]], new_r
 def build_shopify_updates(changes: List[Dict[str, Any]], new_rows: List[Dict[str, Any]],
                           price_col: str, stock_col: str,
                           compare_col: str = None, barcode_col: str = None,
-                          title_col: str = None, product_type_col: str = None) -> List[Dict[str, Any]]:
+                          title_col: str = None, product_type_col: str = None,
+                          price_multiplier: float = 1.0) -> List[Dict[str, Any]]:
     """
     Convierte el diff de la Maestra en updates por SKU para Shopify:
     [{"sku": ..., "price"?: ..., "stock"?: ..., "compare_at_price"?: ..., "barcode"?: ...,
@@ -174,16 +176,20 @@ def build_shopify_updates(changes: List[Dict[str, Any]], new_rows: List[Dict[str
     def entry(sku):
         return by_sku.setdefault(sku, {"sku": sku})
 
+    def valor(key, raw):
+        # El margen del canal aplica SOLO al precio (ver backend/pricing.py).
+        return aplicar_multiplicador(raw, price_multiplier) if key == "price" else raw
+
     for ch in changes:
         key = field_map.get(ch.get("field"))
         if key:
-            entry(ch["sku"])[key] = ch.get("new")
+            entry(ch["sku"])[key] = valor(key, ch.get("new"))
 
     for nr in new_rows:
         fields = nr.get("fields", {}) or {}
         for col, key in field_map.items():
             if str(fields.get(col, "") or "").strip() != "":
-                entry(nr["sku"])[key] = fields[col]
+                entry(nr["sku"])[key] = valor(key, fields[col])
 
     return list(by_sku.values())
 
@@ -202,7 +208,8 @@ def _push_shopify_subscriptions(db, changes: List[Dict[str, Any]], new_rows: Lis
         try:
             updates = build_shopify_updates(changes, new_rows, sub.price_column_master, sub.stock_column_master,
                                             sub.compare_price_column_master, sub.barcode_column_master,
-                                            sub.title_column_master, sub.product_type_column_master)
+                                            sub.title_column_master, sub.product_type_column_master,
+                                            price_multiplier=sub.price_multiplier or 1.0)
             if not updates:
                 continue  # El diff no tocó ningún campo mapeado: nada que enviar a esta tienda
 

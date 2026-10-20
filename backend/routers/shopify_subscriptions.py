@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..database import get_db
 from ..sku_utils import find_header_index as _header_index
+from ..pricing import MULTIPLICADOR_MAX, aplicar_multiplicador, es_multiplicador_valido
 
 router = APIRouter(prefix="/api/shopify-subscriptions", tags=["shopify-subscriptions"])
 
@@ -54,6 +55,14 @@ def _validate_payload(sub: schemas.ShopifySubscriptionCreate, db: Session):
     }
     if not any(campos.values()):
         raise HTTPException(status_code=400, detail="Mapeá al menos un campo de la Maestra (precio, stock, precio comparativo, código de barras, nombre o categoría).")
+    # El multiplicador del canal tiene que ser un número sano: un 0 pondría
+    # todo gratis en la tienda y un valor enorme sería un dedazo.
+    if not es_multiplicador_valido(sub.price_multiplier):
+        raise HTTPException(
+            status_code=400,
+            detail=f"El multiplicador de precio debe ser mayor que 0 y hasta {MULTIPLICADOR_MAX:g} "
+                   f"(usá 1 para enviar la columna tal cual).",
+        )
     # Guardián: la misma columna de la Maestra no puede alimentar dos campos
     # distintos de Shopify (ej. mandar la columna de precio también como stock
     # escribiría el precio como cantidad de inventario en la tienda).
@@ -81,6 +90,7 @@ def _apply_payload(db_sub: models.ShopifySubscription, sub: schemas.ShopifySubsc
     db_sub.barcode_column_master = sub.barcode_column_master
     db_sub.title_column_master = sub.title_column_master
     db_sub.product_type_column_master = sub.product_type_column_master
+    db_sub.price_multiplier = float(sub.price_multiplier)
     db_sub.location_id = sub.location_id
     db_sub.is_active = sub.is_active
 
@@ -161,8 +171,12 @@ def _get_master_context(db: Session):
 
 def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], stock_col: Optional[str],
                              compare_col: Optional[str] = None, barcode_col: Optional[str] = None,
-                             title_col: Optional[str] = None, product_type_col: Optional[str] = None) -> list:
-    """Convierte la matriz de la Maestra en updates [{sku, price?, stock?, ...}] para Shopify."""
+                             title_col: Optional[str] = None, product_type_col: Optional[str] = None,
+                             price_multiplier: float = 1.0) -> list:
+    """Convierte la matriz de la Maestra en updates [{sku, price?, stock?, ...}] para Shopify.
+
+    `price_multiplier` es el margen del canal: se aplica SOLO al precio (no al
+    precio comparativo, que suele venir ya como valor final)."""
     headers = raw[0]
     si = _header_index(headers, sku_col)
     if si < 0:
@@ -180,7 +194,7 @@ def build_updates_from_sheet(raw: list, sku_col: str, price_col: Optional[str], 
             continue
         u = {"sku": sku}
         if pi >= 0:
-            u["price"] = row[pi] if pi < len(row) else ""
+            u["price"] = aplicar_multiplicador(row[pi] if pi < len(row) else "", price_multiplier)
         if ti >= 0:
             u["stock"] = row[ti] if ti < len(row) else ""
         if ci >= 0:
@@ -218,6 +232,7 @@ def push_now(sub_id: int, dry_run: bool = True, db: Session = Depends(get_db)):
         raw, sku_column, db_sub.price_column_master, db_sub.stock_column_master,
         db_sub.compare_price_column_master, db_sub.barcode_column_master,
         db_sub.title_column_master, db_sub.product_type_column_master,
+        price_multiplier=db_sub.price_multiplier or 1.0,
     )
 
     connector = _create_connector(shop_conn)

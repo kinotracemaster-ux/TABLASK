@@ -143,7 +143,27 @@ for _col_sql in (
     except Exception as e:
         print(f"Migración file_updated_at omitida:", e)
 
+# Multiplicador de precio por destino Shopify (precio base × multiplicador del
+# canal). Default 1.0 = comportamiento de siempre.
+for _col_sql in (
+    "ALTER TABLE shopify_subscriptions ADD COLUMN price_multiplier FLOAT DEFAULT 1.0",
+):
+    try:
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            conn.execute(text(_col_sql))
+            conn.commit()
+    except Exception as e:
+        print("Migración price_multiplier omitida:", e)
+
 app = FastAPI(title="Actualizar Tablas K API")
+
+# Clave de acceso (backend/auth.py). Se agrega ANTES que el CORS a propósito:
+# en Starlette el último middleware agregado queda por FUERA, así que de este
+# modo el CORS envuelve al de la clave y los 401/503 también salen con las
+# cabeceras CORS (si no, el navegador en desarrollo no vería el error real).
+from .auth import auth_middleware
+app.middleware("http")(auth_middleware)
 
 # CORS
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
@@ -287,6 +307,8 @@ _backfill_export_tokens()
 # ═══════════════════════════════════════════════════════════════════
 
 from .routers import logs, staging, connections, processes, intake, subscriptions, intelligence, shopify_sync, shopify_master_sync, shopify_subscriptions, api_subscriptions, pipeline, schedule
+from .auth import router as auth_router
+app.include_router(auth_router)
 app.include_router(logs.router)
 app.include_router(api_subscriptions.router)
 app.include_router(staging.router)
