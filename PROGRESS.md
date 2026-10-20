@@ -24,12 +24,12 @@
   pausarlos/borrarlos a mano desde Flujos (ver "Próximos pasos").
 
 ## En progreso
-- **Clave de acceso + multiplicador por canal (oct 2026), PR abierto:** cierra la
-  app (hoy está en internet sin clave) y permite que cada destino Shopify mande
-  `precio base × su multiplicador`. **Antes de fusionar hay que crear la variable
-  `TABLASK_PASSWORD` en Railway**, o la API responde 503.
-- **Revisión diaria (oct 2026), PR #67 abierto, sin fusionar:** modo "Revisar y
-  avisar" del piloto + panel en Mis Flujos + `herramientas/subir_excel/`.
+> Railway tuvo una caída global de builds el 20 oct; al volver hubo que
+> fusionar y, si el deploy no arranca solo, darle Redeploy a mano.
+- **#67 Revisión diaria:** el piloto revisa y avisa antes de tocar la web.
+  Abierto, sin fusionar.
+- **#69 Entrada desde Drive:** conector de carpeta; se toma el archivo más
+  reciente, sin subir nada a mano. Abierto, sin fusionar.
 
 ## Próximos pasos
 - Tras fusionar la clave: **rotar las credenciales de Shopify y de Google** que
@@ -59,6 +59,9 @@
 ## Decisiones tomadas
 > Una línea por decisión + de qué se trata. El porqué y el detalle técnico
 > (archivos, tests) viven en MEMORIA_PROYECTO.md §3.
+- **Carpeta de Drive como origen (oct 2026):** se toma el archivo MÁS RECIENTE,
+  no uno con nombre fijo, para que subir el archivo del día no requiera
+  reconfigurar nada. Los `.md` y los `~$` de Excel abierto no cuentan.
 - **Clave de acceso (oct 2026):** toda la API pide `TABLASK_PASSWORD` por header.
   Falla cerrada si no está configurada. Siguen abiertas solo las rutas que ya
   tenían su propio token (descarga CSV por canal e intake de apps conectadas).

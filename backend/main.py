@@ -96,6 +96,18 @@ for _col_sql in (
     except Exception as e:
         print(f"Migración omitida ({_col_sql.split('ADD COLUMN ')[1]}):", e)
 
+# Carpeta de Google Drive como origen (se toma el archivo más reciente).
+for _col_sql in (
+    "ALTER TABLE connections ADD COLUMN drive_folder_id VARCHAR",
+):
+    try:
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            conn.execute(text(_col_sql))
+            conn.commit()
+    except Exception as e:
+        print("Migración drive_folder_id omitida:", e)
+
 # Columnas Shopify (una conexión por tienda; cada ALTER en su propia transacción
 # para que si una columna ya existe no aborte la creación de las demás).
 for _col_sql in (

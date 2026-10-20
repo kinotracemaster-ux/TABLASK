@@ -93,6 +93,7 @@ def _create_connector(connection):
         "file_path": connection.file_path,
         "file_content": getattr(connection, "file_content", None),
         "file_name": connection.file_path,
+        "drive_folder_id": getattr(connection, "drive_folder_id", None),
         "http_url": connection.http_url,
         "http_method": connection.http_method,
         "http_headers": connection.http_headers,
@@ -132,6 +133,11 @@ def get_sheet_metadata(connection):
                 df = pd.read_excel(xls, sheet_name=sheet_name, nrows=0)
                 result[sheet_name] = df.columns.tolist()
         return result
+
+    if connection.connection_type == "google_drive":
+        # El archivo vive en Drive: el conector baja el más reciente y devuelve
+        # sus hojas y columnas, igual que si se hubiera subido a mano.
+        return _create_connector(connection).metadata()
 
     if connection.connection_type == "shopify":
         # Shopify no tiene "hojas". Exponemos una pseudo-hoja "Products" con las

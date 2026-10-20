@@ -63,7 +63,7 @@ function ShopifyConnectFields({ domain, setDomain, authMode, setAuthMode, client
   );
 }
 
-const ORIGIN_CONN_TYPE = { upload: 'local_file', api: 'http_api', sheets: 'google_sheets' };
+const ORIGIN_CONN_TYPE = { upload: 'local_file', api: 'http_api', sheets: 'google_sheets', drive: 'google_drive' };
 
 /**
  * Pantalla única "Actualizar Maestra": reemplaza a los antiguos "+ Nueva
@@ -200,6 +200,7 @@ export default function UpdateMaster() {
   const [showAdvancedOrigin, setShowAdvancedOrigin] = useState(false); // revela Google Sheet
   const [sourceName, setSourceName] = useState('');
   const [sheetUrl, setSheetUrl] = useState('');
+  const [driveFolder, setDriveFolder] = useState('');
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState('');
   const [fileDragActive, setFileDragActive] = useState(false);
@@ -267,6 +268,18 @@ export default function UpdateMaster() {
           body: JSON.stringify({
             name: sourceName || 'Nueva fuente', connection_type: 'http_api',
             http_url: apiUrl, http_method: apiMethod, http_headers: apiHeaders || null,
+          }),
+        });
+        if (!res.ok) throw new Error(await extractError(res));
+        conn = await res.json();
+        setConnections(prev => [...prev, conn]);
+      } else if (originType === 'drive') {
+        if (!driveFolder) { alert('Falta el link de la carpeta de Drive.'); setCreatingSource(false); return; }
+        const res = await fetch(`${API}/api/connections/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: sourceName || 'Carpeta de Drive', connection_type: 'google_drive', drive_folder_id: driveFolder,
           }),
         });
         if (!res.ok) throw new Error(await extractError(res));
@@ -890,13 +903,19 @@ export default function UpdateMaster() {
 
           {!showAdvancedOrigin ? (
             <button type="button" onClick={() => setShowAdvancedOrigin(true)}
-              className="text-xs text-gray-500 hover:underline mb-4">más opciones (Google Sheet)</button>
+              className="text-xs text-gray-500 hover:underline mb-4">más opciones (Google Sheet · carpeta de Drive)</button>
           ) : (
             <div className="mb-4">
-              <button type="button" onClick={() => pickOriginType('sheets')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${originType === 'sheets' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-                <Link2 className="w-3.5 h-3.5" /> Google Sheet
-              </button>
+              <div className="flex gap-2 flex-wrap">
+                <button type="button" onClick={() => pickOriginType('sheets')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${originType === 'sheets' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                  <Link2 className="w-3.5 h-3.5" /> Google Sheet
+                </button>
+                <button type="button" onClick={() => pickOriginType('drive')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${originType === 'drive' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                  <Link2 className="w-3.5 h-3.5" /> Carpeta de Drive
+                </button>
+              </div>
             </div>
           )}
 
@@ -984,6 +1003,19 @@ export default function UpdateMaster() {
                 <textarea value={apiHeaders} onChange={e => setApiHeaders(e.target.value)}
                   placeholder='Headers (JSON opcional), ej: {"Authorization": "Bearer TOKEN"}'
                   rows={2} className="w-full border border-gray-300 rounded-lg p-2 text-sm font-mono" />
+              </div>
+            )}
+
+            {!existingConnId && originType === 'drive' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Link de la carpeta de Drive</label>
+                <input value={driveFolder} onChange={e => setDriveFolder(e.target.value)} required
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm" />
+                <p className="text-xs text-gray-500 mt-1">
+                  En cada corrida se toma el archivo <strong>más reciente</strong> de la carpeta (.xlsx, .xls o .csv).
+                  Compartí la carpeta con el correo de la cuenta de servicio de Google, el mismo que lee la Maestra.
+                </p>
               </div>
             )}
 

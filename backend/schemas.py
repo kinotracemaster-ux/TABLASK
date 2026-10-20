@@ -22,6 +22,8 @@ class ConnectionBase(BaseModel):
     connection_type: str = "google_sheets"
     google_sheet_url: Optional[str] = None
     file_path: Optional[str] = None
+    # Carpeta de Drive: se usa el archivo más reciente que haya adentro.
+    drive_folder_id: Optional[str] = None
     http_url: Optional[str] = None
     http_method: str = "GET"
     http_headers: Optional[str] = None

@@ -20,7 +20,7 @@ final. Si una feature complica el uso, no va.
   - `routers/` — endpoints por dominio (connections, intake, pipeline, schedule, shopify_*, staging…)
   - `services.py` — motor de sync (`_compute_master_sync`, `normalize_sku_for_match`, `get_sheet_data`)
   - `models.py` / `schemas.py` — SQLAlchemy / Pydantic
-  - `connectors/` — `google_sheets.py`, `local_file.py`, `http_api.py`, `shopify.py` (base común en `base.py`)
+  - `connectors/` — `google_sheets.py`, `local_file.py`, `google_drive.py`, `http_api.py`, `shopify.py` (base común en `base.py`)
   - `auth.py` — clave de acceso de la API (`TABLASK_PASSWORD`, header `X-TablasK-Key`)
   - `pricing.py` — multiplicador de precio por canal (precio base × margen del canal)
   - `lavadero.py` — limpieza/validación por campo en el intake
@@ -68,6 +68,10 @@ pytest -q
   por el túnel real) → Maestra → cada canal sale por API (`ApiSubscription`, diff
   quirúrgico) o archivo (CSV con link fijo `?token=`). El túnel (Lavadero → Guardián →
   escritura quirúrgica) es el mismo venga de donde venga.
+- **Carpeta de Drive como origen** (`connectors/google_drive.py`): la conexión guarda
+  `drive_folder_id` y en cada corrida se toma el archivo **más reciente** de adentro
+  (.xlsx/.xls/.csv). Ignora los `.md` y los temporales `~$` de Excel abierto. El
+  parseo lo delega en `LocalFileConnector` — no duplicar ese lector.
 - **El Guardián** decide por PARECIDO, no por % de coherencia a secas: un SKU nuevo
   casi-idéntico a uno ya existente (`NEAR_DUP_RATIO`, `services.py`) es "formato
   roto" y bloquea (manual) o salta (automático, log `AUTO_SYNC_SKIP`); un SKU nuevo

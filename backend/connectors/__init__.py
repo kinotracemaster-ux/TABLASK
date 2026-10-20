@@ -4,6 +4,7 @@ from .google_sheets import GoogleSheetsConnector
 from .local_file import LocalFileConnector
 from .http_api import HttpApiConnector
 from .shopify import ShopifyConnector
+from .google_drive import GoogleDriveConnector
 
 def get_connector(connection_type: str, config: Dict[str, Any]) -> BaseConnector:
     """
@@ -17,5 +18,7 @@ def get_connector(connection_type: str, config: Dict[str, Any]) -> BaseConnector
         return HttpApiConnector(config)
     elif connection_type == "shopify":
         return ShopifyConnector(config)
+    elif connection_type == "google_drive":
+        return GoogleDriveConnector(config)
     else:
         raise ValueError(f"Tipo de conexión no soportado: {connection_type}")
