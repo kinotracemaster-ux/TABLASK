@@ -11,6 +11,17 @@ router = APIRouter(
     tags=["connections"],
 )
 
+def _solo_id_de_carpeta(valor):
+    """Acepta el id pelado o el link completo de la carpeta, que es lo que uno
+    copia del navegador: .../folders/<id>?usp=sharing → <id>."""
+    if not valor:
+        return None
+    texto = str(valor).strip()
+    if "/folders/" in texto:
+        texto = texto.split("/folders/", 1)[1]
+    return texto.split("?")[0].split("/")[0].strip() or None
+
+
 @router.post("/", response_model=schemas.Connection)
 def create_connection(conn: schemas.ConnectionCreate, db: Session = Depends(get_db)):
     spreadsheet_id = None
@@ -26,6 +37,7 @@ def create_connection(conn: schemas.ConnectionCreate, db: Session = Depends(get_
         spreadsheet_id=spreadsheet_id,
         connection_type=conn.connection_type,
         file_path=conn.file_path,
+        drive_folder_id=_solo_id_de_carpeta(conn.drive_folder_id),
         http_url=conn.http_url,
         http_method=conn.http_method,
         http_headers=conn.http_headers,

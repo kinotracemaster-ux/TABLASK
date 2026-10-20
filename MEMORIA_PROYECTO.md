@@ -136,6 +136,14 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   - **`ShopifySubscription.price_multiplier`** (Float, default 1.0, auto-migración en `main.py`). Se aplica en los dos lugares donde se arman los updates: `propagation.build_shopify_updates` (diff automático tras cada sync) y `routers/shopify_subscriptions.build_updates_from_sheet` ("Enviar ahora", Maestra completa). También en el push directo `POST /api/shopify/push` (`price_multiplier` en el request).
   - **Solo afecta al precio**, no al stock ni al precio comparativo (este último suele venir ya como valor final). Default 1.0 = comportamiento idéntico al anterior, así que ningún destino ya configurado cambia de conducta.
   - **UI:** campo en `ShopifyFieldMapper.jsx` (componente compartido), visible solo cuando el destino está enviando el precio; cableado en los dos puntos de entrada que quedan (`Flujos.jsx` modal de edición y `UpdateMaster.jsx`). Tests: `tests/test_price_multiplier.py`.
+* **Carpeta de Google Drive como origen (oct 2026).** Cierra el pedido de Kino: "subo el archivo a la carpeta y el sistema actualiza". Antes había que entrar a la app y subir el archivo a mano en cada corrida.
+  - **`backend/connectors/google_drive.py`** (`connection_type="google_drive"`): la conexión guarda `drive_folder_id` y en cada lectura se toma el archivo **MÁS RECIENTE** de la carpeta. Se eligió "el más reciente" en vez de "el que se llame X" para que Kino pueda subir `BASE-SYS 20-oct.xlsx` y al otro día `BASE-SYS 21-oct.xlsx` sin tocar la configuración.
+  - **Filtro `es_archivo_fuente`:** solo .xlsx/.xls/.csv. Deja afuera los `.md` del proyecto (que viven en esa misma carpeta: AVANCES, el proceso y el informe) y los temporales `~$...` que Excel crea mientras el archivo está abierto — los dos casos son MÁS NUEVOS que el archivo de verdad y se llevarían el puesto de "el más reciente". Hay tests para los dos.
+  - **El parseo se delega en `LocalFileConnector`** (se le pasan los bytes bajados): así el archivo que llega por Drive y el que se sube a mano se comportan idéntico, incluido el arreglo de los SKU que Excel guarda como fecha (`9051-3`). Duplicar ese lector era garantía de que se desincronizaran.
+  - **Credenciales:** la misma cuenta de servicio que ya lee la Maestra, con scope `drive.readonly` propio del conector (no se tocó el `SCOPES` de `services.py`). Requiere que la carpeta esté compartida con el correo de la cuenta y la API de Drive habilitada.
+  - **Red aislada en dos métodos** (`listar_archivos`, `descargar`) para poder probar todo sin red; el archivo bajado se cachea por instancia, así leer las hojas y después los datos no lo baja dos veces (hay test).
+  - `_solo_id_de_carpeta` en `routers/connections.py` acepta el link tal cual se copia del navegador (`.../folders/<id>?usp=sharing`) o el id pelado.
+  - Rama propia en `services.get_sheet_metadata` y opción "Carpeta de Drive" en el selector de origen de `UpdateMaster.jsx` (detrás de "más opciones", al lado de Google Sheet). Tests: `tests/test_google_drive_connector.py`.
 
 ## 4. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):
@@ -169,7 +177,7 @@ Se discutieron y se marcaron explícitamente como "fuera de scope" (no implement
 * No guardar tokens/credenciales dentro del repo ni en la URL del remoto.
 
 ---
-*Última actualización: 20 de Octubre de 2026 (sección 3: clave de acceso de la app y multiplicador de precio por canal). Anterior: 15 de Septiembre de 2026 (sección 3 ampliada: fix de aviso de
+*Última actualización: 20 de Octubre de 2026 (sección 3: clave de acceso de la app, multiplicador de precio por canal y carpeta de Drive como origen). Anterior: 15 de Septiembre de 2026 (sección 3 ampliada: fix de aviso de
 ubicación Shopify + cache de token por secret, fix de Guardián bloqueando altas
 legítimas de una referencia existente + `add_new_rows` que no hacía nada; sección 6
 (Git) corregida para reflejar el flujo real con Claude Code on the web (rama `claude/*`

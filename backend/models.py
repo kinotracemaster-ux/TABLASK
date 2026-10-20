@@ -31,6 +31,10 @@ class Connection(Base):
     # en "Correr flujo" si conviene reemplazarlo por uno más nuevo antes de sincronizar.
     file_updated_at = Column(DateTime, nullable=True)
 
+    # Carpeta de Google Drive: en cada corrida se toma el archivo MÁS RECIENTE
+    # que haya adentro, así no hay que subir nada a mano en la app.
+    drive_folder_id = Column(String, nullable=True)
+
     # Campos para HTTP API
     http_url = Column(String, nullable=True)
     http_method = Column(String, default="GET")
