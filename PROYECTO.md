@@ -70,7 +70,9 @@ Fuera de TablasK pero del mismo objetivo:
    client id + secret) con permisos `read_products`, `write_products`,
    `read_inventory`, `write_inventory`, `read_locations`. Lo pega el usuario en
    la app, **nunca por chat**. Hoy la única conexión Shopify es
-   `ii1apd-ws.myshopify.com`, que **no** es la tienda de Poedagar.
+   `ii1apd-ws.myshopify.com`, que **no** es la tienda de Poedagar. Se pega en
+   **Actualizar Maestra → Destino Shopify → "+ Conectar otra tienda"** (botón
+   agregado en oct-21; antes la UI solo dejaba conectar la primera tienda).
 
 **Configuración en producción (no requiere código):**
 2. Crear el destino **Shopi-Poe** con multiplicador **2,8** (y Shopi-Kino).
