@@ -1,8 +1,9 @@
 # CLAUDE.md — TablasK
 
 Guía corta para trabajar en este repo sin re-explorar cada sesión.
-Se carga en **cada turno**: mantenerla ≤ ~100 líneas. La arquitectura profunda
-vive en `MEMORIA_PROYECTO.md` (leerla solo cuando la tarea toque el motor).
+Se carga en **cada turno**: mantenerla ≤ ~100 líneas. Todo lo demás (estado,
+pendientes, historial de chats y arquitectura profunda) vive en **un solo MD:
+`PROYECTO.md`**. No crear otros MD de proyecto.
 
 ## Qué es
 Sincronizador de catálogos. Cruza fuentes (Google Sheets / CSV-Excel / API HTTP /
@@ -110,5 +111,7 @@ Railway con Nixpacks (`nixpacks.toml` / `railway.toml`). Un solo worker uvicorn
 sirve el backend; el frontend se compila en el build. Ver `README.md`.
 
 ## Estado del proyecto
-Se lee al inicio y se actualiza al cierre de cada sesión.
-@./PROGRESS.md
+Al inicio de cada sesión leer la **Parte 1 de `PROYECTO.md`** (§0–§3: qué se hizo,
+qué falta, índice de chats). La Parte 2 (§4–§9, arquitectura e historial del
+motor) solo cuando la tarea toque el motor. Al cierre: actualizar §1–§2 y, si hubo
+feature nueva, su detalle en §6.

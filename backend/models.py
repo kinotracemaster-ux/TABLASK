@@ -77,7 +77,7 @@ class Project(Base):
 # NOTA: SourceTable, TargetTable, FieldMapping, SyncRule y SyncLog (arquitectura
 # vieja per-proyecto) se retiraron en jul 2026: no tenían ningún uso en el flujo
 # real Base→Master→Distribución. Sus tablas quedan huérfanas en Postgres pero no
-# estorban (no se crean nuevas en SQLite nuevo). Ver MEMORIA_PROYECTO §6.
+# estorban (no se crean nuevas en SQLite nuevo). Ver PROYECTO.md §9.
 
 class ExportFormat(Base):
     """Plantilla de salida a CSV: define las columnas de salida y cómo se generan

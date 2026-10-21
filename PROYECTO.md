@@ -1,27 +1,179 @@
-# Contexto y Memoria del Proyecto: TablasK
+# PROYECTO — TablasK · Maestra + inventario Shopify Poedagar
 
-Este documento sirve como **memoria central** del proyecto. Contiene la arquitectura, la filosofía de diseño y el estado actual del desarrollo. 
-
-## 🤖 PROTOCOLO DE INICIO (Para la IA)
-**Para el arranque rápido de cada sesión usa `CLAUDE.md` (estructura, comandos y reglas duras); se carga solo y es corto.** Lee este documento (`MEMORIA_PROYECTO.md`) **bajo demanda**, cuando la tarea toque el motor, la arquitectura o el historial de decisiones —no en cada sesión, porque es largo y encarece el contexto. Antes de un cambio arquitectónico o de reescribir el motor, léelo completo.
+> **Documento único del proyecto.** Reemplaza a `PROGRESS.md` y
+> `MEMORIA_PROYECTO.md` (y a los resúmenes sueltos de cada chat). Todo lo que se
+> hizo con Claude sobre la Tabla Maestra, la subida/inventario a Shopify y la
+> actualización de la web de Poedagar vive acá.
+>
+> - **Parte 1 (§0–§3):** estado, qué se hizo, qué falta, índice de chats. Corta:
+>   leerla al inicio de cada sesión.
+> - **Parte 2 (§4–§9):** arquitectura e historial técnico del motor. Leerla solo
+>   cuando la tarea toque el motor.
+>
+> Cierre de sesión: actualizar §0–§2 (corto) y, si hubo feature nueva, su detalle
+> en §6. No crear MD nuevos: todo va en este archivo.
+>
+> Última actualización: 2026-10-21
 
 ---
 
-## 1. Filosofía y Arquitectura Core
+# PARTE 1 — Estado del proyecto
+
+## §0. Qué es y para qué
+TablasK cruza las fuentes de inventario (archivo del SYS / BASE, Excel, carpeta de
+Drive, Google Sheets, API, Shopify) hacia una **Tabla Maestra en Google Sheets**,
+usando el **SKU** como llave, y desde ahí actualiza los canales: **Shopi-Poe** (web
+Poedagar), **Shopi-Kino**, Kyte, Effi y CSV. Objetivo concreto de hoy: **que el
+inventario y los precios de los productos POEDAGAR en Shopify se actualicen solos
+desde el archivo del SYS**, con revisión diaria antes de tocar la web.
+
+App en Railway (backend FastAPI + frontend React). Repo: `kinotracemaster-ux/TABLASK`.
+
+## §1. Mini resumen — lo que ya está hecho
+Todo fusionado en `main` y desplegado (PR #1 … #69):
+
+- **Motor Fuente → Maestra** (jun–jul): cruce por SKU normalizado, escritura
+  celda por celda, Lavadero (limpia precio/stock/nombre), Guardián (frena SKUs
+  con formato roto), staging con vista previa antes de escribir.
+- **Subida Maestra → Shopify** (jul–sep): actualiza precio, stock, precio
+  comparativo, código de barras, nombre y categoría de productos **existentes**
+  (nunca crea productos). Vista previa con detalle SKU por SKU. Conflictos entre
+  variantes de color resueltos por la variante principal ("-1").
+- **Bajada Shopify → Maestra**: plan de emergencia cuando falta el archivo BASE.
+- **Una tienda = un destino** (dedup, #46): fin de los destinos duplicados que
+  corrompían el stock. Verificado 20-oct: hoy no queda ningún duplicado.
+- **"Actualizar Maestra" en una sola pantalla** (#60–#63): subir archivo →
+  Maestra → Shopify, sin obligar a guardar un flujo.
+- **Fixes Shopify** (#64–#66): aviso falso de ubicación, token cacheado por
+  secret, Guardián que bloqueaba altas legítimas, `add_new_rows` sin efecto.
+- **Octubre** (#67–#69):
+  - **Revisión diaria**: el piloto calcula Fuentes → Maestra → Shopify sin
+    escribir, avisa, y al aprobar aplica solo lo revisado.
+  - **Clave de acceso** (`TABLASK_PASSWORD`): **ya activa en Railway**
+    (verificado 20-oct: 401 sin clave, 200 con clave).
+  - **Multiplicador de precio por canal** (web Poedagar = base × 2,8).
+  - **Carpeta de Drive como origen**: toma siempre el archivo más reciente.
+- **Script del PC** `herramientas/subir_excel/` (instrucciones en su `LEEME.md`) para subir el Excel
+  del día antes de la revisión.
+
+Fuera de TablasK pero del mismo objetivo:
+- `INVENTARIO-RAPIDO-K`: arreglado el lector de precios del archivo SYS
+  (9.993 ítems, 3.133 con stock). Revisar en Kyte/Shopify si quedó algo
+  subido con precio $0 antes del fix.
+- `Auto-Catalogo-K`: links de fotos de Drive en el catálogo PDF/web (#6, #8).
+- `PLANTILLA-WEB-POEDAGAR` (tema de la web): limpieza de "warehouse" hecha en
+  rama, **sin PR**.
+
+## §2. Lo que falta (en orden)
+**Bloqueante — sin esto nada se actualiza en la web de Poedagar:**
+1. **Token de la app de Shopify de la tienda Poedagar** (Dev Dashboard,
+   client id + secret) con permisos `read_products`, `write_products`,
+   `read_inventory`, `write_inventory`, `read_locations`. Lo pega el usuario en
+   la app, **nunca por chat**. Hoy la única conexión Shopify es
+   `ii1apd-ws.myshopify.com`, que **no** es la tienda de Poedagar.
+
+**Configuración en producción (no requiere código):**
+2. Crear el destino **Shopi-Poe** con multiplicador **2,8** (y Shopi-Kino).
+3. Crear el proceso Fuente → Maestra con el archivo del SYS
+   (`INVENTARIO_POEDAGAR`, ~621 filas): `Artículo`→SKU, `Descripción`→nombre,
+   `Exist. unidades`→stock, `Precio`→precio base. Precio y stock llegan como
+   texto (`"45,000.00"`, `"2.00"`): los limpia el Lavadero.
+4. Borrar las Fuentes repetidas `EXISTENCIAS POEDAGAR (2).xlsx` (ids 57/58/59,
+   dejar una).
+5. Carpeta de Drive: compartirla con la cuenta de servicio de Google, habilitar
+   la API de Drive y conectarla como origen.
+6. Activar la **Revisión diaria** (Revisar y avisar · 7:00 a. m. · Shopi-Kino +
+   Shopi-Poe), programar `herramientas/subir_excel/` en el PC y pasar el link
+   del auditor a la tarea de Claude.
+
+**Seguridad:**
+7. Rotar credenciales de Shopify y de Google (estuvieron expuestas mientras la
+   app estuvo abierta sin clave).
+
+**Mejoras pendientes (código):**
+- UI: aviso "posible formato de SKU roto" cuando el preview trae
+  `new_rows_look_broken=True` (backend listo, frontend sin usar).
+- UI: filtrar/resaltar en la Maestra los productos con `estado = NUEVO`.
+- Anti-sobreventa (descontar por venta confirmada) y precio manual vs.
+  automático por canal: ideas de `MEJORAS_TABLASK.md` (ese archivo nunca llegó
+  al repo; las referencias a él en la Parte 2 quedan como históricas).
+- Llenar los campos de enriquecimiento de la Maestra (color, descripción,
+  categoría…).
+- Proyecto "Actualización web Poedagar": cola de pendientes para que el agente
+  resuelva solo las excepciones.
+
+**Verificaciones en producción pendientes:**
+- Correr una sync real con altas de una referencia existente (ej. color nuevo)
+  y confirmar que el Guardián ya no saltea el lote.
+- Probar "Actualizar Maestra" con credenciales reales de Google Sheets.
+
+**Ramas viejas sin fusionar** (decidir si se rescatan o se borran; todo lo
+importante ya está en `main`): `subir-repo-descomprimido` (plantilla BASE-SYS →
+stock de un clic), `destination-sheet-config` (destino configurable por flujo),
+`productos-actualizados-archivo` (rechazar dominio propio en vez del admin de
+Shopify), `new-session-rppfx6` (reemplazar archivo de una fuente — ya cubierto
+por "cambiar archivo"). PR #70 (`estado-oct20`) queda absorbido por este
+documento y se puede cerrar.
+
+### Decisiones tomadas (no re-discutir)
+- La Maestra vive en Google Sheets, nunca en Postgres.
+- Nunca se crean productos en Shopify; los SKUs que no cruzan se reportan.
+- Dos módulos Shopify a propósito: bajada = emergencia, subida = flujo normal.
+- Carpeta de Drive: se toma el archivo **más reciente**, no uno con nombre fijo.
+- Revisión diaria elegida por el usuario: revisar y reportar, 1 vez al día,
+  Shopi-Kino + Shopi-Poe + Maestra.
+- Limpiar duplicados viejos a mano, no por código: elegir "el bueno" es
+  decisión humana.
+
+## §3. Índice de chats (sesiones de Claude) unificados aquí
+Todos los chats sobre la Maestra / Shopify / Poedagar quedan resumidos en este
+documento; no hace falta volver a abrirlos. Lo más reciente primero.
+
+| Fecha | Chat | Resultado |
+|---|---|---|
+| 2026-10-21 | Unificar proyecto Claude y Shopify | Este documento |
+| 2026-10-19/20 | Conversación de claude.ai (proyecto) | Clave verificada; nada configurado para Poedagar; falta token Shopify; PR #70 |
+| 2026-10 | Revisión diaria / clave + multiplicador / Drive | PR #67, #68, #69 fusionados |
+| 2026-09-25 | Generador de links del Drive (Auto-Catalogo-K) | PR #8 fusionado |
+| 2026-09-22 | Generar Drive / Configurar DRIVE_FOLDER_ID (Auto-Catalogo-K) | PR #6; falta `GOOGLE_SERVICE_ACCOUNT_JSON` en ese servicio |
+| 2026-09-21 | Optimizar tokens (INVENTARIO-RAPIDO-K) | Fix precios del archivo SYS |
+| 2026-09-15 | Error GraphQL Shopify 401 | Fix Guardián + add_new_rows (#66) |
+| 2026-09-12 | Nombre producto no aparece en descripción | Quedó la duda: ¿renombrar `ii1apd-ws` o multi-tienda? → resuelto: falta la tienda Poedagar (§2.1) |
+| 2026-09-04 | Conexión tabla maestra Shopify | "Actualizar Maestra" sin guardar flujo (#63) |
+| 2026-09-03 | Colores al cambiar nombre de variante | Detalle completo en preview (#62), variante principal (#58–#59) |
+| 2026-09-02 | Campos actualizables en Shopify | Mapeo de campos dinámico (#57) |
+| 2026-09-01 | (sin título) | Duda: SKUs con guion sobrante — ¿tolerarlo en la normalización? (abierta) |
+| 2026-08-31 | Productos actualizados no en archivo | Rama sin fusionar (dominio propio) |
+| 2026-08-27 | Actualización de inventario con precio | Dedup de destinos Shopify (#46) |
+| 2026-08-24/25 | Contexto completo / Volvemos al proyecto | Fix SKU case-insensitive en push |
+| 2026-08-14 | Proceso de subida de archivo Poe-Shopi | Campos configurables; faltaba scope `read_locations` |
+| 2026-07-31 | Configuración de hoja de destino | Rama sin fusionar |
+| 2026-07-27 | Subir repo descomprimido | Plantilla BASE-SYS → stock (rama sin fusionar) |
+| 2026-07-24/27 | Warehouse tema / Eliminar warehouse (PLANTILLA-WEB-POEDAGAR) | Rama sin PR |
+| 2026-07-22/24 | Flujo Maestra→Shopify / Flujo centralizado / Seleccionar hoja | Elegir hoja de la Maestra en ambos extremos |
+| 2026-07-10 | SYS file upload / Shopify admin config / TEMA_POEDAGAR | UX de subida (#20); acceso a la org POEDAGARCOLOMBIA |
+| 2026-07-06/08 | Imágenes por color / New session | Primeros tests (#16), reemplazar archivo de fuente |
+| 2026-06-18/30 | App review / Project revision / Integración Shopify | Arranque: deploy Railway, conector Shopify, maestra por defecto |
+
+---
+
+# PARTE 2 — Arquitectura e historial técnico
+
+## §4. Filosofía y Arquitectura Core
 * **Google Sheets como Base de Datos Maestra:** La "Tabla Maestra" vive EXCLUSIVAMENTE en la nube (Google Sheets). Los datos duros (celdas, filas) NO se guardan en la base de datos PostgreSQL de la aplicación. Esto permite al usuario editar la información manualmente en Google Sheets en cualquier momento sin desincronizar la aplicación.
 * **PostgreSQL (Railway) como Configuración:** La base de datos de la app solo guarda metadatos y configuraciones: Conexiones (URLs de Google Sheets), Procesos de importación (Mapeo de columnas) y Formatos de Salida (Exportaciones).
 * **El SKU es la Llave Universal:** Todo el sistema cruza información utilizando una columna "llave" única (generalmente el SKU). El nombre de esta columna puede variar en los orígenes, pero su contenido dicta cómo se fusiona la información.
 
-## 2. Flujo de Trabajo (El "Motor")
-El motor de datos son 4 pilares (Conexiones, Procesos, Tabla Maestra, Distribución/Suscripciones), pero **la interfaz (React) ya NO expone esas 4 pantallas por separado** (ver §3.1: simplificación de julio 2026). De cara al usuario todo pasa por:
+## §5. Flujo de Trabajo (El "Motor")
+El motor de datos son 4 pilares (Conexiones, Procesos, Tabla Maestra, Distribución/Suscripciones), pero **la interfaz (React) ya NO expone esas 4 pantallas por separado** (ver §6.1: simplificación de julio 2026). De cara al usuario todo pasa por:
 1. **"+ Nueva Fuente"** (`SourceWizard.jsx`, 3 pasos: Traer datos → Confirmar campos → Elegir destinos) para dar de alta una fuente y sus destinos.
-2. **"Mis Flujos"** (`Flujos.jsx`) es el centro de operación: pausar/borrar/editar Y **correr cada flujo** (ver §3, "Correr por flujo"). Cada Fuente tiene su botón "Correr flujo"; arriba hay un "Correr todo" para los activos.
+2. **"Mis Flujos"** (`Flujos.jsx`) es el centro de operación: pausar/borrar/editar Y **correr cada flujo** (ver §6, "Correr por flujo"). Cada Fuente tiene su botón "Correr flujo"; arriba hay un "Correr todo" para los activos.
 3. **"Tabla Maestra"** (home): muestra los datos y enlaza un botón "Correr flujos" que lleva a Mis Flujos. Ya NO tiene el botón global "⚡ Correr Procesos" (retirado jul 2026).
 
 Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTTP / Shopify) → un Proceso que mapea su núcleo (sku/name/price/stock) hacia la Maestra → Suscripciones (Sheets) o Exportaciones CSV o un push puntual a Shopify como destinos.
    - *Lógica de Sincronización:* Si el SKU ya existe en la Maestra, **sólo se sobreescriben** las columnas mapeadas cuyos valores hayan cambiado. Si el SKU no existe, se **añade** como una fila nueva al final.
 
-## 3. Hitos Logrados y Arquitectura Actual
+## §6. Hitos Logrados y Arquitectura Actual
 * **Motor "Acumulador Inteligente":** Cada origen externo aporta solo la información de sus columnas mapeadas a una Maestra centralizada. Los valores no mapeados se conservan intactos.
 * **El Guardián y StagingBatch (Paso Intermedio Seguros):** Ningún cambio se escribe automáticamente en la base de datos de Google Sheets sin pasar por una cuarentena temporal (`StagingBatch`). 
    - Los batches expiran a los 30 minutos para evitar escrituras basadas en datos obsoletos de origen.
@@ -42,7 +194,7 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   - API vieja per-proyecto de Tabla Maestra (`/api/projects/{id}/master*`, `/api/sync/*`, `/api/run-all`, `sync_engine.py`) — duplicaba la API global (`/api/master`, `/api/master-columns`, `/api/master/sync-reflection`) que sí usa el frontend.
   - `POST /api/exports/{id}/push` y la pestaña "Salidas" de `MasterTable.jsx` — el `output_type` que hubiera activado el push (`google_sheets`) nunca era creable desde la UI; quedó como código inalcanzable.
   - El flujo vigente de un solo botón es: `MasterTable.jsx` → `POST /api/processes/{id}/stage` (preview) → `POST /api/staging/execute-bulk` (escribe + dispara propagación en background).
-* **Limpieza de modelos muertos (Jul 2026, tercera pasada):** se retiraron los modelos y schemas de la arquitectura vieja per-proyecto que ya no tenían ningún uso en el flujo real: `SourceTable`, `TargetTable`, `FieldMapping`, `SyncRule`, `SyncLog` (y sus relaciones en `Project`). Los 4 conceptos vivos quedan claros: **Conexión, Fuente (`Process`), Destino (`FieldSubscription` / `ShopifySubscription` / `ExportFormat`), Log (`ExecutionLog`)**. Nota: a diferencia del plan original del MD §6, `Project` se conserva (guarda la config de la Maestra global: `master_connection_id`/`master_sheet_name`/`master_sku_column`) y `ExportFormat` dejó de estar deprecado (es el Destino CSV con plantillas §11). Las tablas huérfanas en Postgres no estorban; en una DB nueva simplemente no se crean.
+* **Limpieza de modelos muertos (Jul 2026, tercera pasada):** se retiraron los modelos y schemas de la arquitectura vieja per-proyecto que ya no tenían ningún uso en el flujo real: `SourceTable`, `TargetTable`, `FieldMapping`, `SyncRule`, `SyncLog` (y sus relaciones en `Project`). Los 4 conceptos vivos quedan claros: **Conexión, Fuente (`Process`), Destino (`FieldSubscription` / `ShopifySubscription` / `ExportFormat`), Log (`ExecutionLog`)**. Nota: a diferencia del plan original del MD §9, `Project` se conserva (guarda la config de la Maestra global: `master_connection_id`/`master_sheet_name`/`master_sku_column`) y `ExportFormat` dejó de estar deprecado (es el Destino CSV con plantillas §11). Las tablas huérfanas en Postgres no estorban; en una DB nueva simplemente no se crean.
 * **Simplificación de UI (Jul 2026, segunda pasada) — un solo asistente en vez de 4 pantallas:** se borraron `Connections.jsx`, `Processes.jsx`, `Exports.jsx`, `ShopifyPush.jsx` y los endpoints de "procesos preestablecidos" (`/api/processes/presets*`, dependían de una hoja `BASE` hardcodeada en el mismo Sheet que la Maestra). Reemplazados por:
   - **`SourceWizard.jsx`** ("+ Nueva Fuente"): 3 pasos — (1) Traer datos: conecta Google Sheet / sube CSV-Excel / conecta API HTTP / conecta Shopify (crea la `Connection` correspondiente); (2) Confirmar campos: auto-detecta hojas/columnas y sugiere SKU + mapeo contra la Maestra (reusa `intelligent_engine`), crea el `Process` ya activo; (3) Elegir destinos: agrega una Suscripción (Sheets), una Exportación CSV, o hace un push puntual a Shopify (no queda "guardado" como los otros dos: se previsualiza y se envía ahí mismo, reusa `/api/shopify/push`).
   - **`Flujos.jsx`** ("Mis Flujos"): única pantalla de gestión — lista Fuentes (Procesos), Destinos (Suscripciones + Exportaciones CSV) y Conexiones, cada una con pausar/borrar. Reemplaza la necesidad de editar desde 3 pantallas distintas.
@@ -90,7 +242,7 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
 
 * **Guardián inteligente por PARECIDO (jul-ago 2026): ya no bloquea altas nuevas por baja coherencia a secas.** Antes, si un sync cruzaba <10% de SKUs Y traía filas nuevas, se bloqueaba/saltaba directo — pero eso también frenaba altas legítimas de catálogo (SKUs genuinamente nuevos, coherencia baja porque es la primera carga). Ahora el criterio es si las filas "nuevas" **se parecen** a SKUs que ya existen en la Maestra:
   - `backend/services.py`: `NEAR_DUP_RATIO` (env `GUARDIAN_NEAR_DUP_RATIO`, default 0.85) — similitud desde la cual un SKU "nuevo" se considera casi-idéntico a uno existente (`difflib.get_close_matches` sobre SKU normalizado). `BROKEN_FORMAT_MIN` (env `GUARDIAN_BROKEN_FORMAT_MIN`, default 0.5) — fracción de "nuevos" casi-idénticos a partir de la cual se declara `new_rows_look_broken=True` (probable formato de SKU roto: mismo producto, SKU mal escrito/con sufijo).
-  - Señal expuesta en el resultado de `_compute_master_sync`: `new_rows_look_broken` / `new_rows_suspect_ratio`. Solo bloquea/salta cuando `look_broken=True`; SKUs nuevos que no se parecen a nada (altas reales) se crean aunque la coherencia general sea baja. Usado en `scheduler.py` (auto) e `routers/intake.py` (push); expuesto en el preview manual (`routers/processes.py`) para que el humano vea el aviso — **pendiente**: el frontend todavía no muestra ese aviso (ver PROGRESS.md → Próximos pasos).
+  - Señal expuesta en el resultado de `_compute_master_sync`: `new_rows_look_broken` / `new_rows_suspect_ratio`. Solo bloquea/salta cuando `look_broken=True`; SKUs nuevos que no se parecen a nada (altas reales) se crean aunque la coherencia general sea baja. Usado en `scheduler.py` (auto) e `routers/intake.py` (push); expuesto en el preview manual (`routers/processes.py`) para que el humano vea el aviso — **pendiente**: el frontend todavía no muestra ese aviso (ver PROYECTO.md (Parte 1) → Próximos pasos).
   - No cubre el caso "columna equivocada" (valores que no se parecen a nada de la Maestra): ese sigue dependiendo del preview manual (confirmación humana).
 * **Marca de altas nuevas (`estado = NUEVO`, jul-ago 2026):** al CREAR una fila nueva en la Maestra, se escribe además una columna de control (`ESTADO_COL`, env `MASTER_ESTADO_COL`, default `"estado"`) con el valor `ESTADO_NUEVO` (env `MASTER_ESTADO_NUEVO`, default `"NUEVO"`). Si la columna no existe en la hoja, se agrega al final sin tocar el resto. Así los productos recién creados por el motor no quedan "perdidos" mezclados con el resto — quedan resaltados para que el usuario los enriquezca (color/descripción/categoría) y luego les cambie el estado a mano. Efecto secundario útil: la escritura quirúrgica ahora reescribe la fila de encabezados al necesitar apendizar una columna nueva (antes quedaban columnas sin título). **Pendiente en UI:** filtrar/resaltar en `MasterTable.jsx` las filas con `estado=NUEVO` (ver Próximos pasos).
 * **Agotar faltantes / anti-stock fantasma (jul-ago 2026), flag `zero_missing_stock` por Proceso (default OFF, opt-in a propósito):** cuando está ON, los SKU que están en la Maestra pero NO llegaron en esa corrida de la fuente pasan a `stock = 0` (solo toca la columna de stock, solo si tenía valor > 0; nunca toca otras columnas ni borra la fila). Pensado para que **solo la fuente de verdad del inventario** (BASE-SYS) pueda "agotar" — si cualquier fuente parcial tuviera esto ON, vaciaría stock de productos que simplemente no vienen en ESA fuente. Resultado expuesto como `rows_zeroed`/`detail_zeroed` en `_compute_master_sync`; visible en el preview y en `scheduler.py`/`routers/intake.py`. UI: checkbox + aviso al editar un Proceso en `Flujos.jsx`.
@@ -99,13 +251,13 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
 * **Página dedicada "Archivo → Maestra → Shopify" (`FileToShopify.jsx`, ruta `/subir-shopify`, ago 2026):** simétrica a la de Bajada, agrupa en una sola pantalla con 3 tarjetas numeradas lo que antes requería pasar por el Wizard + Mis Flujos por separado: (1) Archivo → crea la Fuente (auto-detecta SKU y mapeo contra la Maestra); (2) botón "Actualizar Maestra ahora" (abre `RunFlowModal` del proceso); (3) Shopify → guarda `ShopifySubscription` + Previsualizar/Enviar. No agrega lógica de backend nueva, solo reusa endpoints existentes en un layout más directo para el caso de uso más común.
 * **Cierre "Correr ahora" en el Wizard (`SourceWizard.jsx`, ago 2026):** el Paso 3 (Elegir destinos) antes dejaba la fuente creada pero SIN correr — la Maestra no se actualizaba hasta un "Correr Procesos" manual poco visible. Ahora termina con una tarjeta "Actualizar ahora" (mini-diagrama Archivo → Maestra → Shopify + botón) que abre `RunFlowModal` sobre el proceso recién creado, cerrando el círculo completo (alta + primera corrida) en un solo lugar.
 * **`PipelineBar.jsx` interactivo (home, ago 2026):** dejó de ser solo decorativo — cada nodo (Fuente/Maestra/Destino) tiene botones que arman un deep-link `/flujos?action=&node=` y disparan la acción real ya existente en `Flujos.jsx` (Correr, Editar, Ver Maestra, Enviar). Genérico para cualquier fuente/destino, no hardcodea ningún canal particular.
-* **Push a Shopify con campos configurables (ago 2026), extiende §3 "Escritura Maestra → Shopify":** antes `ShopifySubscription` solo mandaba precio + stock. Ahora, a nivel VARIANTE, también puede mandar **precio comparativo/oferta** (`compare_price_column_master`) y **código de barras** (`barcode_column_master`) — cualquier combinación, opcionales. `push_updates` arma una sola llamada bulk con los campos activos (flags `do_compare_price`/`do_barcode`, contadores propios en el summary). Sigue sin crear productos ni tocar título/descripción/imágenes — la regla dura de §3 no cambia, solo se amplía qué campos de VARIANTE se pueden sincronizar. Auto-migración de las 2 columnas nuevas en `main.py` al arrancar. UI en 3 lugares: `FileToShopify.jsx`, el Wizard, y el modal de edición de destino en `Flujos.jsx` (antes no existía edición, solo pausar/borrar/enviar).
+* **Push a Shopify con campos configurables (ago 2026), extiende §6 "Escritura Maestra → Shopify":** antes `ShopifySubscription` solo mandaba precio + stock. Ahora, a nivel VARIANTE, también puede mandar **precio comparativo/oferta** (`compare_price_column_master`) y **código de barras** (`barcode_column_master`) — cualquier combinación, opcionales. `push_updates` arma una sola llamada bulk con los campos activos (flags `do_compare_price`/`do_barcode`, contadores propios en el summary). Sigue sin crear productos ni tocar título/descripción/imágenes — la regla dura de §6 no cambia, solo se amplía qué campos de VARIANTE se pueden sincronizar. Auto-migración de las 2 columnas nuevas en `main.py` al arrancar. UI en 3 lugares: `FileToShopify.jsx`, el Wizard, y el modal de edición de destino en `Flujos.jsx` (antes no existía edición, solo pausar/borrar/enviar).
 * **Guardián contra mapear la misma columna a dos campos de un destino Shopify (ago 2026):** `_validate_payload` en `shopify_subscriptions.py` rechaza (400) crear/editar una suscripción si dos de los cuatro campos de variante (precio/stock/precio comparativo/barcode) apuntan a la misma columna de la Maestra. Nace de un caso real: PRICE mapeado a la vez a "Precio" y "Stock" → Shopify mostró el precio como cantidad en existencias. Aplica a los 3 puntos de entrada (Wizard, `FileToShopify.jsx`, modal de Flujos) porque los tres pegan al mismo endpoint. El inventario que ya quedó corrupto en Shopify con una suscripción mal mapeada NO se recupera solo — hay que corregirlo a mano en Shopify o resincronizar desde una fuente con stock real. Tests: `tests/test_shopify_subscriptions_validation.py`.
-* **Una tienda Shopify = un solo destino guardado (dedup, ago 2026):** `saveShopSub`/`saveShopifySubscription` (los 3 puntos de entrada de arriba) hacían siempre `POST /api/shopify-subscriptions/` sin chequear si esa tienda ya tenía un destino — cada archivo nuevo dejaba OTRO `ShopifySubscription` para la misma tienda, y como `propagation.py` corre TODOS los destinos activos en cada sync, un destino viejo con mapeo peligroso seguía escribiendo aunque ya hubiera uno nuevo bien configurado. Ahora `create_shopify_subscription` (POST) busca por `connection_id` y, si ya existe, ACTUALIZA en vez de crear otra (mismo id, una sola tarjeta en Flujos); `update_shopify_subscription` (PUT) rechaza (400) si el `connection_id` recibido ya pertenece a OTRO destino. **Los duplicados creados ANTES de este fix siguen activos en la base** (no hay limpieza automática — cuál de varios es "el bueno" lo decide un humano) y hay que pausarlos/borrarlos a mano desde Flujos; ver PROGRESS.md. Tests: `tests/test_shopify_subscriptions_dedup.py`.
+* **Una tienda Shopify = un solo destino guardado (dedup, ago 2026):** `saveShopSub`/`saveShopifySubscription` (los 3 puntos de entrada de arriba) hacían siempre `POST /api/shopify-subscriptions/` sin chequear si esa tienda ya tenía un destino — cada archivo nuevo dejaba OTRO `ShopifySubscription` para la misma tienda, y como `propagation.py` corre TODOS los destinos activos en cada sync, un destino viejo con mapeo peligroso seguía escribiendo aunque ya hubiera uno nuevo bien configurado. Ahora `create_shopify_subscription` (POST) busca por `connection_id` y, si ya existe, ACTUALIZA en vez de crear otra (mismo id, una sola tarjeta en Flujos); `update_shopify_subscription` (PUT) rechaza (400) si el `connection_id` recibido ya pertenece a OTRO destino. **Los duplicados creados ANTES de este fix siguen activos en la base** (no hay limpieza automática — cuál de varios es "el bueno" lo decide un humano) y hay que pausarlos/borrarlos a mano desde Flujos; ver PROYECTO.md (Parte 1). Tests: `tests/test_shopify_subscriptions_dedup.py`.
 * **"Reemplazar archivo" en una Fuente antes de correrla (ago 2026):** cada archivo nuevo creaba una `Connection` separada — no había forma de actualizar el contenido de una ya subida, así que archivos más nuevos del mismo origen se acumulaban como Fuentes duplicadas. `POST /api/connections/{id}/replace-file` (`connections.py`) reemplaza `file_path`/`file_content`/`file_updated_at` SIN cambiar el id — el `Process` que la usa como origen sigue intacto y pasa a leer el archivo nuevo. Columna `Connection.file_updated_at` con auto-migración en `main.py`. En `Flujos.jsx`, al correr una Fuente cuyo origen es archivo local aparece un aviso no bloqueante sugiriendo reemplazarlo antes de sincronizar (con opción de continuar igual). Tests: `tests/test_connection_replace_file.py`.
-* **Separar en la vista previa los "agotados" de las actualizaciones reales del archivo (ago 2026):** con "Agotar faltantes" (§3, `zero_missing_stock`) ON, el motor mezclaba en la misma lista `changes` los cambios que sí traía el archivo con los SKU que se agotaban (`stock=0`) por NO llegar en esa fuente — el modal "Correr flujo" los mostraba juntos dentro de "Ver las N actualizaciones" sin distinción, dando la impresión de que el archivo traía productos que en realidad no traía. Cada cambio de agotado ahora se marca con `orphan_zero` (`services.py`; la escritura y propagación siguen usando la misma lista `changes`, sin cambio de comportamiento) y `RunFlowModal.jsx` los separa en su propia sección "Agotados (NO están en este archivo)".
+* **Separar en la vista previa los "agotados" de las actualizaciones reales del archivo (ago 2026):** con "Agotar faltantes" (§6, `zero_missing_stock`) ON, el motor mezclaba en la misma lista `changes` los cambios que sí traía el archivo con los SKU que se agotaban (`stock=0`) por NO llegar en esa fuente — el modal "Correr flujo" los mostraba juntos dentro de "Ver las N actualizaciones" sin distinción, dando la impresión de que el archivo traía productos que en realidad no traía. Cada cambio de agotado ahora se marca con `orphan_zero` (`services.py`; la escritura y propagación siguen usando la misma lista `changes`, sin cambio de comportamiento) y `RunFlowModal.jsx` los separa en su propia sección "Agotados (NO están en este archivo)".
 * **SKU corrompidos cuando Excel los interpreta como fecha (ago 2026):** códigos tipo `9051-3` (patrón número-guion-número corto) Excel los autodetecta como fecha "año-mes" y los guarda como datetime aunque la celda se vea igual en la planilla; `LocalFileConnector` leía xlsx/xls con pandas, que traía la celda ya convertida (`"9051-03-01 00:00:00"`) — un SKU irreconocible que no cruzaba con nada y se creaba como producto fantasma. Ahora `LocalFileConnector` lee xlsx/xls con `openpyxl` para acceder al `number_format` real de cada celda: si es fecha, reconstruye el texto que el usuario ve en Excel (`"yyyy-m"` → `"9051-3"`) en vez del datetime completo. De paso los enteros (stock/precio) ya no salen con `.0` pegado. Tests: `tests/test_local_file_excel_dates.py`.
-* **Push a Shopify de nombre y categoría, a nivel PRODUCTO (sep 2026), extiende §3 y el punto anterior "Push a Shopify con campos configurables":** hasta ahora `ShopifySubscription` solo podía mandar campos de VARIANTE (precio/stock/comparativo/barcode). El usuario pidió también actualizar nombre y categoría — campos que en Shopify viven a nivel PRODUCTO, no de variante. Se decidió (confirmado con el usuario, ver PROGRESS.md) ampliar la regla dura de §3 explícitamente para estos dos campos, dejando afuera el color (es una opción de variante — cambiarla por API puede reestructurar/duplicar variantes, mucho más riesgoso que un `productUpdate`). Nuevas columnas `title_column_master`/`product_type_column_master` en `ShopifySubscription` (auto-migración en `main.py`). `ShopifyConnector.push_updates` gana `do_title`/`do_product_type`: arma un `productUpdate` (GraphQL, `product: ProductUpdateInput!` — la API 2026-04 ya no acepta el `input: ProductInput!` viejo) por PRODUCTO (no por variante), agrupando por `product_id`. Sigue sin crear productos y sin tocar descripción/imágenes. Aplica a los 3 puntos de entrada Shopify (`SourceWizard.jsx`, `FileToShopify.jsx`, modal de edición en `Flujos.jsx`) y al push directo `/api/shopify/push` (`shopify_sync.py`, el "correr ahora" del Wizard sin guardar destino). Tests: `tests/test_shopify_push.py` (conector), `tests/test_shopify_subscription_diff.py` (diff), `tests/test_shopify_subscriptions_validation.py` (guardián de columna duplicada, ahora también entre nombre/categoría y el resto).
+* **Push a Shopify de nombre y categoría, a nivel PRODUCTO (sep 2026), extiende §6 y el punto anterior "Push a Shopify con campos configurables":** hasta ahora `ShopifySubscription` solo podía mandar campos de VARIANTE (precio/stock/comparativo/barcode). El usuario pidió también actualizar nombre y categoría — campos que en Shopify viven a nivel PRODUCTO, no de variante. Se decidió (confirmado con el usuario, ver PROYECTO.md (Parte 1)) ampliar la regla dura de §6 explícitamente para estos dos campos, dejando afuera el color (es una opción de variante — cambiarla por API puede reestructurar/duplicar variantes, mucho más riesgoso que un `productUpdate`). Nuevas columnas `title_column_master`/`product_type_column_master` en `ShopifySubscription` (auto-migración en `main.py`). `ShopifyConnector.push_updates` gana `do_title`/`do_product_type`: arma un `productUpdate` (GraphQL, `product: ProductUpdateInput!` — la API 2026-04 ya no acepta el `input: ProductInput!` viejo) por PRODUCTO (no por variante), agrupando por `product_id`. Sigue sin crear productos y sin tocar descripción/imágenes. Aplica a los 3 puntos de entrada Shopify (`SourceWizard.jsx`, `FileToShopify.jsx`, modal de edición en `Flujos.jsx`) y al push directo `/api/shopify/push` (`shopify_sync.py`, el "correr ahora" del Wizard sin guardar destino). Tests: `tests/test_shopify_push.py` (conector), `tests/test_shopify_subscription_diff.py` (diff), `tests/test_shopify_subscriptions_validation.py` (guardián de columna duplicada, ahora también entre nombre/categoría y el resto).
 * **Fix: conflicto de Nombre/Categoría entre variantes del mismo producto (sep 2026), corrige el punto anterior:** el diseño original decía "si dos SKU/variantes del mismo producto traen valores distintos, gana el último procesado" — en la práctica esto rompía el catálogo: cuando varias variantes (SKU) de un mismo producto Shopify son en realidad distintos colores/talles del mismo modelo, y la Maestra trae un nombre distinto por SKU, el push pisaba en silencio el nombre de unas variantes con el de la última procesada (reportado por el usuario como "se rompen los colores" al cambiar el nombre). Ahora `push_updates` detecta por producto, por campo (`title`/`product_type`), si los SKU matcheados piden valores DISTINTOS: si hay conflicto, NO se aplica ninguno (ni en la corrida real ni en el dry_run) — se reporta en `conflicts`/`conflicts_total` del summary. Solo se escribe cuando todas las variantes del producto piden el mismo valor. `ShopifyPushModal.jsx` muestra el aviso (rojo) y la lista expandible de SKU/campo/valor no enviado, tanto en el preview como en el resultado del envío real. Tests nuevos en `tests/test_shopify_push.py`: `test_title_conflict_between_variants_is_skipped_not_overwritten`, `test_dry_run_flags_title_conflict_between_variants`.
 * **Resolución de conflicto Nombre/Categoría por variante PRINCIPAL "-1" (sep 2026), refina el punto anterior:** bloquear TODO conflicto era más estricto de lo necesario — el usuario aclaró la convención real del catálogo: las variantes de una misma referencia comparten el código antes del último "-N" (ya usado por `sku_reference_base` para sugerencias de enriquecimiento) y la variante "-1" (ej. "3076-1" entre "3076-1".."3076-6") es la PRINCIPAL — su nombre es el que debe representar al producto. Nuevo helper `sku_utils.is_primary_variant_sku(sku)` (regex `-1$` sobre el SKU normalizado). `ShopifyConnector.push_updates` ahora, ante valores distintos para el mismo campo/producto: si puede identificar una única variante principal entre las que difieren, aplica SU valor (las demás se ignoran, expuestas en `ignored_secondary`/`ignored_secondary_total` para transparencia, no bloquean el envío); solo si ninguna es "-1" (o ambigüedad) sigue cayendo en conflicto sin resolver (`conflicts`/`conflicts_total`, sin cambios respecto al punto anterior). El caso sin conflicto (un solo valor, o un solo SKU) no requiere sufijo "-1" — sigue aplicándose directo, así productos de una sola variante (SKU sin guion) no se ven afectados. `ShopifyPushModal.jsx` suma un aviso informativo (azul, no bloqueante) para `ignored_secondary`, distinto del aviso rojo de `conflicts`. Tests nuevos: `test_title_conflict_resolved_by_primary_variant`, `test_dry_run_title_conflict_resolved_by_primary_variant`.
 * **Sub-líneas con letra ("-C1" cuero, "-D1" deportivo) + red de seguridad contra perder contenido real (sep 2026), refina el punto anterior:** el usuario mandó un archivo real de nombres (BASE-SYS, 558 filas) para revisar los conflictos que seguían quedando. Dos hallazgos: (1) confirmó que sufijos con letra son su PROPIA referencia/línea — "C" = cuero, "D" = deportivo (ej. "827-C1"/"827-C2" son las variantes de cuero de la referencia "827", no del "827" a secas) — y la "-1" de ESA línea (ej. "827-C1") es la principal, igual que la "-1" numérica simple. `is_primary_variant_sku` pasa de regex `-1$` a `-[a-z]*1$` para reconocerlas. (2) Al analizar el archivo se vio que en 23 de 110 referencias con más de una variante, el nombre no difiere SOLO por el código de SKU pegado adelante — difiere en contenido real (ej. "789B-1..5" dicen "POEDAGAR METAL CALENDARIO DAMA" pero "789B-6/7/8" agregan "TIPO PATEK PHILIPPE..."). Aplicar "gana la principal" a ciegas ahí borraría información real del catálogo, no sería limpiar ruido de formato. Nuevo helper `sku_utils.strip_sku_label(sku, text)`: saca el prefijo de SKU de un texto si está pegado adelante. `push_updates` ahora, antes de resolver por la variante principal, chequea que el "resto" (`strip_sku_label`) sea IGUAL entre todas las variantes en conflicto — si el contenido real difiere, NO se resuelve solo aunque haya una "-1"/"-C1" única: queda como conflicto sin resolver, mismo criterio que "no contaminar la Maestra" del Guardián. Tests nuevos: `test_title_conflict_resolved_by_primary_variant_with_letter_suffix`, `test_title_conflict_not_resolved_when_content_differs_beyond_sku_label`, y `tests/test_sku_reference_helpers.py` (cobertura directa de `is_primary_variant_sku`/`sku_reference_base`/`strip_sku_label`).
@@ -154,13 +306,13 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   - **`herramientas/subir_excel/`** (solo stdlib, para el PC Windows): sube cada Excel a su Fuente con `replace-file` (sin crear otra), resuelve la conexión por nombre o id, acepta comodines (toma el más reciente), solo sube si cambió o si pasaron ~20 h (para que la app no lo marque desactualizado), y opcionalmente pide la revisión al terminar.
   - Tests: `tests/test_daily_review.py` (revisar no escribe; aprobar aplica Maestra + tienda; lo que cambió después no se aplica; Guardián; reemplazo; token; piloto en modo revisión; hora diaria; Maestra que falla → `con_errores` sin empujar lo que dependía; filtro `only`). Verificado además de punta a punta con el backend real + tienda simulada: revisar → aprobar desde la UI → nueva revisión `sin_cambios`.
 
-## 4. Fuera de Scope (Versión Actual)
+## §7. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):
 - Suscripciones a hijas con la regla de negocio "Sobreescribir SOLO si la celda hija está vacía". Actualmente, la distribución siempre sobreescribe con el valor de la Maestra.
 - El diccionario semántico (AI/Mappings) no "aprende" automáticamente ni hace blacklist de los rechazos del usuario.
 - Escritura individual a nivel microscópico por cada celda: aunque se hace `batchUpdate` específico, se agrupa la fila completa si se añade una nueva.
 
-## 5. Reglas Estrictas de Desarrollo
+## §8. Reglas Estrictas de Desarrollo
 * **NUNCA** proponer migrar la data de la Tabla Maestra a PostgreSQL. Se acordó explícitamente mantener Google Sheets como la única fuente de la verdad.
 * **Protección Relacional:** Las conexiones (orígenes y destinos) no pueden borrarse si están atadas a `FieldSubscription`s o `Process`es activos.
 * **Backend FastAPI:** Manejar BackgroundTasks para propagación.
@@ -168,7 +320,7 @@ Se discutieron y se marcaron explícitamente como "fuera de scope" (no implement
 
 ---
 
-## 6. Flujo de Trabajo de Git (vigente desde que se usa Claude Code on the web)
+## §9. Flujo de Trabajo de Git (vigente desde que se usa Claude Code on the web)
 
 > Nota histórica: este proyecto usó una única rama `pruebas` (nunca `main` directo,
 > nunca ramas nuevas). Quedó obsoleto solo: el entorno web asigna una rama `claude/*`
@@ -191,7 +343,7 @@ ubicación Shopify + cache de token por secret, fix de Guardián bloqueando alta
 legítimas de una referencia existente + `add_new_rows` que no hacía nada; sección 6
 (Git) corregida para reflejar el flujo real con Claude Code on the web (rama `claude/*`
 por sesión + PR a `main`) en vez de la regla vieja de una sola rama `pruebas`. Nota:
-varias entradas de §3 referencian "MEJORAS_TABLASK.md" (§5, §7, §9, §11…) — ese
+varias entradas de §6 referencian "MEJORAS_TABLASK.md" (§5, §7, §9, §11…) — ese
 archivo no existe en el repo (no está en el historial de git); o se restaura o esas
 referencias quedan sin destino. No se tocó en esta pasada para no reescribir
 historia ya asentada.)*
