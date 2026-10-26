@@ -73,9 +73,10 @@ export default function ActualizarConfig() {
 
       <div className={card}>
         <h3 className="font-semibold text-gray-800 flex items-center gap-2"><Store className="w-4 h-4 text-indigo-500" /> Tiendas que se actualizan</h3>
-        <p className="text-xs text-gray-500">Por defecto, la web de Poedagar. Marcá otra si también querés actualizarla con el mismo archivo.</p>
+        <p className="text-xs text-gray-500">Por defecto, la web de Poedagar. Marcá otra si también querés actualizarla con el mismo archivo.
+          El multiplicador va sobre el precio del SYS: la web de Poedagar es × 2,8 (130.000 → 364.000).</p>
         {cfg.tiendas.length === 0 ? (
-          <p className="text-sm text-gray-600">Ninguna todavía: el destino de Poedagar (precio × 1,4) se crea solo con el primer archivo si hay una sola tienda conectada.</p>
+          <p className="text-sm text-gray-600">Ninguna todavía: el destino de Poedagar (precio del SYS × 2,8) se crea solo con el primer archivo si hay una sola tienda conectada.</p>
         ) : (
           <div className="space-y-1.5">
             {cfg.tiendas.map(t => (
@@ -85,7 +86,14 @@ export default function ActualizarConfig() {
                     const ids = cfg.tiendas.filter(x => (x.id === t.id ? !x.elegida : x.elegida)).map(x => x.id);
                     if (ids.length) guardar({ tiendas: ids });
                   }} />
-                {t.name} <span className="text-xs text-gray-400">precio × {String(t.multiplicador).replace('.', ',')}</span>
+                {t.name}
+                <span className="text-xs text-gray-500 ml-2">precio del SYS ×</span>
+                <input type="number" step="0.1" min="0.1" defaultValue={t.multiplicador} disabled={!!busy}
+                  onBlur={e => {
+                    const v = parseFloat(e.target.value);
+                    if (v && v !== t.multiplicador) guardar({ multiplicadores: { [t.id]: v } }, `Multiplicador de ${t.name}: × ${v}.`);
+                  }}
+                  className="w-20 border rounded px-2 py-0.5 text-sm" />
               </label>
             ))}
           </div>

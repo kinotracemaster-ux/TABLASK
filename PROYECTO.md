@@ -78,8 +78,8 @@ Fuera de TablasK pero del mismo objetivo:
    Poedagar (verificado 26-oct): solo falta agregarle el scope `read_locations`.
 
 **Configuración en producción (no requiere código):**
-2. Crear el destino **Shopi-Poe** con multiplicador **1,4** (confirmado por Kino el
-   26-oct; antes figuraba 2,8) y Shopi-Kino.
+2. Destino **Shopi-Poe** con multiplicador **2,8 sobre el precio del SYS** (1401-1:
+   130.000 → 364.000; el × 1,4 es sobre el precio de Kyte = SYS × 2) y Shopi-Kino.
 3. Crear el proceso Fuente → Maestra con el archivo del SYS
    (`INVENTARIO_POEDAGAR`, ~621 filas): `Artículo`→SKU, `Descripción`→nombre,
    `Exist. unidades`→stock, `Precio`→precio base. Precio y stock llegan como
@@ -332,9 +332,14 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   subida la crea (`preparar_fuente`: Artículo → SKU, Precio y Exist. unidades →
   columnas de precio/stock de la Maestra; no toca el nombre). Si no hay destino
   Shopify activo y hay una sola tienda conectada, crea "Shopi-Poe" con precio ×
-  1,4 (`asegurar_tienda`, `TABLASK_MULT_POEDAGAR`). En Administración se marcan
+  2,8 (`asegurar_tienda`, `TABLASK_MULT_POEDAGAR`). En Administración se marcan
   las tiendas a actualizar (`review_shopify_ids`) y hay botón "Actualizar otra tienda".
 - Corrección (26-oct): la tienda Poedagar ES `ii1apd-ws.myshopify.com`.
+- Solo Poedagar (26-oct): el SYS trae todas las marcas. `filtrar_marca` deja las
+  filas cuyo código está en la web o cuya descripción dice POEDAGAR
+  (`TABLASK_MARCA`), guarda eso como CSV y limita la revisión a esos SKU
+  (`solo_skus`). Avisa los productos de la web que no vienen en el archivo.
+- Columnas SKU sin distinguir mayúsculas en el motor (`find_header_index`).
 
 ## §7. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):

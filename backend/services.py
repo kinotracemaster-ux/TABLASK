@@ -59,7 +59,7 @@ def invalidate_read_cache(spreadsheet_id=None, sheet_name=None):
 
 # La normalización de SKU vive en sku_utils (única fuente de verdad, compartida
 # con el conector de Shopify). Se re-exporta acá para no romper imports previos.
-from .sku_utils import normalize_sku_for_match, sku_reference_base, sku_variant_suffix
+from .sku_utils import find_header_index, normalize_sku_for_match, sku_reference_base, sku_variant_suffix
 
 
 # Configuración de credenciales (Service Account)
@@ -356,8 +356,11 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
     
     src_headers = src_raw[0]
     
-    if req.sku_column_source not in src_headers:
+    # Encabezados sin distinguir mayúsculas ('sku' guardado vs 'SKU' real).
+    _i = find_header_index(src_headers, req.sku_column_source)
+    if _i < 0:
         raise HTTPException(status_code=400, detail=f"Columna '{req.sku_column_source}' no encontrada en el origen.")
+    req.sku_column_source = src_headers[_i]
     src_sku_idx = src_headers.index(req.sku_column_source)
     
     # Respetar destino explícito del proceso, o caer a la maestra global
@@ -385,8 +388,10 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
     master_raw[0] = master_headers
     estado_idx = master_headers.index(ESTADO_COL)
 
-    if req.sku_column_master not in master_headers:
+    _i = find_header_index(master_headers, req.sku_column_master)
+    if _i < 0:
         raise HTTPException(status_code=400, detail=f"Columna SKU '{req.sku_column_master}' no encontrada en la maestra")
+    req.sku_column_master = master_headers[_i]
     master_sku_idx = master_headers.index(req.sku_column_master)
     
     master_by_sku = {}

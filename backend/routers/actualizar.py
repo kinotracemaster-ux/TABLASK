@@ -3,7 +3,7 @@ qué va a cambiar, aprobar. La lógica vive en backend/actualizar.py; aprobar y
 descartar usan los endpoints de siempre (/api/reviews/{id}/apply|discard)."""
 import json
 import os
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -76,6 +76,7 @@ class ConfigActualizar(BaseModel):
     upload_connection_id: Optional[int] = None
     drive_folder: Optional[str] = None   # id o link de la carpeta; "" = quitar
     tiendas: Optional[List[int]] = None  # destinos Shopify a actualizar; [] o todas = todas
+    multiplicadores: Optional[Dict[int, float]] = None  # {id destino: precio SYS × esto}
 
 
 @router.get("/config")
@@ -105,6 +106,14 @@ def guardar_config(req: ConfigActualizar, db: Session = Depends(get_db)):
         if not conn or conn.connection_type != "local_file":
             raise HTTPException(status_code=400, detail="Elegí una Fuente de tipo archivo.")
         cfg.upload_connection_id = conn.id
+    if req.multiplicadores:
+        from ..pricing import es_multiplicador_valido
+        for sid, mult in req.multiplicadores.items():
+            if not es_multiplicador_valido(mult):
+                raise HTTPException(status_code=400, detail=f"Multiplicador inválido: {mult}.")
+            sub = db.query(models.ShopifySubscription).filter(models.ShopifySubscription.id == int(sid)).first()
+            if sub:
+                sub.price_multiplier = float(mult)
     if req.tiendas is not None:
         activas = {s.id for s in db.query(models.ShopifySubscription).filter(
             models.ShopifySubscription.is_active == True).all()}  # noqa: E712

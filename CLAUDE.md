@@ -94,8 +94,9 @@ pytest -q
   y `POST /api/intake/push` (header `api-key`).
 - **Multiplicador por canal** (`pricing.py`): cada destino Shopify tiene
   `price_multiplier` (default 1.0 = la columna va tal cual). Aplica SOLO al precio,
-  no al stock ni al precio comparativo. La web de Poedagar usa **1,4** (confirmado por Kino
-  el 26-oct-2026; antes figuraba 2,8).
+  no al stock ni al precio comparativo. La web de Poedagar usa **2,8 sobre el precio del SYS**
+  (1401-1: 130.000 → 364.000, verificado 26-oct-2026). El "× 1,4" es sobre el precio de
+  Kyte, que ya es SYS × 2.
 - **Cuota de Sheets (429):** respetar el retry con backoff y la caché de lecturas;
   invalidarla al escribir (`invalidate_read_cache`).
 - Código y comentarios en **español**, igual que el resto del repo.
