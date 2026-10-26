@@ -74,7 +74,7 @@ export default function ActualizarConfig() {
       <div className={card}>
         <h3 className="font-semibold text-gray-800 flex items-center gap-2"><Store className="w-4 h-4 text-indigo-500" /> Tiendas que se actualizan</h3>
         <p className="text-xs text-gray-500">Por defecto, la web de Poedagar. Marcá otra si también querés actualizarla con el mismo archivo.
-          El multiplicador va sobre el precio del SYS: la web de Poedagar es × 2,8 (130.000 → 364.000).</p>
+          El multiplicador va sobre el precio del SYS: la web de Poedagar es el doble + 40% = × 2,8 (130.000 → 260.000 → 364.000).</p>
         {cfg.tiendas.length === 0 ? (
           <p className="text-sm text-gray-600">Ninguna todavía: el destino de Poedagar (precio del SYS × 2,8) se crea solo con el primer archivo si hay una sola tienda conectada.</p>
         ) : (
@@ -94,6 +94,7 @@ export default function ActualizarConfig() {
                     if (v && v !== t.multiplicador) guardar({ multiplicadores: { [t.id]: v } }, `Multiplicador de ${t.name}: × ${v}.`);
                   }}
                   className="w-20 border rounded px-2 py-0.5 text-sm" />
+                {t.multiplicador === 2.8 && <span className="text-xs text-gray-500">(el doble + 40%)</span>}
               </label>
             ))}
           </div>
