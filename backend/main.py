@@ -198,6 +198,19 @@ for _col_sql in (
     except Exception as e:
         print(f"Migración schedule_config omitida ({_col_sql.split('ADD COLUMN ')[1]}):", e)
 
+# Corrección de datos: el destino "Shopi-Poe" se creó primero con × 1,4, pero la
+# regla confirmada por Kino (26-oct-2026) es precio del SYS × 2,8 (el doble +
+# 40%; el 1,4 es sobre el precio de Kyte). Corre en cada arranque y solo toca el
+# valor equivocado 1,4; cualquier otro multiplicador puesto a mano se respeta.
+try:
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        conn.execute(text("UPDATE shopify_subscriptions SET price_multiplier = 2.8 "
+                          "WHERE name = 'Shopi-Poe' AND abs(price_multiplier - 1.4) < 0.0001"))
+        conn.commit()
+except Exception as e:
+    print("Corrección multiplicador Shopi-Poe omitida:", e)
+
 app = FastAPI(title="Actualizar Tablas K API")
 
 # Clave de acceso (backend/auth.py). Se agrega ANTES que el CORS a propósito:
