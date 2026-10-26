@@ -259,6 +259,7 @@ export default function Actualizar() {
   const [estado, setEstado] = useState(null);
   const [busy, setBusy] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [configurado, setConfigurado] = useState([]);
 
   const load = useCallback(async () => {
     try {
@@ -281,6 +282,7 @@ export default function Actualizar() {
     try {
       const r = await fetch(`${API}/api/actualizar/archivo`, { method: 'POST', body: fd });
       if (!r.ok) setMsg(await extractError(r, 'No se pudo revisar el archivo.'));
+      else setConfigurado((await r.json()).configurado || []);
       await load();
     } catch { setMsg('No se pudo conectar con el servidor.'); }
     setBusy(null);
@@ -320,14 +322,17 @@ export default function Actualizar() {
       <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
         {estado && !estado.listo && (
           <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 text-sm">
-            Falta elegir a qué Fuente va el archivo del SYS.{' '}
-            <Link to="/admin/actualizar" className="font-semibold underline">Configurarlo en Administración</Link>.
+            Falta enlazar la Tabla Maestra.{' '}
+            <Link to="/admin" className="font-semibold underline">Enlazarla en Administración</Link>.
           </div>
         )}
 
         {!pendiente && (
           <>
             <Soltar onFile={subir} busy={busy === 'upload'} />
+            {estado?.tiendas?.length > 0 && (
+              <p className="text-sm text-gray-500 text-center">Se actualiza: <span className="font-medium text-gray-700">{estado.tiendas.join(', ')}</span></p>
+            )}
             {estado?.drive?.carpeta && (
               <p className="text-sm text-gray-500 flex items-center gap-2 justify-center">
                 <FolderOpen className="w-4 h-4" /> O dejalo en la carpeta de Drive: se revisa solo en unos minutos
@@ -335,6 +340,13 @@ export default function Actualizar() {
               </p>
             )}
           </>
+        )}
+
+        {configurado.length > 0 && (
+          <div className="text-sm bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-xl p-3">
+            <p className="font-medium">Primera vez: lo dejé configurado solo.</p>
+            {configurado.map((c, i) => <p key={i} className="text-xs mt-0.5">{c}</p>)}
+          </div>
         )}
 
         {msg && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 whitespace-pre-line">{msg}</p>}
