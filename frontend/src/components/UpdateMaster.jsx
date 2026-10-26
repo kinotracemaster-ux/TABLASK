@@ -471,6 +471,8 @@ export default function UpdateMaster() {
   const [newShopClientSecret, setNewShopClientSecret] = useState('');
   const [newShopToken, setNewShopToken] = useState('');
   const [creatingShopConn, setCreatingShopConn] = useState(false);
+  // Muestra el formulario de conexión aunque ya haya tiendas (para sumar una 2.ª, ej. Poedagar).
+  const [showNewShopForm, setShowNewShopForm] = useState(false);
   const [shopConnId, setShopConnId] = useState('');
   const [shopTab, setShopTab] = useState('');
   const [shopSkuCol, setShopSkuCol] = useState('');
@@ -748,6 +750,7 @@ export default function UpdateMaster() {
       setConnections(prev => [...prev, conn]);
       setShopConnId(String(conn.id));
       setNewShopDomain(''); setNewShopClientId(''); setNewShopClientSecret(''); setNewShopToken('');
+      setShowNewShopForm(false);
     } catch (err) {
       alert(err.message || 'No se pudo conectar la tienda.');
     }
@@ -1356,10 +1359,13 @@ export default function UpdateMaster() {
                     Nunca se crean productos en la tienda: solo se actualizan los que cruzan por SKU.
                   </p>
 
-                  {shopStoreConns.length === 0 ? (
+                  {(shopStoreConns.length === 0 || showNewShopForm) ? (
                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                       <p className="text-sm text-amber-800 mb-3 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4" /> Todavía no conectaste ninguna tienda Shopify.
+                        <AlertTriangle className="w-4 h-4" />
+                        {shopStoreConns.length === 0
+                          ? 'Todavía no conectaste ninguna tienda Shopify.'
+                          : 'Conectar otra tienda Shopify: pegá su dominio .myshopify.com y sus credenciales.'}
                       </p>
                       <form onSubmit={handleCreateShopConn} className="space-y-3">
                         <ShopifyConnectFields
@@ -1373,6 +1379,12 @@ export default function UpdateMaster() {
                           className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
                           {creatingShopConn ? 'Conectando...' : 'Conectar tienda'}
                         </button>
+                        {shopStoreConns.length > 0 && (
+                          <button type="button" onClick={() => setShowNewShopForm(false)}
+                            className="ml-3 text-gray-600 text-sm hover:underline">
+                            Cancelar
+                          </button>
+                        )}
                       </form>
                     </div>
                   ) : (
@@ -1385,6 +1397,10 @@ export default function UpdateMaster() {
                             <option value="">Seleccionar...</option>
                             {shopStoreConns.map(c => <option key={c.id} value={c.id}>{c.name} ({c.shopify_domain})</option>)}
                           </select>
+                          <button type="button" onClick={() => setShowNewShopForm(true)}
+                            className="text-green-700 text-xs font-medium hover:underline mt-1">
+                            + Conectar otra tienda
+                          </button>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Hoja de la Maestra a enviar</label>
