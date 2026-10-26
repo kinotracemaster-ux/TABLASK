@@ -11,12 +11,13 @@ from backend import avisos
 from backend.review import es_doble_numero, stock_negative
 from tests.test_daily_review import env  # noqa: F401  (fixture)
 
-SYS_NUEVO = ("Codigo,PRECIO,STOCK\n"
-             "A1,150,5\n"
-             "A2,200,-1\n"       # negativo: pasa tal cual
-             "A3,300,4\n"
-             "A3,310,4\n"        # repetido en el archivo
-             "503B-11,99,2\n")   # no existe en la tienda, número doble
+SYS_NUEVO = ("Codigo,Descripcion,PRECIO,STOCK\n"
+             "A1,RELOJ A,150,5\n"
+             "A2,RELOJ B,200,-1\n"                       # negativo: pasa tal cual
+             "A3,RELOJ C,300,4\n"
+             "A3,RELOJ C,310,4\n"                        # repetido en el archivo
+             "503B-11,503B-11 POEDAGAR DAMA,99,2\n"      # no está en la web, número doble
+             "CU-77,CURREN HOMBRE,80,9\n")               # otra marca: se ignora
 
 
 def _subir(client, contenido=SYS_NUEVO, nombre="SYS 26-oct.csv"):
@@ -75,6 +76,10 @@ def test_subir_archivo_arma_la_revision_sin_escribir(env):  # noqa: F811
     assert {"sku": "A2", "field": "Stock", "before": "3", "after": "-1"}.items() <= \
         next(x for x in store["changes"] if x["sku"] == "A2" and x["field"] == "Stock").items()
     assert "503B-11" in store["not_found"]
+    # Solo Poedagar: la otra marca no llega ni a la tienda ni al alcance.
+    assert "CU-77" not in store["not_found"]
+    assert rev["report"]["alcance"] == 4
+    assert "Se ignoran 1 de otras marcas" in textos
 
     # La pantalla muestra esta misma revisión.
     assert c.get("/api/actualizar").json()["revision"]["id"] == rev["id"]
@@ -161,7 +166,7 @@ def test_primera_subida_crea_la_fuente_y_el_destino_poedagar(env, monkeypatch): 
         assert proc and proc.sku_column_source == "Artículo"
         assert proc.field_mappings and '"Precio": "price"' in proc.field_mappings
         sub = db.query(models.ShopifySubscription).filter(models.ShopifySubscription.name == "Shopi-Poe").first()
-        assert sub.price_multiplier == 1.4 and sub.price_column_master == "price" and sub.stock_column_master == "stock"
+        assert sub.price_multiplier == 2.8 and sub.price_column_master == "price" and sub.stock_column_master == "stock"
     finally:
         db.query(models.ShopifySubscription).filter(models.ShopifySubscription.name == "Shopi-Poe").delete()
         db.query(models.Process).filter(models.Process.name == "SYS POEDAGAR → Maestra").delete()
@@ -169,9 +174,9 @@ def test_primera_subida_crea_la_fuente_y_el_destino_poedagar(env, monkeypatch): 
         db.close()
         _limpiar_eleccion()
 
-    # Precio en la tienda = base × 1,4 (A1: 150 → 210).
+    # Precio en la tienda = precio del SYS × 2,8 (A1: 150 → 420).
     precios = {x["sku"]: x["after"] for x in out["report"]["stores"][0]["changes"] if x["field"] == "Precio"}
-    assert precios.get("A1") == "210"
+    assert precios.get("A1") == "420"
     # Nada escrito todavía.
     assert env["store"].calls["price"] == []
 
@@ -193,8 +198,8 @@ def test_elegir_tiendas_en_administracion(env):  # noqa: F811
 
 def test_buzon_de_drive_procesa_cada_archivo_una_vez(env, monkeypatch):  # noqa: F811
     from backend.connectors.google_drive import GoogleDriveConnector
-    archivos = [{"id": "f1", "name": "SYS 26-oct.xlsx", "modifiedTime": "2026-10-26T10:00:00Z"},
-                {"id": "x", "name": "~$SYS 26-oct.xlsx", "modifiedTime": "2026-10-26T11:00:00Z"}]
+    archivos = [{"id": "f1", "name": "SYS 26-oct.csv", "modifiedTime": "2026-10-26T10:00:00Z"},
+                {"id": "x", "name": "~$SYS 26-oct.csv", "modifiedTime": "2026-10-26T11:00:00Z"}]
     monkeypatch.setattr(GoogleDriveConnector, "listar_archivos", lambda self: archivos)
     monkeypatch.setattr(GoogleDriveConnector, "descargar", lambda self, fid: SYS_NUEVO.encode())
     enviados = []
@@ -207,14 +212,43 @@ def test_buzon_de_drive_procesa_cada_archivo_una_vez(env, monkeypatch):  # noqa:
     try:
         r1 = c.post("/api/actualizar/drive/revisar").json()
         assert r1["ran"] and r1["status"] == "pendiente"
-        assert len(enviados) == 1 and "SYS 26-oct.xlsx" in enviados[0]
+        assert len(enviados) == 1 and "SYS 26-oct.csv" in enviados[0]
         # El mismo archivo no se reprocesa.
         assert c.post("/api/actualizar/drive/revisar").json()["ran"] is False
         # Uno más nuevo sí.
-        archivos.append({"id": "f2", "name": "SYS 27-oct.xlsx", "modifiedTime": "2026-10-27T10:00:00Z"})
-        assert c.post("/api/actualizar/drive/revisar").json()["file"] == "SYS 27-oct.xlsx"
+        archivos.append({"id": "f2", "name": "SYS 27-oct.csv", "modifiedTime": "2026-10-27T10:00:00Z"})
+        assert c.post("/api/actualizar/drive/revisar").json()["file"] == "SYS 27-oct.csv"
         assert len(enviados) == 2
         # Nada se escribió en la tienda.
         assert env["store"].calls["stock"] == []
     finally:
         c.put("/api/actualizar/config", json={"drive_folder": ""})
+
+
+def test_columna_sku_de_la_maestra_sin_distinguir_mayusculas(env):  # noqa: F811
+    """La Fuente guardó 'SKU' pero la Maestra dice 'sku' (y al revés en producción)."""
+    from backend import models
+    from backend.database import SessionLocal
+    db = SessionLocal()
+    p = db.query(models.Process).filter(models.Process.id == env["proc"]["id"]).first()
+    p.sku_column_master = "SKU"
+    db.commit()
+    db.close()
+    rev = _subir(env["client"]).json()
+    assert rev["report"]["processes"][0]["status"] == "ok", rev["report"]["processes"][0]
+
+
+def test_web_sin_archivo_se_avisa(env):  # noqa: F811
+    env["store"].p["Z9"] = {"price": "1", "stock": 1, "pid": "P9"}
+    rev = _subir(env["client"]).json()
+    textos = " | ".join(a["text"] for a in rev["report"]["alerts"])
+    assert "están en la web pero NO vienen en el archivo" in textos
+    del env["store"].p["Z9"]
+
+
+def test_multiplicador_editable(env):  # noqa: F811
+    c = env["client"]
+    sid = env["sub"]["id"]
+    cfg = c.put("/api/actualizar/config", json={"multiplicadores": {str(sid): 2.8}}).json()
+    assert [t["multiplicador"] for t in cfg["tiendas"] if t["id"] == sid] == [2.8]
+    assert c.put("/api/actualizar/config", json={"multiplicadores": {str(sid): 0}}).status_code == 400

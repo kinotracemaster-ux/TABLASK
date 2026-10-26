@@ -26,7 +26,7 @@ import traceback
 from datetime import datetime
 
 from . import models
-from .sku_utils import normalize_sku_for_match
+from .sku_utils import find_header_index, normalize_sku_for_match
 
 # Tope de líneas guardadas por fuente/tienda (lo que se puede aprobar). Muy por
 # encima de un día normal; si se supera, se avisa con una alerta.
@@ -79,9 +79,9 @@ def project_master(projected: list, headers_after: list, sku_col: str,
     for h in headers_after or []:
         if h not in headers:
             headers.append(h)
-    if sku_col not in headers:
+    si = find_header_index(headers, sku_col)  # 'sku' guardado vs 'SKU' real
+    if si < 0:
         return
-    si = headers.index(sku_col)
     idx = {}
     for i, row in enumerate(projected[1:], start=1):
         n = _norm(row[si] if si < len(row) else "")
@@ -232,8 +232,11 @@ def _selected_subs(db, shopify_ids):
 
 
 # ─────────────────────────────────────────────────────────── armar la revisión
-def build_review(db, shopify_ids=None) -> dict:
-    """Calcula la revisión SIN escribir nada. Devuelve el reporte (dict)."""
+def build_review(db, shopify_ids=None, solo_skus=None, alertas_previas=None) -> dict:
+    """Calcula la revisión SIN escribir nada. Devuelve el reporte (dict).
+    solo_skus (SKU normalizados): limita lo que se manda a las tiendas a esos
+    códigos (pantalla Actualizar: solo los del archivo de Poedagar). Al aplicar
+    se usa la intersección con lo revisado, así que el límite se respeta solo."""
     from .services import _compute_master_sync, get_sheet_data, invalidate_read_cache, _create_connector
     from .scheduler import build_sync_request
 
@@ -254,6 +257,9 @@ def build_review(db, shopify_ids=None) -> dict:
         "downstream": {},
     }
     alerts = report["alerts"]
+    alerts.extend(alertas_previas or [])
+    if solo_skus is not None:
+        report["alcance"] = len(solo_skus)
 
     master_base = get_sheet_data(master_conn, f"{master_sheet}!A1:Z") or []
     projected = [list(r) for r in master_base]
@@ -361,6 +367,8 @@ def build_review(db, shopify_ids=None) -> dict:
             continue
         try:
             updates = _updates_for(sub, projected, sku_column)
+            if solo_skus is not None:
+                updates = [u for u in updates if _norm(u.get("sku")) in solo_skus]
             connector = _create_connector(shop_conn)
             summary = connector.push_updates(updates, dry_run=True, location_id=sub.location_id or None,
                                              preview_limit=MAX_LINES, **_shopify_flags(sub))
@@ -449,7 +457,7 @@ def build_review(db, shopify_ids=None) -> dict:
     return report
 
 
-def run_review(db, trigger: str = "programada") -> models.DailyReview:
+def run_review(db, trigger: str = "programada", solo_skus=None, alertas_previas=None) -> models.DailyReview:
     """Arma la revisión, la guarda y reemplaza a la pendiente anterior."""
     from .routers.logs import log_event
     from .scheduler import get_or_create_config
@@ -463,7 +471,7 @@ def run_review(db, trigger: str = "programada") -> models.DailyReview:
             except (ValueError, TypeError):
                 ids = None
         try:
-            report = build_review(db, ids)
+            report = build_review(db, ids, solo_skus=solo_skus, alertas_previas=alertas_previas)
             if not report.get("ok"):
                 status = "error"
             elif report["totals"]["has_changes"]:

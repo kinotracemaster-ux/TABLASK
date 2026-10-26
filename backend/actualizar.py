@@ -10,6 +10,8 @@ Revisión (backend/review.py): nada sale a Shopify sin "Aprobar".
 Así la carpeta de Drive no es una Fuente aparte: es solo otra forma de entregar
 el mismo archivo, y la revisión siempre compara contra lo mismo.
 """
+import csv
+import io
 import json
 import os
 from datetime import datetime
@@ -22,8 +24,13 @@ class ActualizarError(Exception):
     pass
 
 
-# Multiplicador de la web de Poedagar (precio base × 1,4, regla de Kino).
-MULT_POEDAGAR = float(os.getenv("TABLASK_MULT_POEDAGAR", "1.4"))
+# Multiplicador de la web de Poedagar sobre el precio del SYS: 1401-1 vale
+# 130.000 en el SYS y 364.000 en la web (× 2,8). Ojo: el × 1,4 es sobre el
+# precio de Kyte, que ya es SYS × 2.
+MULT_POEDAGAR = float(os.getenv("TABLASK_MULT_POEDAGAR", "2.8"))
+# Por ahora se valida SOLO Poedagar: del archivo del SYS (trae todas las
+# marcas) quedan los códigos que están en la web o cuya descripción la nombra.
+MARCA = os.getenv("TABLASK_MARCA", "POEDAGAR").strip().upper()
 
 # Encabezados del archivo del SYS (INVENTARIO_POEDAGAR): Artículo, Descripción,
 # Exist. unidades, Precio. Se comparan normalizados (intelligent_engine).
@@ -180,7 +187,7 @@ def tiendas_shopify(db) -> list:
 
 def asegurar_tienda(db, conn: models.Connection) -> List[str]:
     """Si no hay ningún destino Shopify activo y hay UNA sola tienda
-    conectada (la de Poedagar), crea el destino con precio × 1,4."""
+    conectada (la de Poedagar), crea el destino con precio del SYS × 2,8."""
     if db.query(models.ShopifySubscription).filter(models.ShopifySubscription.is_active == True).count():  # noqa: E712
         return []
     tiendas = tiendas_shopify(db)
@@ -206,21 +213,130 @@ def asegurar_tienda(db, conn: models.Connection) -> List[str]:
             f"(precio × {str(MULT_POEDAGAR).replace('.', ',')})"]
 
 
+def _leer_filas(nombre: str, contenido: bytes) -> Tuple[List[str], List[dict]]:
+    """(encabezados, filas) de la primera hoja que tenga columna de código."""
+    import openpyxl
+    from .connectors.local_file import LocalFileConnector
+    lector = LocalFileConnector({"file_name": nombre, "file_content": contenido})
+    try:
+        hojas = ["CSV Data"]
+        if not nombre.lower().endswith(".csv"):
+            hojas = openpyxl.load_workbook(io.BytesIO(contenido), read_only=True).sheetnames
+        for hoja in hojas:
+            filas = lector.fetch_data(hoja)
+            if filas and _buscar(list(filas[0].keys()), SKU_FUENTE):
+                return list(filas[0].keys()), filas
+    except Exception as e:  # archivo raro: no se filtra, la revisión dirá qué pasa
+        print("No se pudo leer el archivo para filtrar la marca:", str(e)[:200])
+    return [], []
+
+
+def _codigos_web(db) -> Optional[set]:
+    """SKU normalizados de las tiendas que se actualizan. None si no se pudo leer."""
+    from .services import _create_connector
+    from .sku_utils import normalize_sku_for_match
+    from .scheduler import get_or_create_config
+    cfg = get_or_create_config(db)
+    subs = db.query(models.ShopifySubscription).filter(models.ShopifySubscription.is_active == True).all()  # noqa: E712
+    if cfg.review_shopify_ids:
+        try:
+            ids = set(json.loads(cfg.review_shopify_ids))
+            subs = [x for x in subs if x.id in ids]
+        except (ValueError, TypeError):
+            pass
+    codigos, leidas = set(), 0
+    for sub in subs:
+        tienda = db.query(models.Connection).filter(models.Connection.id == sub.connection_id).first()
+        if not tienda or tienda.connection_type != "shopify":
+            continue
+        try:
+            for info in _create_connector(tienda).index_variants_by_sku().values():
+                codigos.add(normalize_sku_for_match(str(info.get("sku") or "")))
+            leidas += 1
+        except Exception as e:
+            print("No se pudieron leer los códigos de la tienda:", str(e)[:200])
+    return codigos if leidas else None
+
+
+def filtrar_marca(db, nombre: str, contenido: bytes):
+    """Deja del archivo del SYS solo lo de Poedagar: códigos que están en la
+    web o con la marca en la descripción. Devuelve (nombre, contenido,
+    skus_alcance | None, alertas). Si no puede decidir, no filtra y lo avisa."""
+    from .review import _alert
+    from .sku_utils import normalize_sku_for_match as norm
+
+    headers, filas = _leer_filas(nombre, contenido)
+    sku_col = _buscar(headers, SKU_FUENTE)
+    if not sku_col:
+        return nombre, contenido, None, []
+    desc_col = _buscar(headers, ("descripción", "descripcion", "nombre", "producto"), "nombre")
+    web = _codigos_web(db)
+
+    quedan, en_web, por_marca = [], set(), []
+    for f in filas:
+        n = norm(str(f.get(sku_col) or ""))
+        if not n:
+            continue
+        if web is not None and n in web:
+            quedan.append(f)
+            en_web.add(n)
+        elif desc_col and MARCA in str(f.get(desc_col) or "").upper():
+            quedan.append(f)
+            por_marca.append(f.get(sku_col))
+
+    alertas = []
+    if not quedan:
+        alertas.append(_alert("warning", f"No encontré filas de {MARCA.title()} en el archivo (ni códigos de la web "
+                                         f"ni '{MARCA}' en la descripción): se revisa el archivo completo."))
+        return nombre, contenido, None, alertas
+
+    alcance = {norm(str(f.get(sku_col) or "")) for f in quedan}
+    otras = len(filas) - len(quedan)
+    alertas.append(_alert("info", f"Solo {MARCA.title()}: de {len(filas)} filas del archivo quedan {len(quedan)} "
+                                  f"({len(en_web)} están en la web, {len(por_marca)} nuevas con '{MARCA}' en la "
+                                  f"descripción). Se ignoran {otras} de otras marcas."))
+    if web is not None:
+        faltan_web = sorted(web - alcance - {""})
+        if faltan_web:
+            alertas.append(_alert("warning", f"{len(faltan_web)} producto(s) están en la web pero NO vienen en el "
+                                             f"archivo: no se tocan (revisá si el SYS los tiene con otro código).",
+                                  samples=faltan_web))
+    else:
+        alertas.append(_alert("warning", "No pude leer los códigos de la web: el filtro usó solo la descripción."))
+
+    if otras == 0:
+        return nombre, contenido, alcance, alertas
+    salida = io.StringIO()
+    w = csv.DictWriter(salida, fieldnames=headers, extrasaction="ignore")
+    w.writeheader()
+    w.writerows(quedan)
+    base = os.path.splitext(os.path.basename(nombre or "archivo"))[0]
+    return f"{base} (solo {MARCA}).csv", salida.getvalue().encode("utf-8"), alcance, alertas
+
+
 def recibir_archivo(db, nombre: str, contenido: bytes, trigger: str):
-    """Guarda el archivo en la Fuente del SYS (la crea si no hay) y arma la
-    revisión. Devuelve (revisión, lista de cosas que se configuraron solas)."""
+    """Guarda el archivo en la Fuente del SYS (la crea si no hay), deja solo
+    Poedagar y arma la revisión. Devuelve (revisión, cosas configuradas solas)."""
     from .review import run_review
     from .scheduler import get_or_create_config
 
+    if not contenido:
+        raise ActualizarError("El archivo está vacío.")
     cfg = get_or_create_config(db)
     conn = conexion_destino(db, cfg)
     configurado = []
-    if conn:
-        guardar_archivo(db, conn, nombre, contenido)
-    else:
+    if not conn:
         conn, configurado = preparar_fuente(db, nombre, contenido)
     configurado += asegurar_tienda(db, conn)
-    return run_review(db, trigger=trigger), configurado
+
+    nombre_f, contenido_f, alcance, alertas = filtrar_marca(db, nombre, contenido)
+    guardar_archivo(db, conn, nombre_f, contenido_f)
+    hoja = "CSV Data" if nombre_f.lower().endswith(".csv") else None
+    if hoja:  # el filtrado se guarda como CSV: las Fuentes de esta conexión leen esa hoja
+        for p in db.query(models.Process).filter(models.Process.source_connection_id == conn.id).all():
+            p.source_sheet_name = hoja
+        db.commit()
+    return run_review(db, trigger=trigger, solo_skus=alcance, alertas_previas=alertas), configurado
 
 
 def ultimo_drive(cfg) -> dict:
