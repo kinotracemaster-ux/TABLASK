@@ -74,8 +74,8 @@ Fuera de TablasK pero del mismo objetivo:
 1. **Token de la app de Shopify de la tienda Poedagar** (Dev Dashboard,
    client id + secret) con permisos `read_products`, `write_products`,
    `read_inventory`, `write_inventory`, `read_locations`. Lo pega el usuario en
-   la app, **nunca por chat**. Hoy la única conexión Shopify es
-   `ii1apd-ws.myshopify.com`, que **no** es la tienda de Poedagar.
+   la app, **nunca por chat**. La conexión Shopify `ii1apd-ws.myshopify.com` **sí es** la tienda de
+   Poedagar (verificado 26-oct): solo falta agregarle el scope `read_locations`.
 
 **Configuración en producción (no requiere código):**
 2. Crear el destino **Shopi-Poe** con multiplicador **1,4** (confirmado por Kino el
@@ -327,6 +327,14 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   (`not_found`) y códigos de número doble (`es_doble_numero`).
 - Lavadero: el stock negativo ya no va a "revisar": pasa tal cual.
 - Configuración en `/admin/actualizar`.
+- Por defecto (sin configurar nada): la Fuente del SYS se elige sola (la de
+  nombre POEDAGAR/SYS, si no la más reciente) y, si no hay ninguna, la PRIMERA
+  subida la crea (`preparar_fuente`: Artículo → SKU, Precio y Exist. unidades →
+  columnas de precio/stock de la Maestra; no toca el nombre). Si no hay destino
+  Shopify activo y hay una sola tienda conectada, crea "Shopi-Poe" con precio ×
+  1,4 (`asegurar_tienda`, `TABLASK_MULT_POEDAGAR`). En Administración se marcan
+  las tiendas a actualizar (`review_shopify_ids`) y hay botón "Actualizar otra tienda".
+- Corrección (26-oct): la tienda Poedagar ES `ii1apd-ws.myshopify.com`.
 
 ## §7. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):

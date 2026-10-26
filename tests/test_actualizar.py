@@ -93,29 +93,102 @@ def test_formato_de_archivo_invalido(env):  # noqa: F811
     assert res.status_code == 400
 
 
-def test_sin_fuente_elegida_con_varias_candidatas(env):  # noqa: F811
+def test_con_varias_fuentes_elige_la_de_poedagar(env):  # noqa: F811
     c = env["client"]
-    otra = c.post("/api/connections/upload", data={"name": "otra"},
+    otra = c.post("/api/connections/upload", data={"name": "EXISTENCIAS POEDAGAR"},
                   files={"file": ("otra.csv", "Codigo,PRECIO\nA1,1\n", "text/csv")}).json()["id"]
     proc = c.post("/api/processes/", json={
         "name": "OTRA", "source_connection_id": otra, "source_sheet_name": "CSV Data",
         "sku_column_source": "Codigo", "sku_column_master": "sku",
         "field_mappings": {"PRECIO": "price"}, "is_active": True}).json()
     try:
-        assert c.get("/api/actualizar").json()["listo"] is False
-        assert _subir(c).status_code == 400
-        # Elegida en Administración: vuelve a funcionar.
+        assert c.get("/api/actualizar").json()["archivo"]["conexion_id"] == otra
+        # Elegida a mano en Administración: manda esa.
         cfg = c.put("/api/actualizar/config", json={"upload_connection_id": env["base_id"]}).json()
-        assert cfg["upload_connection_id"] == env["base_id"]
-        assert _subir(c).status_code == 200
+        assert cfg["actual"]["id"] == env["base_id"]
+        assert c.get("/api/actualizar").json()["archivo"]["conexion_id"] == env["base_id"]
     finally:
         c.delete(f"/api/processes/{proc['id']}")
+        _limpiar_eleccion()
+
+
+def _limpiar_eleccion():
+    from backend.database import SessionLocal
+    from backend.scheduler import get_or_create_config
+    db = SessionLocal()
+    cfg = get_or_create_config(db)
+    cfg.upload_connection_id = None
+    cfg.review_shopify_ids = None
+    db.commit()
+    db.close()
+
+
+SYS_REAL = ("Artículo,Descripción,Exist. unidades,Precio\n"
+            "A1,RELOJ A,5,150\n"
+            "A2,RELOJ B,-1,200\n")
+
+
+def test_mapeo_del_sys():
+    from backend.actualizar import _mapeo_sys, ActualizarError
+    m = _mapeo_sys(["Artículo", "Descripción", "Exist. unidades", "Precio"],
+                   ["SKU", "Nombre", "Precio", "Costo", "Stock", "Color"], "SKU")
+    assert m == {"sku_fuente": "Artículo", "mappings": {"Precio": "Precio", "Exist. unidades": "Stock"}}
+    with pytest.raises(ActualizarError):
+        _mapeo_sys(["Foto", "Color"], ["SKU", "Precio"], "SKU")
+
+
+def test_primera_subida_crea_la_fuente_y_el_destino_poedagar(env, monkeypatch):  # noqa: F811
+    import backend.actualizar as act
+    from backend import models
+    from backend.database import SessionLocal
+
+    c = env["client"]
+    # Sin Fuente de archivo ni destino Shopify activos: como la primera vez en producción.
+    c.delete(f"/api/processes/{env['proc']['id']}")
+    c.delete(f"/api/shopify-subscriptions/{env['sub']['id']}")
+    tienda = env["sub"]["connection_id"]
+    monkeypatch.setattr(act, "tiendas_shopify",
+                        lambda db: db.query(models.Connection).filter(models.Connection.id == tienda).all())
+    assert c.get("/api/actualizar").json()["listo"] is True
+
+    res = _subir(c, contenido=SYS_REAL, nombre="INVENTARIO_POEDAGAR.csv")
+    assert res.status_code == 200, res.text
+    out = res.json()
+    assert len(out["configurado"]) == 2
+    db = SessionLocal()
+    try:
+        proc = db.query(models.Process).filter(models.Process.name == "SYS POEDAGAR → Maestra").first()
+        assert proc and proc.sku_column_source == "Artículo"
+        assert proc.field_mappings and '"Precio": "price"' in proc.field_mappings
+        sub = db.query(models.ShopifySubscription).filter(models.ShopifySubscription.name == "Shopi-Poe").first()
+        assert sub.price_multiplier == 1.4 and sub.price_column_master == "price" and sub.stock_column_master == "stock"
+    finally:
+        db.query(models.ShopifySubscription).filter(models.ShopifySubscription.name == "Shopi-Poe").delete()
+        db.query(models.Process).filter(models.Process.name == "SYS POEDAGAR → Maestra").delete()
+        db.commit()
+        db.close()
+        _limpiar_eleccion()
+
+    # Precio en la tienda = base × 1,4 (A1: 150 → 210).
+    precios = {x["sku"]: x["after"] for x in out["report"]["stores"][0]["changes"] if x["field"] == "Precio"}
+    assert precios.get("A1") == "210"
+    # Nada escrito todavía.
+    assert env["store"].calls["price"] == []
+
+
+def test_elegir_tiendas_en_administracion(env):  # noqa: F811
+    c = env["client"]
+    try:
+        cfg = c.put("/api/actualizar/config", json={"tiendas": [env["sub"]["id"]]}).json()
+        assert [t["elegida"] for t in cfg["tiendas"]] == [True]
+        # Elegir todas las activas = sin filtro.
         from backend.database import SessionLocal
         from backend.scheduler import get_or_create_config
         db = SessionLocal()
-        get_or_create_config(db).upload_connection_id = None
-        db.commit()
+        assert get_or_create_config(db).review_shopify_ids is None
         db.close()
+    finally:
+        _limpiar_eleccion()
 
 
 def test_buzon_de_drive_procesa_cada_archivo_una_vez(env, monkeypatch):  # noqa: F811

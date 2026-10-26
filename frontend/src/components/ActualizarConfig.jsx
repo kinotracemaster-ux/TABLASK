@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Upload, FolderOpen, Bell, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Upload, FolderOpen, Bell, RefreshCw, CheckCircle2, Store, Plus } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -58,17 +58,42 @@ export default function ActualizarConfig() {
 
       <div className={card}>
         <h3 className="font-semibold text-gray-800 flex items-center gap-2"><Upload className="w-4 h-4 text-indigo-500" /> Fuente que recibe el archivo</h3>
-        <p className="text-xs text-gray-500">El archivo subido (o bajado del Drive) reemplaza el de esta Fuente. Solo aparecen Fuentes activas de tipo archivo.</p>
+        <p className="text-xs text-gray-500">El archivo subido (o bajado del Drive) reemplaza el de esta Fuente. Por defecto se usa la del SYS de Poedagar.</p>
         {cfg.candidatas.length === 0 ? (
-          <p className="text-sm text-amber-700">No hay Fuentes activas de tipo archivo. Creá una con el archivo del SYS en <Link to="/admin/nueva-fuente" className="underline">Actualizar Maestra</Link>.</p>
+          <p className="text-sm text-gray-600">Todavía no hay: se crea sola con el primer archivo que subas (SYS POEDAGAR → Maestra).</p>
         ) : (
           <select value={cfg.upload_connection_id || ''} disabled={!!busy}
             onChange={e => e.target.value && guardar({ upload_connection_id: Number(e.target.value) })}
             className="border rounded-lg px-3 py-2 text-sm w-full">
-            <option value="">{cfg.candidatas.length === 1 ? `Automática: ${cfg.candidatas[0].name}` : 'Elegí una…'}</option>
+            <option value="">{`Automática: ${cfg.actual?.name || cfg.candidatas[0].name}`}</option>
             {cfg.candidatas.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         )}
+      </div>
+
+      <div className={card}>
+        <h3 className="font-semibold text-gray-800 flex items-center gap-2"><Store className="w-4 h-4 text-indigo-500" /> Tiendas que se actualizan</h3>
+        <p className="text-xs text-gray-500">Por defecto, la web de Poedagar. Marcá otra si también querés actualizarla con el mismo archivo.</p>
+        {cfg.tiendas.length === 0 ? (
+          <p className="text-sm text-gray-600">Ninguna todavía: el destino de Poedagar (precio × 1,4) se crea solo con el primer archivo si hay una sola tienda conectada.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {cfg.tiendas.map(t => (
+              <label key={t.id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={t.elegida} disabled={!!busy}
+                  onChange={() => {
+                    const ids = cfg.tiendas.filter(x => (x.id === t.id ? !x.elegida : x.elegida)).map(x => x.id);
+                    if (ids.length) guardar({ tiendas: ids });
+                  }} />
+                {t.name} <span className="text-xs text-gray-400">precio × {String(t.multiplicador).replace('.', ',')}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <Link to="/admin/nueva-fuente"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-700 border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50">
+          <Plus className="w-4 h-4" /> Actualizar otra tienda
+        </Link>
       </div>
 
       <div className={card}>
