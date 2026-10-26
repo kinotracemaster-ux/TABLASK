@@ -20,6 +20,7 @@ StagingBatch: nunca escribir datos que el humano no vio.
 """
 import json
 import os
+import re
 import threading
 import traceback
 from datetime import datetime
@@ -135,6 +136,28 @@ def stock_to_zero(changes: list) -> list:
     return [c for c in changes or []
             if c.get("field") == "Stock" and _to_number(c.get("after")) == 0
             and (_to_number(c.get("before")) or 0) > 0]
+
+
+def stock_negative(changes: list) -> list:
+    """Cambios de stock que dejan la tienda en negativo (el SYS manda: se
+    respetan, pero se avisan)."""
+    out = []
+    for c in changes or []:
+        if c.get("field") != "Stock":
+            continue
+        n = _to_number(c.get("after"))
+        if n is not None and n < 0:
+            out.append(c)
+    return out
+
+
+_DOBLE_NUMERO = re.compile(r"-[A-Z]?\d{2,}$", re.IGNORECASE)
+
+
+def es_doble_numero(sku) -> bool:
+    """Código con número doble al final (503B-11, 810-11, 1401-20, 836-C11):
+    para Kino es un PRODUCTO NUEVO, no un error de tipeo del de un número."""
+    return bool(_DOBLE_NUMERO.search(str(sku or "").strip()))
 
 
 def _alert(level: str, text: str, where: str = None, samples: list = None) -> dict:
@@ -311,6 +334,11 @@ def build_review(db, shopify_ids=None) -> dict:
             alerts.append(_alert("warning", f"El Lavadero retuvo {retenidos} valor(es) sucios de '{proc.name}' "
                                             f"(no se escriben).", proc.name))
 
+        dups = result.get("duplicate_skus") or []
+        if dups:
+            alerts.append(_alert("warning", f"{len(dups)} SKU vienen repetidos en el archivo de '{proc.name}': "
+                                            f"se usa la última fila de cada uno. Revisá el SYS.", proc.name, dups))
+
         if _targets_global_master(proc, project, master_sheet):
             project_master(projected, (result.get("master_raw") or [[]])[0], proc.sku_column_master,
                            changes, new_rows)
@@ -348,6 +376,7 @@ def build_review(db, shopify_ids=None) -> dict:
             "changes_total": summary.get("changes_total", len(changes)),
             "matched": summary.get("matched", 0),
             "not_found_count": summary.get("not_found_count", 0),
+            "not_found": summary.get("not_found") or [],
             "conflicts_total": summary.get("conflicts_total", 0),
             "conflicts": (summary.get("conflicts") or [])[:100],
             "ignored_secondary_total": summary.get("ignored_secondary_total", 0),
@@ -366,6 +395,17 @@ def build_review(db, shopify_ids=None) -> dict:
             alerts.append(_alert("warning",
                                  f"{len(jumps)} precio(s) cambian más de ±{int(PRICE_JUMP_RATIO * 100)}% en '{sub.name}'.",
                                  sub.name, [f"{c['sku']}: {c['before']} → {c['after']}" for c in jumps]))
+        negs = stock_negative(changes)
+        if negs:
+            alerts.append(_alert("warning", f"{len(negs)} producto(s) quedarían con stock NEGATIVO en '{sub.name}' "
+                                            f"(se respeta lo que dice el SYS).",
+                                 sub.name, [f"{c['sku']}: {c['after']}" for c in negs]))
+        faltan = entry["not_found"]
+        if faltan:
+            dobles = [x for x in faltan if es_doble_numero(x)]
+            extra = (f" {len(dobles)} son de número doble (ej. {dobles[0]}): productos nuevos." if dobles else "")
+            alerts.append(_alert("info", f"{entry['not_found_count']} SKU no existen en '{sub.name}': no se crean "
+                                         f"solos, hay que crearlos aparte.{extra}", sub.name, faltan))
         if entry["conflicts_total"]:
             alerts.append(_alert("warning", f"{entry['conflicts_total']} conflicto(s) de nombre/categoría entre "
                                             f"variantes en '{sub.name}' (no se envían).", sub.name))

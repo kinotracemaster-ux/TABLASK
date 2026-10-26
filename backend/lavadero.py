@@ -111,7 +111,9 @@ def clean_price(raw) -> Washed:
 def clean_stock(raw) -> Washed:
     """Stock: forzar entero. Se aceptan los decimales-cero de Sheets ("5.0",
     "5,00" → 5). Texto ("5 unid"), fracciones reales ("5.5") → rechazado.
-    Sanidad: stock negativo → 'review' (no pasa solo). Stock 0 es válido (agotado)."""
+    Stock negativo pasa TAL CUAL (regla de Kino: el SYS manda; un -1 es una
+    venta sin existencia y se respeta). La Revisión lo avisa aparte. Stock 0 es
+    válido (agotado)."""
     s = str(raw if raw is not None else "").strip()
     if s == "":
         return "", "empty", None
@@ -136,10 +138,7 @@ def clean_stock(raw) -> Washed:
         return original, "rejected", "no es un número entero"
 
     num = int(m.group(1))
-    if negative:
-        return f"-{num}", "review", "stock negativo"
-
-    value = str(num)
+    value = f"-{num}" if negative and num else str(num)
     status = "ok" if value == original else "cleaned"
     return value, status, None
 

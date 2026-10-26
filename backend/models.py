@@ -263,6 +263,14 @@ class ScheduleConfig(Base):
     # Token del link de solo lectura del último reporte (para el auditor
     # externo: /api/reviews/latest/public?token=...).
     report_token = Column(String, nullable=True)
+    # Pantalla "Actualizar" (backend/actualizar.py): conexión de archivo que
+    # recibe el Excel del SYS (subido en la app o bajado de la carpeta de
+    # Drive). Nula = se elige sola (la única Fuente activa de tipo archivo).
+    upload_connection_id = Column(Integer, nullable=True)
+    # Carpeta de Drive "buzón": al aparecer un archivo nuevo se arma la revisión.
+    drive_folder_id = Column(String, nullable=True)
+    # JSON {id, name, modifiedTime} del último archivo del buzón ya procesado.
+    drive_last_file = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

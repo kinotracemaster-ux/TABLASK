@@ -768,7 +768,7 @@ export default function Flujos() {
               <CheckCircle2 className="w-4 h-4" /> {selectMode ? 'Cancelar selección' : 'Seleccionar varios'}
             </button>
           )}
-          <Link to="/nueva-fuente"
+          <Link to="/admin/nueva-fuente"
             className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition text-sm">
             <Plus className="w-4 h-4" /> Nueva Fuente
           </Link>
@@ -809,13 +809,13 @@ export default function Flujos() {
             <span className="font-semibold text-gray-800">"{masterInfo.sheet}"</span>
             {masterInfo.rows != null && <span className="text-gray-400"> · {masterInfo.rows} filas</span>}
           </span>
-          <Link to="/" className="ml-auto text-indigo-600 font-medium hover:underline flex-shrink-0">Ver Maestra →</Link>
+          <Link to="/admin" className="ml-auto text-indigo-600 font-medium hover:underline flex-shrink-0">Ver Maestra →</Link>
         </div>
       ) : (
         <div className="flex items-center gap-2 text-sm bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-amber-800">
           <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
           <span>No hay una Tabla Maestra enlazada: los flujos no tienen a dónde escribir.</span>
-          <Link to="/" className="ml-auto text-amber-700 font-semibold hover:underline flex-shrink-0">Enlazarla primero →</Link>
+          <Link to="/admin" className="ml-auto text-amber-700 font-semibold hover:underline flex-shrink-0">Enlazarla primero →</Link>
         </div>
       ))}
 

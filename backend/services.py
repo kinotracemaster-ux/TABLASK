@@ -434,6 +434,10 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
     granular_unchanged_skus = []
     matched_norms = set()  # SKUs normalizados de la Maestra que SÍ aparecen en BASE
     skipped_skus = []
+    # SKU que el origen trae más de una vez (ej. el SYS con 938B-6 repetido):
+    # se cruzan igual, pero la Revisión los avisa porque el último pisa al primero.
+    seen_src_norms = {}
+    duplicate_skus = []
 
     # El Lavadero (MEJORAS_TABLASK §3): clasificar las columnas del núcleo y
     # lavar cada valor ANTES de compararlo/escribirlo. Lo rechazado o sospechoso
@@ -482,6 +486,9 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
             continue
 
         norm = normalize_sku_for_match(sku_val)
+        seen_src_norms[norm] = seen_src_norms.get(norm, 0) + 1
+        if seen_src_norms[norm] == 2:
+            duplicate_skus.append(sku_val)
         mr_info = master_by_norm.get(norm)
 
         if mr_info is not None:
@@ -704,6 +711,7 @@ def _compute_master_sync(project, req, db, src_raw_override=None):
         "new_rows_suspect_ratio": new_rows_suspect_ratio,  # % de nuevos casi-idénticos a existentes
         "new_rows_look_broken": new_rows_look_broken,       # Guardián: True = probable formato de SKU roto
         "skipped_skus": skipped_skus,
+        "duplicate_skus": duplicate_skus,   # SKU repetidos dentro del origen
         "total_origen": total_base,
         "total_maestra": len(master_raw) - 1,
         "detail_updated": granular_changes,

@@ -214,8 +214,30 @@ def _tick():
         cfg.next_run_at = compute_next_run(cfg, now)
         cfg.last_summary = json.dumps(summary, ensure_ascii=False, default=str)
         db.commit()
+        if summary.get("mode") == "review" and summary.get("status") == "pendiente":
+            from . import avisos
+            avisos.enviar(avisos.texto_revision(summary, "pendiente", origen="revisión programada"))
     except Exception as e:
         print("Error en el tick del scheduler:", e)
+    finally:
+        db.close()
+
+
+def _tick_buzon():
+    """Carpeta de Drive buzón (pantalla "Actualizar"): si llegó un archivo
+    nuevo, arma la revisión y avisa. Independiente del piloto automático: la
+    carpeta configurada ES el pedido de revisar."""
+    db = SessionLocal()
+    try:
+        cfg = db.query(models.ScheduleConfig).first()
+        if not cfg or not cfg.drive_folder_id:
+            return
+        from .actualizar import revisar_buzon_drive
+        res = revisar_buzon_drive(db)
+        if res.get("ran"):
+            print(f"Buzón de Drive: revisión #{res.get('review_id')} con '{res.get('file')}'.")
+    except Exception as e:
+        print("Error revisando el buzón de Drive:", str(e)[:200])
     finally:
         db.close()
 
@@ -223,10 +245,11 @@ def _tick():
 def _loop():
     while True:
         time.sleep(TICK_SECONDS)
-        try:
-            _tick()
-        except Exception as e:
-            print("Scheduler loop error:", e)
+        for paso in (_tick_buzon, _tick):
+            try:
+                paso()
+            except Exception as e:
+                print("Scheduler loop error:", e)
 
 
 _started = False

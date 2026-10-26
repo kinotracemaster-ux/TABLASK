@@ -53,6 +53,11 @@ Todo fusionado en `main` y desplegado (PR #1 … #69):
     (verificado 20-oct: 401 sin clave, 200 con clave).
   - **Multiplicador de precio por canal** (web Poedagar = base × 2,8).
   - **Carpeta de Drive como origen**: toma siempre el archivo más reciente.
+- **Pantalla "Actualizar"** (26-oct, rama `actualizar-con-un-archivo`): la app abre en
+  una sola pantalla: subir el archivo del SYS → "Esto va a cambiar en Shopify" →
+  Aprobar. También vigila una carpeta de Drive buzón cada 5 min y avisa por
+  Telegram. Alertas nuevas: SKU repetidos, stock negativo, SKU que no existen en
+  Shopify y códigos de número doble. Todo lo demás pasó a `/admin`.
 - **Script del PC** `herramientas/subir_excel/` (instrucciones en su `LEEME.md`) para subir el Excel
   del día antes de la revisión.
 
@@ -73,7 +78,8 @@ Fuera de TablasK pero del mismo objetivo:
    `ii1apd-ws.myshopify.com`, que **no** es la tienda de Poedagar.
 
 **Configuración en producción (no requiere código):**
-2. Crear el destino **Shopi-Poe** con multiplicador **2,8** (y Shopi-Kino).
+2. Crear el destino **Shopi-Poe** con multiplicador **1,4** (confirmado por Kino el
+   26-oct; antes figuraba 2,8) y Shopi-Kino.
 3. Crear el proceso Fuente → Maestra con el archivo del SYS
    (`INVENTARIO_POEDAGAR`, ~621 filas): `Artículo`→SKU, `Descripción`→nombre,
    `Exist. unidades`→stock, `Precio`→precio base. Precio y stock llegan como
@@ -305,6 +311,22 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   - **UI**: `AutoSyncPanel.jsx` suma el selector de modo ("Revisar y avisar" / "Aplicar solo"), "Todos los días a las…" + hora, y las tiendas a revisar; de paso corrige que las fechas UTC sin "Z" se leían como hora local ("próxima en X h" corrido 5 h). `DailyReviewPanel.jsx` (en Mis Flujos): totales, alertas, detalle SKU/campo/antes→después por fuente y por tienda, "Aprobar y aplicar" / "Descartar", resultado de la aplicación y "copiar link" del auditor.
   - **`herramientas/subir_excel/`** (solo stdlib, para el PC Windows): sube cada Excel a su Fuente con `replace-file` (sin crear otra), resuelve la conexión por nombre o id, acepta comodines (toma el más reciente), solo sube si cambió o si pasaron ~20 h (para que la app no lo marque desactualizado), y opcionalmente pide la revisión al terminar.
   - Tests: `tests/test_daily_review.py` (revisar no escribe; aprobar aplica Maestra + tienda; lo que cambió después no se aplica; Guardián; reemplazo; token; piloto en modo revisión; hora diaria; Maestra que falla → `con_errores` sin empujar lo que dependía; filtro `only`). Verificado además de punta a punta con el backend real + tienda simulada: revisar → aprobar desde la UI → nueva revisión `sin_cambios`.
+
+### Pantalla "Actualizar" (oct 2026)
+- `/` es `Actualizar.jsx`: subir archivo → revisión (`POST /api/actualizar/archivo`)
+  → Aprobar/Descartar (`/api/reviews/{id}/apply|discard`, los de siempre).
+- El archivo REEMPLAZA el de la conexión de archivo de la Fuente del SYS (misma
+  conexión, `ScheduleConfig.upload_connection_id` o la única Fuente activa de tipo
+  archivo). La carpeta de Drive buzón (`ScheduleConfig.drive_folder_id`) es solo
+  otra forma de entregar ese archivo: `scheduler._tick_buzon` la mira cada 5 min y
+  procesa cada archivo una sola vez (`drive_last_file`).
+- Aviso por Telegram (`avisos.py`) al llegar un archivo por Drive y en la revisión
+  programada pendiente. Nunca aprueba solo.
+- Alertas nuevas en `review.py`: SKU repetidos en el origen (`duplicate_skus` de
+  `_compute_master_sync`), stock negativo, SKU que no existen en la tienda
+  (`not_found`) y códigos de número doble (`es_doble_numero`).
+- Lavadero: el stock negativo ya no va a "revisar": pasa tal cual.
+- Configuración en `/admin/actualizar`.
 
 ## §7. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):

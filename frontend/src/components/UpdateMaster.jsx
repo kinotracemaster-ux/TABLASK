@@ -831,7 +831,7 @@ export default function UpdateMaster() {
             {masterRows != null && <span className="text-gray-400"> · {masterRows} filas</span>}
           </span>
           <div className="ml-auto flex items-center gap-3 flex-shrink-0">
-            <Link to="/" className="text-indigo-600 font-medium hover:underline">Ver Maestra →</Link>
+            <Link to="/admin" className="text-indigo-600 font-medium hover:underline">Ver Maestra →</Link>
             {connById(masterConnId)?.spreadsheet_id && (
               <a href={`https://docs.google.com/spreadsheets/d/${connById(masterConnId).spreadsheet_id}/edit`}
                 target="_blank" rel="noopener noreferrer"
@@ -874,7 +874,7 @@ export default function UpdateMaster() {
             })}
           </div>
           <div className="flex items-center justify-between mt-3">
-            <Link to="/flujos" className="text-xs text-indigo-600 hover:underline">Editar mapeos o destinos en Mis Flujos →</Link>
+            <Link to="/admin/flujos" className="text-xs text-indigo-600 hover:underline">Editar mapeos o destinos en Mis Flujos →</Link>
             {!showNewSource && (
               <button type="button" onClick={() => setShowNewSource(true)}
                 className="text-sm text-gray-600 font-medium hover:underline">

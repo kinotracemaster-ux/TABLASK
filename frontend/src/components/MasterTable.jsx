@@ -179,7 +179,7 @@ export default function MasterTable() {
           )}
 
           {activeMasterConnId && processes.length > 0 && (
-            <Link to="/flujos"
+            <Link to="/admin/flujos"
               title="Corré cada flujo por separado desde Mis Flujos"
               className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition text-sm">
               <Zap className="w-4 h-4" /> Correr flujos
