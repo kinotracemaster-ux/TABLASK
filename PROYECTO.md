@@ -73,6 +73,10 @@ Fuera de TablasK pero del mismo objetivo:
    `ii1apd-ws.myshopify.com`, que **no** es la tienda de Poedagar. Se pega en
    **Actualizar Maestra → Destino Shopify → "+ Conectar otra tienda"** (botón
    agregado en oct-21; antes la UI solo dejaba conectar la primera tienda).
+   Revisado 26-oct: la app **TablasK Sync** ya está instalada en la tienda con
+   `read/write_products` y `read/write_inventory`, pero **sin `read_locations`**
+   (agregarlo en Versiones → Nueva versión y reinstalar). La tienda tiene una
+   sola ubicación ("Sucursal de la tienda").
 
 **Configuración en producción (no requiere código):**
 2. Crear el destino **Shopi-Poe** con multiplicador **2,8** (y Shopi-Kino).
