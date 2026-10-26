@@ -29,10 +29,13 @@ final. Si una feature complica el uso, no va.
   - `api_push.py` — payload Maestra → API genérica (plantilla del canal, diff por SKU)
   - `scheduler.py` — piloto automático (thread daemon, estado en DB; modo "auto" escribe, modo "review" no)
   - `review.py` — Revisión diaria: calcula Fuentes→Maestra→Shopify sin escribir; al aprobar aplica solo lo revisado que siga vigente
+  - `actualizar.py` — pantalla "Actualizar" (`/`): archivo subido o carpeta de Drive buzón → reemplaza el archivo de la Fuente del SYS → arma la revisión
+  - `avisos.py` — aviso por Telegram cuando hay revisión (opcional: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TABLASK_PUBLIC_URL`)
   - `export_engine.py` / `export_presets.py` — plantillas CSV con transformaciones
   - `intelligent_engine.py` — auto-detección de SKU y mapeo semántico
   - `sheets_retry.py` — backoff ante 429/5xx de Google Sheets
-- `frontend/` — React + Vite + Tailwind (`src/components/`, `src/utils/`)
+- `frontend/` — React + Vite + Tailwind (`src/components/`, `src/utils/`). `/` = pantalla simple
+  `Actualizar.jsx` (subir → revisar → aprobar); todo lo demás vive bajo `/admin/*`.
 - `tests/` — pytest (usan DB temporal vía `conftest.py`, no tocan red)
 - `herramientas/subir_excel/` — script del PC (solo stdlib) que sube los Excel a sus Fuentes antes de la revisión
 
@@ -81,6 +84,8 @@ pytest -q
   que no se parece a nada es alta legítima y pasa, aunque la coherencia sea baja.
   Altas de la MISMA referencia (ej. "…-3" cuando ya existe "…-2") no cuentan como
   parecido sospechoso — mismo `sku_reference_base` con distinto número de variante.
+- **Stock negativo se respeta tal cual** (regla de Kino: el SYS manda); el 0 queda en 0.
+  La Revisión lo avisa, no lo frena.
 - **El Lavadero** limpia precio/stock/nombre antes de escribir; lo que no se puede
   limpiar se retiene y se reporta (`rejected`/`review`), no se escribe sucio.
 - **La API pide clave** (`auth.py`): variable `TABLASK_PASSWORD` + header `X-TablasK-Key`.
@@ -89,7 +94,8 @@ pytest -q
   y `POST /api/intake/push` (header `api-key`).
 - **Multiplicador por canal** (`pricing.py`): cada destino Shopify tiene
   `price_multiplier` (default 1.0 = la columna va tal cual). Aplica SOLO al precio,
-  no al stock ni al precio comparativo. La web de Poedagar usa 2,8.
+  no al stock ni al precio comparativo. La web de Poedagar usa **1,4** (confirmado por Kino
+  el 26-oct-2026; antes figuraba 2,8).
 - **Cuota de Sheets (429):** respetar el retry con backoff y la caché de lecturas;
   invalidarla al escribir (`invalidate_read_cache`).
 - Código y comentarios en **español**, igual que el resto del repo.

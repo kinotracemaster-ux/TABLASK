@@ -3,7 +3,7 @@
 Estas reglas deciden qué entra a la Maestra y cómo. Un cambio silencioso aquí
 escribe precios/stock corruptos en la fuente de verdad, así que quedan fijadas:
   - precio: formatos reales de Kino ("$ 10.000" miles, "38000,00" decimal)
-  - stock: entero forzado; texto y fracciones se rechazan; negativo a revisar
+  - stock: entero forzado; texto y fracciones se rechazan; negativo pasa tal cual
   - nombre: colapsar espacios, sin forzar capitalización (marcas en mayúsculas)
   - vacíos: nunca pisan datos existentes
 """
@@ -81,9 +81,11 @@ def test_stock_fraccion_real_se_rechaza():
     assert st == "rejected" and "decimales" in reason
 
 
-def test_stock_negativo_va_a_revisar():
-    value, st, reason = clean_stock("-3")
-    assert (value, st) == ("-3", "review") and "negativo" in reason
+def test_stock_negativo_se_respeta_tal_cual():
+    # Regla de Kino: el negativo del SYS pasa tal cual (no se redondea a 0).
+    assert clean_stock("-3") == ("-3", "ok", None)
+    assert clean_stock("-2.00") == ("-2", "cleaned", None)
+    assert clean_stock("-0") == ("0", "cleaned", None)
 
 
 def test_stock_vacio_es_empty():

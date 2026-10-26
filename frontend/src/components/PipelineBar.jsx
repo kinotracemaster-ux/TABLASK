@@ -129,7 +129,7 @@ export default function PipelineBar() {
   useEffect(() => { load(); }, []);
 
   // Abre "Mis Flujos" pidiéndole que dispare una acción sobre un nodo (editar/correr/enviar).
-  const go = (action, node) => navigate(`/flujos?action=${action}&node=${encodeURIComponent(node)}`);
+  const go = (action, node) => navigate(`/admin/flujos?action=${action}&node=${encodeURIComponent(node)}`);
 
   // Botones por FUENTE: correr (con vista previa) y editar el mapeo.
   const sourceActions = (src) => {
@@ -155,7 +155,7 @@ export default function PipelineBar() {
       { icon: Pencil, label: 'Editar', tone: 'indigo', onClick: () => go('edit', dst.id) },
     ];
     if (dst.kind === 'csv') return [
-      { icon: Eye, label: 'Ver', tone: 'gray', onClick: () => navigate('/flujos') },
+      { icon: Eye, label: 'Ver', tone: 'gray', onClick: () => navigate('/admin/flujos') },
     ];
     return [{ icon: Pencil, label: 'Editar', tone: 'indigo', onClick: () => go('edit', dst.id) }];
   };
@@ -184,7 +184,7 @@ export default function PipelineBar() {
       <div className="flex items-stretch gap-3 overflow-x-auto pb-1">
         {/* Fuentes */}
         <Column title="Fuentes" icon={Settings2} items={data.sources}
-          empty="Sin fuentes." cta={<Link to="/nueva-fuente" className="text-indigo-600 font-medium hover:underline">Crear</Link>}
+          empty="Sin fuentes." cta={<Link to="/admin/nueva-fuente" className="text-indigo-600 font-medium hover:underline">Crear</Link>}
           actionsFor={sourceActions} />
 
         <div className="flex items-center text-gray-300 px-1"><ArrowRight className="w-5 h-5" /></div>
@@ -200,7 +200,7 @@ export default function PipelineBar() {
               {master.total_rows != null ? `${master.total_rows} filas` : 'enlazada'}
               {master.sku_column && ` · llave: ${master.sku_column}`}
             </p>
-            <button onClick={() => navigate('/')}
+            <button onClick={() => navigate('/admin')}
               className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md px-1.5 py-0.5 transition mt-2">
               <Eye className="w-3 h-3" /> Ver Maestra
             </button>
@@ -211,7 +211,7 @@ export default function PipelineBar() {
 
         {/* Destinos */}
         <Column title="Destinos" icon={Store} items={data.destinations}
-          empty="Sin destinos." cta={<Link to="/nueva-fuente" className="text-indigo-600 font-medium hover:underline">Agregar</Link>}
+          empty="Sin destinos." cta={<Link to="/admin/nueva-fuente" className="text-indigo-600 font-medium hover:underline">Agregar</Link>}
           actionsFor={destActions} />
       </div>
 
@@ -230,7 +230,7 @@ export default function PipelineBar() {
             className="text-gray-400 hover:text-gray-600 flex items-center gap-1">
             <RefreshCw className="w-3 h-3" /> actualizar
           </button>
-          <Link to="/flujos" className="text-indigo-600 font-medium hover:underline">Operar flujos →</Link>
+          <Link to="/admin/flujos" className="text-indigo-600 font-medium hover:underline">Operar flujos →</Link>
         </span>
       </div>
     </div>
