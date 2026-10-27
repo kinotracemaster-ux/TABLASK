@@ -160,6 +160,37 @@ def es_doble_numero(sku) -> bool:
     return bool(_DOBLE_NUMERO.search(str(sku or "").strip()))
 
 
+def codigo_flojo(sku) -> str:
+    """Solo letras y números, en mayúscula. Sirve para AVISAR que un SKU que no
+    cruzó parece ser el mismo producto escrito distinto en el SYS y en la web
+    (NO:610-1 / NO610-1, 810-1 / 810-1-). Nunca se usa para cruzar."""
+    return re.sub(r"[^A-Z0-9]", "", str(sku or "").upper())
+
+
+def parecidos_en_web(faltan, skus_web) -> dict:
+    """{sku que no cruzó: sku de la web que se le parece}. También prueba sin la
+    P inicial del SYS (P9051-1 / 9051-1). Es una pista para el usuario, no un cruce."""
+    web = {}
+    for s in skus_web or []:
+        web.setdefault(codigo_flojo(s), s)
+    out = {}
+    for sku in faltan or []:
+        k = codigo_flojo(sku)
+        w = web.get(k) or (web.get(k[1:]) if k.startswith("P") else None)
+        if w:
+            out[sku] = w
+    return out
+
+
+def razon_no_subido(sku, parecido=None) -> str:
+    if parecido:
+        return (f"Está en la web con otro código ('{parecido}'): hay que igualar el código "
+                f"en Shopify o en el SYS")
+    if es_doble_numero(sku):
+        return "Código de número doble: producto nuevo, hay que crearlo en Shopify"
+    return "No existe en la web: hay que crearlo en Shopify (la app no crea productos)"
+
+
 def _alert(level: str, text: str, where: str = None, samples: list = None) -> dict:
     a = {"level": level, "text": text}
     if where:
@@ -379,12 +410,20 @@ def build_review(db, shopify_ids=None, solo_skus=None, alertas_previas=None) -> 
             continue
 
         changes = summary.get("changes", [])
+        skus_web = summary.pop("store_skus", None) or []
+        faltan_todos = summary.get("not_found") or []
+        parecidos = parecidos_en_web(faltan_todos, skus_web)
+        por_sku = {_norm(u.get("sku")): u for u in updates}
         entry.update({
             "changes": changes,
             "changes_total": summary.get("changes_total", len(changes)),
             "matched": summary.get("matched", 0),
             "not_found_count": summary.get("not_found_count", 0),
-            "not_found": summary.get("not_found") or [],
+            "not_found": faltan_todos,
+            # Para el Excel de "lo que no se subió": qué llevaría y por qué no entra.
+            "not_found_detalle": [{"sku": f, "precio": por_sku.get(_norm(f), {}).get("price"),
+                                   "stock": por_sku.get(_norm(f), {}).get("stock"),
+                                   "parecido": parecidos.get(f)} for f in faltan_todos],
             "conflicts_total": summary.get("conflicts_total", 0),
             "conflicts": (summary.get("conflicts") or [])[:100],
             "ignored_secondary_total": summary.get("ignored_secondary_total", 0),
@@ -392,6 +431,8 @@ def build_review(db, shopify_ids=None, solo_skus=None, alertas_previas=None) -> 
         })
         for c in changes:
             entry["by_field"][c["field"]] = entry["by_field"].get(c["field"], 0) + 1
+        if solo_skus is not None and skus_web:
+            entry["en_web_sin_archivo"] = sorted(w for w in skus_web if _norm(w) not in solo_skus)
 
         zeros = stock_to_zero(changes)
         if zeros:
@@ -412,6 +453,10 @@ def build_review(db, shopify_ids=None, solo_skus=None, alertas_previas=None) -> 
         if faltan:
             dobles = [x for x in faltan if es_doble_numero(x)]
             extra = (f" {len(dobles)} son de número doble (ej. {dobles[0]}): productos nuevos." if dobles else "")
+            if parecidos:
+                ej = next(iter(parecidos.items()))
+                extra += (f" {len(parecidos)} parecen estar en la web con otro código (ej. {ej[0]} → {ej[1]}): "
+                          f"igualá el código y se actualizan solos.")
             alerts.append(_alert("info", f"{entry['not_found_count']} SKU no existen en '{sub.name}': no se crean "
                                          f"solos, hay que crearlos aparte.{extra}", sub.name, faltan))
         if entry["conflicts_total"]:
@@ -714,3 +759,66 @@ def public_summary(review: models.DailyReview, sample: int = 15) -> dict:
         "downstream": report.get("downstream", {}),
         "apply_summary": json.loads(review.apply_summary) if review.apply_summary else None,
     }
+
+
+# ─────────────────────────────────────────── Excel de lo que no se subió
+def excel_no_subidos(review: models.DailyReview) -> bytes:
+    """Excel descargable de una revisión: los productos del archivo que no
+    llegan a la web (con la razón), los de la web que no vienen en el archivo,
+    lo que el Lavadero retuvo y, si ya se aprobó, los errores al subir."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    report = json.loads(review.report) if review.report else {}
+    ap = json.loads(review.apply_summary) if review.apply_summary else {}
+    wb = Workbook()
+    hojas = []
+
+    def hoja(titulo, encabezados, filas):
+        ws = wb.create_sheet(titulo)
+        ws.append(encabezados)
+        for c in ws[1]:
+            c.font = Font(bold=True)
+        for f in filas:
+            ws.append(list(f))
+        for i, _ in enumerate(encabezados, start=1):
+            col = ws.cell(row=1, column=i).column_letter
+            largo = max(len(str(c.value or "")) for c in ws[col])
+            ws.column_dimensions[col].width = max(10, min(80, largo + 2))
+        ws.freeze_panes = "A2"
+        hojas.append(ws)
+
+    stores = [s for s in report.get("stores", []) if s.get("status") == "ok"]
+    filas = []
+    for s in stores:
+        detalle = s.get("not_found_detalle") or [{"sku": f} for f in s.get("not_found") or []]
+        for d in detalle:
+            filas.append((s.get("name"), d.get("sku"), d.get("precio"), d.get("stock"),
+                          razon_no_subido(d.get("sku"), d.get("parecido")), d.get("parecido") or ""))
+    hoja("No se subieron", ["Tienda", "SKU del archivo", "Precio que llevaría", "Stock",
+                            "Razón", "Código parecido en la web"], filas)
+
+    hoja("En la web sin archivo", ["Tienda", "SKU en la web", "Razón"],
+         [(s.get("name"), w, "Está en la web pero no viene en el archivo del SYS: no se actualizó")
+          for s in stores for w in s.get("en_web_sin_archivo") or []])
+
+    retenidos = []
+    for p in report.get("processes", []):
+        lav = p.get("lavadero") or {}
+        for tipo, items in (("No se pudo leer", lav.get("rejected")), ("Sospechoso", lav.get("review"))):
+            for it in items or []:
+                retenidos.append((p.get("name"), it.get("sku"), it.get("field"), it.get("value"),
+                                  f"{tipo}: {it.get('reason')}"))
+    if retenidos:
+        hoja("Retenidos (Lavadero)", ["Fuente", "SKU", "Campo", "Valor", "Razón"], retenidos)
+
+    errores = [(s.get("name"), e) for s in ap.get("stores", [])
+               for e in ([s.get("error")] if s.get("error") else []) + list(s.get("errors") or [])]
+    if errores:
+        hoja("Errores al subir", ["Tienda", "Error"], errores)
+
+    wb.remove(wb.worksheets[0])  # la hoja vacía que trae Workbook()
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

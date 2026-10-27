@@ -340,6 +340,11 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   (`TABLASK_MARCA`), guarda eso como CSV y limita la revisión a esos SKU
   (`solo_skus`). Avisa los productos de la web que no vienen en el archivo.
 - Columnas SKU sin distinguir mayúsculas en el motor (`find_header_index`).
+- Excel "lo que no se sube" (27-oct): `GET /api/reviews/{id}/no-subidos.xlsx`
+  (`review.excel_no_subidos`), botón en la pantalla Actualizar. Hojas: no se
+  subieron (precio/stock que llevaría + razón), en la web sin archivo, retenidos
+  del Lavadero y errores al aprobar. `parecidos_en_web` avisa códigos escritos
+  distinto (NO:610-1 / NO610-1, 810-1 / 810-1-, P9051-1 / 9051-1): solo pista, no cruza.
 
 ## §7. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):

@@ -438,10 +438,12 @@ class ShopifyConnector(BaseConnector):
                 not_found.append(u.get("sku", ""))
 
         summary = {
+            # Solo en la vista previa: los SKU de la tienda, para avisar de códigos parecidos.
+            **({"store_skus": [v["sku"] for v in idx.values()]} if dry_run else {}),
             "total": len(updates),
             "matched": len(matched),
             "not_found_count": len(not_found),
-            "not_found": not_found[:200],
+            "not_found": not_found[:1000],
             "price_updated": 0,
             "stock_updated": 0,
             "compare_price_updated": 0,

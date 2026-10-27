@@ -252,3 +252,32 @@ def test_multiplicador_editable(env):  # noqa: F811
     cfg = c.put("/api/actualizar/config", json={"multiplicadores": {str(sid): 2.8}}).json()
     assert [t["multiplicador"] for t in cfg["tiendas"] if t["id"] == sid] == [2.8]
     assert c.put("/api/actualizar/config", json={"multiplicadores": {str(sid): 0}}).status_code == 400
+
+
+def test_parecidos_en_web():
+    from backend.review import parecidos_en_web
+    web = ["NO610-1", "810-1-", "9051-2", "1401-1"]
+    assert parecidos_en_web(["NO:610-1", "810-1", "P9051-2", "1409-C1"], web) == {
+        "NO:610-1": "NO610-1", "810-1": "810-1-", "P9051-2": "9051-2"}
+
+
+def test_excel_de_lo_que_no_se_subio(env):  # noqa: F811
+    from io import BytesIO
+    from openpyxl import load_workbook
+    env["store"].p["NO610-1"] = {"price": "1", "stock": 1, "pid": "P8"}
+    try:
+        rev = _subir(env["client"], SYS_NUEVO + "NO:610-1,POEDAGAR METAL DAMA,37,7\n").json()
+        textos = " | ".join(a["text"] for a in rev["report"]["alerts"])
+        assert "parecen estar en la web con otro código" in textos
+
+        res = env["client"].get(f"/api/reviews/{rev['id']}/no-subidos.xlsx")
+        assert res.status_code == 200, res.text
+        assert "no-subidos-" in res.headers["content-disposition"]
+        wb = load_workbook(BytesIO(res.content))
+        filas = {r[1]: r for r in wb["No se subieron"].iter_rows(min_row=2, values_only=True)}
+        assert "número doble" in filas["503B-11"][4]
+        assert filas["NO:610-1"][5] == "NO610-1" and "otro código" in filas["NO:610-1"][4]
+        assert "CU-77" not in filas  # otra marca: ni siquiera entra
+        assert wb["En la web sin archivo"].max_row >= 1
+    finally:
+        del env["store"].p["NO610-1"]

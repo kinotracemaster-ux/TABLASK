@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertOctagon, AlertTriangle, Info,
-  Settings, Loader2, FolderOpen, ChevronDown, ChevronUp, Database,
+  Settings, Loader2, FolderOpen, ChevronDown, ChevronUp, Database, Download,
 } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
@@ -16,6 +16,33 @@ const ALERT_STYLE = {
 };
 
 const ORIGEN = { archivo: 'subido en la app', drive: 'llegó a la carpeta de Drive', manual: 'revisión a mano', programada: 'revisión programada' };
+
+/** Baja el Excel de lo que no se sube (fetch ya lleva la clave de la app). */
+function DescargarNoSubidos({ id }) {
+  const [bajando, setBajando] = useState(false);
+  const bajar = async () => {
+    setBajando(true);
+    try {
+      const r = await fetch(`${API}/api/reviews/${id}/no-subidos.xlsx`);
+      if (r.ok) {
+        const url = URL.createObjectURL(await r.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = (r.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'no-subidos.xlsx';
+        a.click();
+        URL.revokeObjectURL(url);
+      } else window.alert(await extractError(r, 'No se pudo armar el Excel.'));
+    } catch { window.alert('No se pudo conectar con el servidor.'); }
+    setBajando(false);
+  };
+  return (
+    <button onClick={bajar} disabled={bajando}
+      className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 bg-white border border-emerald-200 rounded-lg px-3 py-1.5 hover:bg-emerald-50 disabled:opacity-50">
+      {bajando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+      Descargar Excel de lo que no se sube
+    </button>
+  );
+}
 
 // Mismo patrón que backend/review.py::es_doble_numero (503B-11, 836-C11…).
 const esDobleNumero = (sku) => /-[A-Z]?\d{2,}$/i.test(String(sku || '').trim());
@@ -192,6 +219,10 @@ function Revision({ rev, busy, onAprobar, onDescartar }) {
         : <p className="text-sm text-gray-500 bg-white border rounded-xl p-4">En Shopify no cambia nada; solo se actualiza la Tabla Maestra.</p>}
 
       {faltan.length > 0 && (
+        <DescargarNoSubidos id={rev.id} />
+      )}
+
+      {faltan.length > 0 && (
         <Plegable title={`Productos del archivo que no existen en Shopify (${faltanTotal}): no se crean solos`}>
           <div className="flex flex-wrap gap-1.5">
             {faltan.map(sku => (
@@ -247,6 +278,7 @@ function Resultado({ rev }) {
       {errores.length > 0 && (
         <p className="mt-3 text-xs text-red-700">{errores.length} error(es): {errores[0]}</p>
       )}
+      <div className="mt-4"><DescargarNoSubidos id={rev.id} /></div>
     </div>
   );
 }
