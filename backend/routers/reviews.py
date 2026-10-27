@@ -5,11 +5,12 @@ import json
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
-from ..review import run_review, apply_review, discard_review, public_summary, ReviewError
+from ..review import run_review, apply_review, discard_review, public_summary, excel_no_subidos, ReviewError
 from ..scheduler import get_or_create_config
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
@@ -86,6 +87,18 @@ def run_now(db: Session = Depends(get_db)):
 @router.get("/{review_id}")
 def get_review(review_id: int, db: Session = Depends(get_db)):
     return _full(_get(db, review_id))
+
+
+@router.get("/{review_id}/no-subidos.xlsx")
+def descargar_no_subidos(review_id: int, db: Session = Depends(get_db)):
+    """Excel con lo que no se sube a la web en esta revisión y por qué."""
+    r = _get(db, review_id)
+    fecha = r.created_at.strftime("%Y-%m-%d") if r.created_at else str(r.id)
+    return Response(
+        content=excel_no_subidos(r),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="no-subidos-{fecha}.xlsx"'},
+    )
 
 
 @router.post("/{review_id}/apply")
