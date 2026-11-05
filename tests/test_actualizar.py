@@ -281,3 +281,75 @@ def test_excel_de_lo_que_no_se_subio(env):  # noqa: F811
         assert wb["En la web sin archivo"].max_row >= 1
     finally:
         del env["store"].p["NO610-1"]
+
+
+# ─────────────────────────────────────── botones por tienda (Poedagar / Kino)
+def _tiendas_de_prueba(monkeypatch, kino="demo", poedagar="poedagar-no-conectada.myshopify.com"):
+    """La tienda en memoria del entorno (dominio 'demo') hace de Kino."""
+    from backend import actualizar as act
+    monkeypatch.setitem(act.TIENDAS, "kino", {**act.TIENDAS["kino"], "dominio": kino})
+    monkeypatch.setitem(act.TIENDAS, "poedagar", {**act.TIENDAS["poedagar"], "dominio": poedagar})
+
+
+def _subir_a(client, tienda, contenido=SYS_NUEVO):
+    return client.post(f"/api/actualizar/archivo?tienda={tienda}",
+                       files={"file": ("SYS 5-nov.csv", contenido, "text/csv")})
+
+
+def test_botones_en_el_estado(env, monkeypatch):  # noqa: F811
+    _tiendas_de_prueba(monkeypatch)
+    botones = {b["clave"]: b for b in env["client"].get("/api/actualizar").json()["botones"]}
+    assert botones["kino"]["conectada"] is True
+    assert botones["poedagar"]["conectada"] is False
+
+
+def test_boton_kino_toma_los_codigos_de_su_web_sin_filtro_de_marca(env, monkeypatch):  # noqa: F811
+    _tiendas_de_prueba(monkeypatch)
+    res = _subir_a(env["client"], "kino")
+    assert res.status_code == 200, res.text
+    rev = res.json()
+    assert rev["status"] == "pendiente"
+    assert env["store"].calls == {"price": [], "stock": [], "product": []}
+    # Kino no filtra por la palabra POEDAGAR: quedan solo los códigos de su web.
+    assert rev["report"]["alcance"] == 3
+    textos = " | ".join(a["text"] for a in rev["report"]["alerts"])
+    assert "Solo Kino" in textos and "Se ignoran 2 que no están en la web" in textos
+    store = rev["report"]["stores"][0]
+    assert store["name"] == "Shopi-Kino"
+    assert "503B-11" not in store["not_found"] and "CU-77" not in store["not_found"]
+
+
+def test_boton_de_tienda_sin_conectar_no_toca_nada(env, monkeypatch):  # noqa: F811
+    _tiendas_de_prueba(monkeypatch)
+    from backend import models
+    from backend.database import SessionLocal
+    db = SessionLocal()
+    antes = db.query(models.Connection).filter(models.Connection.id == env["base_id"]).first().file_content
+    reviews = db.query(models.DailyReview).count()
+    db.close()
+
+    res = _subir_a(env["client"], "poedagar")
+    assert res.status_code == 400
+    assert "todavía no está conectada" in res.json()["detail"]
+
+    db = SessionLocal()
+    assert db.query(models.Connection).filter(models.Connection.id == env["base_id"]).first().file_content == antes
+    assert db.query(models.DailyReview).count() == reviews
+    db.close()
+
+
+def test_tienda_desconocida(env):  # noqa: F811
+    assert _subir_a(env["client"], "otra").status_code == 400
+
+
+def test_kino_conectada_sin_destino_lo_crea_con_2_8(env, monkeypatch):  # noqa: F811
+    _tiendas_de_prueba(monkeypatch)
+    c = env["client"]
+    c.delete(f"/api/shopify-subscriptions/{env['sub']['id']}")
+    res = _subir_a(c, "kino")
+    assert res.status_code == 200, res.text
+    assert any("Shopi-Kino" in x and "2,8" in x for x in res.json()["configurado"])
+    subs = c.get("/api/shopify-subscriptions/").json()
+    nuevo = next(s for s in subs if s["name"] == "Shopi-Kino")
+    assert nuevo["price_multiplier"] == 2.8
+    assert nuevo["price_column_master"] == "price" and nuevo["stock_column_master"] == "stock"

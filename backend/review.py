@@ -502,15 +502,17 @@ def build_review(db, shopify_ids=None, solo_skus=None, alertas_previas=None) -> 
     return report
 
 
-def run_review(db, trigger: str = "programada", solo_skus=None, alertas_previas=None) -> models.DailyReview:
-    """Arma la revisión, la guarda y reemplaza a la pendiente anterior."""
+def run_review(db, trigger: str = "programada", solo_skus=None, alertas_previas=None,
+               shopify_ids=None) -> models.DailyReview:
+    """Arma la revisión, la guarda y reemplaza a la pendiente anterior.
+    shopify_ids: destinos a revisar (botón de una tienda); None = los de la configuración."""
     from .routers.logs import log_event
     from .scheduler import get_or_create_config
 
     with _LOCK:
         cfg = get_or_create_config(db)
-        ids = None
-        if cfg.review_shopify_ids:
+        ids = list(shopify_ids) if shopify_ids is not None else None
+        if ids is None and cfg.review_shopify_ids:
             try:
                 ids = json.loads(cfg.review_shopify_ids)
             except (ValueError, TypeError):

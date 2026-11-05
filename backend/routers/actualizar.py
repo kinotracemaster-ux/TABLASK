@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import avisos, models
-from ..actualizar import (ActualizarError, conexion_destino, conexiones_candidatas, maestra_enlazada,
+from ..actualizar import (ActualizarError, botones, conexion_destino, conexiones_candidatas, maestra_enlazada,
                           recibir_archivo, revisar_buzon_drive, ultimo_drive)
 from ..database import get_db
 from ..scheduler import get_or_create_config
@@ -40,6 +40,7 @@ def _estado(db) -> dict:
         # Sin Fuente del SYS igual está listo si hay Maestra: la primera subida la crea.
         "listo": conn is not None or maestra_enlazada(db) is not None,
         "tiendas": [s.name for s in _tiendas_revisadas(db, cfg)],
+        "botones": botones(db),
         "archivo": {
             "conexion_id": conn.id if conn else None,
             "conexion": conn.name if conn else None,
@@ -57,13 +58,15 @@ def estado(db: Session = Depends(get_db)):
 
 
 @router.post("/archivo")
-def subir_archivo(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Sube el Excel del SYS y devuelve la revisión (no escribe nada en Shopify)."""
+def subir_archivo(file: UploadFile = File(...), tienda: Optional[str] = None, db: Session = Depends(get_db)):
+    """Sube el Excel del SYS y devuelve la revisión (no escribe nada en Shopify).
+    ?tienda=poedagar|kino: botón de la pantalla, revisa solo esa tienda."""
     nombre = file.filename or "archivo.xlsx"
     if not nombre.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="El archivo tiene que ser .xlsx, .xls o .csv (el que baja el SYS).")
     try:
-        rev, configurado = recibir_archivo(db, nombre, file.file.read(), trigger="archivo")
+        rev, configurado = recibir_archivo(db, nombre, file.file.read(), trigger="archivo",
+                                           tienda=(tienda or "").strip().lower() or None)
     except ActualizarError as e:
         raise HTTPException(status_code=400, detail=str(e))
     out = _full(rev)
