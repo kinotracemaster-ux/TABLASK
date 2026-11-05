@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertOctagon, AlertTriangle, Info,
-  Settings, Loader2, FolderOpen, ChevronDown, ChevronUp, Database, Download,
+  Settings, Loader2, FolderOpen, ChevronDown, ChevronUp, Database, Download, Store, X,
 } from 'lucide-react';
 import { extractError } from '../utils/errors';
 
@@ -93,6 +93,40 @@ function Soltar({ onFile, busy, compacta }) {
           <p className="text-sm text-gray-500 mt-1">o hacé clic para elegirlo (.xlsx, .xls o .csv)</p>
         </>
       )}
+    </div>
+  );
+}
+
+/** Archivo elegido + un botón por tienda: el mismo archivo actualiza la que se toque. */
+function ElegirTienda({ archivo, botones, onTienda, onQuitar, busy }) {
+  return (
+    <div className="bg-white rounded-2xl border p-6 space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-gray-700 flex items-center gap-2 min-w-0">
+          <FileSpreadsheet className="w-5 h-5 text-indigo-500 flex-shrink-0" />
+          <span className="font-medium truncate">{archivo.name}</span>
+        </p>
+        {!busy && (
+          <button type="button" onClick={onQuitar} className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
+            <X className="w-3.5 h-3.5" /> Cambiar archivo
+          </button>
+        )}
+      </div>
+      <p className="text-sm text-gray-500">¿Qué tienda querés actualizar con este archivo?</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {botones.map(b => (
+          <button key={b.clave} type="button" onClick={() => onTienda(b.clave)}
+            disabled={!!busy || !b.conectada}
+            className="flex flex-col items-center justify-center gap-1 rounded-xl px-6 py-4 text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+            <span className="flex items-center gap-2 text-base font-semibold">
+              {busy === b.clave ? <Loader2 className="w-5 h-5 animate-spin" /> : <Store className="w-5 h-5" />}
+              Actualizar {b.nombre}
+            </span>
+            {!b.conectada && <span className="text-xs">Falta conectarla en Administración</span>}
+          </button>
+        ))}
+      </div>
+      {busy && <p className="text-sm text-indigo-700 text-center">Revisando el archivo… (puede tardar un minuto)</p>}
     </div>
   );
 }
@@ -292,6 +326,7 @@ export default function Actualizar() {
   const [busy, setBusy] = useState(null);
   const [msg, setMsg] = useState(null);
   const [configurado, setConfigurado] = useState([]);
+  const [archivo, setArchivo] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -307,14 +342,24 @@ export default function Actualizar() {
     return () => clearInterval(id);
   }, [busy, load]);
 
-  const subir = async (file) => {
-    setBusy('upload'); setMsg(null);
+  const botones = estado?.botones || [];
+
+  /** Sin botones (servidor viejo) se sube directo, como antes. */
+  const elegirArchivo = (file) => {
+    setMsg(null);
+    if (botones.length) setArchivo(file);
+    else subir(file, null);
+  };
+
+  const subir = async (file, tienda) => {
+    setBusy(tienda || 'upload'); setMsg(null);
     const fd = new FormData();
     fd.append('file', file);
+    const q = tienda ? `?tienda=${encodeURIComponent(tienda)}` : '';
     try {
-      const r = await fetch(`${API}/api/actualizar/archivo`, { method: 'POST', body: fd });
+      const r = await fetch(`${API}/api/actualizar/archivo${q}`, { method: 'POST', body: fd });
       if (!r.ok) setMsg(await extractError(r, 'No se pudo revisar el archivo.'));
-      else setConfigurado((await r.json()).configurado || []);
+      else { setConfigurado((await r.json()).configurado || []); setArchivo(null); }
       await load();
     } catch { setMsg('No se pudo conectar con el servidor.'); }
     setBusy(null);
@@ -359,10 +404,15 @@ export default function Actualizar() {
           </div>
         )}
 
-        {!pendiente && (
+        {!pendiente && archivo && (
+          <ElegirTienda archivo={archivo} botones={botones} busy={busy}
+            onTienda={(t) => subir(archivo, t)} onQuitar={() => setArchivo(null)} />
+        )}
+
+        {!pendiente && !archivo && (
           <>
-            <Soltar onFile={subir} busy={busy === 'upload'} />
-            {estado?.tiendas?.length > 0 && (
+            <Soltar onFile={elegirArchivo} busy={busy === 'upload'} />
+            {!botones.length && estado?.tiendas?.length > 0 && (
               <p className="text-sm text-gray-500 text-center">Se actualiza: <span className="font-medium text-gray-700">{estado.tiendas.join(', ')}</span></p>
             )}
             {estado?.drive?.carpeta && (
@@ -386,7 +436,10 @@ export default function Actualizar() {
         {pendiente && (
           <>
             <Revision rev={rev} busy={busy} onAprobar={() => accion('apply')} onDescartar={() => accion('discard')} />
-            <Soltar onFile={subir} busy={busy === 'upload'} compacta />
+            {archivo
+              ? <ElegirTienda archivo={archivo} botones={botones} busy={busy}
+                  onTienda={(t) => subir(archivo, t)} onQuitar={() => setArchivo(null)} />
+              : <Soltar onFile={elegirArchivo} busy={busy === 'upload'} compacta />}
           </>
         )}
 

@@ -31,6 +31,20 @@ MULT_POEDAGAR = float(os.getenv("TABLASK_MULT_POEDAGAR", "2.8"))
 # Por ahora se valida SOLO Poedagar: del archivo del SYS (trae todas las
 # marcas) quedan los códigos que están en la web o cuya descripción la nombra.
 MARCA = os.getenv("TABLASK_MARCA", "POEDAGAR").strip().upper()
+# Kino cobra igual que Poedagar: precio del SYS × 2,8 (decisión del 5-nov-2026).
+MULT_KINO = float(os.getenv("TABLASK_MULT_KINO", "2.8"))
+
+# Botones de la pantalla Actualizar: un mismo archivo del SYS actualiza la
+# tienda que se toque. Cada tienda se reconoce por su dominio myshopify.
+#   marca: filtro por descripción para códigos que todavía no están en la web
+#          (None = solo los códigos que ya están en esa web; Kino lleva todas
+#          las marcas: JOEFOX, CHAXIGO, T5, CURREN, SANSE…).
+TIENDAS = {
+    "poedagar": {"nombre": "Poedagar", "destino": "Shopi-Poe", "marca": MARCA, "mult": MULT_POEDAGAR,
+                 "dominio": os.getenv("TABLASK_DOMINIO_POEDAGAR", "ii1apd-ws.myshopify.com")},
+    "kino": {"nombre": "Kino", "destino": "Shopi-Kino", "marca": None, "mult": MULT_KINO,
+             "dominio": os.getenv("TABLASK_DOMINIO_KINO", "60c20d-2.myshopify.com")},
+}
 
 # Encabezados del archivo del SYS (INVENTARIO_POEDAGAR): Artículo, Descripción,
 # Exist. unidades, Precio. Se comparan normalizados (intelligent_engine).
@@ -185,6 +199,22 @@ def tiendas_shopify(db) -> list:
     return db.query(models.Connection).filter(models.Connection.connection_type == "shopify").all()
 
 
+def _columnas_maestra(db, conn: models.Connection):
+    """(columna de precio, columna de stock) de la Maestra que alimenta la
+    Fuente del SYS: las mismas que usa el destino de cada tienda."""
+    proc = (db.query(models.Process).filter(models.Process.source_connection_id == conn.id,
+                                            models.Process.is_active == True).first())  # noqa: E712
+    if not proc:
+        return None, None
+    mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
+    from .intelligent_engine import get_semantic_group
+    destinos = list((mappings or {}).values())
+    precio = next((d for d in destinos if get_semantic_group(d) == "precio"), None)
+    stock = next((d for d in destinos if get_semantic_group(d) == "stock"
+                  or str(d).lower().startswith("exist")), None)
+    return precio, stock
+
+
 def asegurar_tienda(db, conn: models.Connection) -> List[str]:
     """Si no hay ningún destino Shopify activo y hay UNA sola tienda
     conectada (la de Poedagar), crea el destino con precio del SYS × 2,8."""
@@ -193,16 +223,7 @@ def asegurar_tienda(db, conn: models.Connection) -> List[str]:
     tiendas = tiendas_shopify(db)
     if len(tiendas) != 1:
         return []
-    proc = (db.query(models.Process).filter(models.Process.source_connection_id == conn.id,
-                                            models.Process.is_active == True).first())  # noqa: E712
-    if not proc:
-        return []
-    mappings = json.loads(proc.field_mappings) if isinstance(proc.field_mappings, str) else proc.field_mappings
-    from .intelligent_engine import get_semantic_group
-    destinos = list((mappings or {}).values())
-    precio = next((d for d in destinos if get_semantic_group(d) == "precio"), None)
-    stock = next((d for d in destinos if get_semantic_group(d) == "stock"
-                  or str(d).lower().startswith("exist")), None)
+    precio, stock = _columnas_maestra(db, conn)
     if not precio and not stock:
         return []
     db.add(models.ShopifySubscription(
@@ -211,6 +232,62 @@ def asegurar_tienda(db, conn: models.Connection) -> List[str]:
     db.commit()
     return [f"Destino 'Shopi-Poe' creado para {tiendas[0].shopify_domain or tiendas[0].name} "
             f"(precio × {str(MULT_POEDAGAR).replace('.', ',')})"]
+
+
+def _dominio(valor) -> str:
+    d = str(valor or "").strip().lower()
+    for pre in ("https://", "http://"):
+        if d.startswith(pre):
+            d = d[len(pre):]
+    return d.split("/")[0]
+
+
+def conexion_de_tienda(db, clave: str) -> Optional[models.Connection]:
+    """La conexión Shopify de esa tienda (por dominio myshopify), o None."""
+    dominio = _dominio(TIENDAS[clave]["dominio"])
+    return next((c for c in tiendas_shopify(db) if _dominio(c.shopify_domain) == dominio), None)
+
+
+def _falta_conectar(clave: str) -> str:
+    t = TIENDAS[clave]
+    return (f"{t['nombre']} todavía no está conectada a la app. En Administración → Shopify → "
+            f"'+ Conectar otra tienda', conectá {t['dominio']} con las claves de su app de Shopify.")
+
+
+def destino_de_tienda(db, clave: str, conn: models.Connection) -> Tuple[models.ShopifySubscription, List[str]]:
+    """El destino Shopify activo de esa tienda; si la tienda está conectada
+    pero no tiene destino, lo crea (precio del SYS × multiplicador de la tienda)."""
+    t = TIENDAS[clave]
+    tienda = conexion_de_tienda(db, clave)
+    if not tienda:
+        raise ActualizarError(_falta_conectar(clave))
+    sub = (db.query(models.ShopifySubscription)
+           .filter(models.ShopifySubscription.connection_id == tienda.id,
+                   models.ShopifySubscription.is_active == True)  # noqa: E712
+           .order_by(models.ShopifySubscription.id).first())
+    if sub:
+        return sub, []
+    precio, stock = _columnas_maestra(db, conn)
+    if not precio and not stock:
+        raise ActualizarError(f"No sé qué columnas de la Maestra mandar a {t['nombre']}: "
+                              "revisá la Fuente del SYS en Administración.")
+    sub = models.ShopifySubscription(
+        name=t["destino"], connection_id=tienda.id, price_column_master=precio,
+        stock_column_master=stock, price_multiplier=t["mult"], is_active=True)
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+    return sub, [f"Destino '{t['destino']}' creado para {tienda.shopify_domain} "
+                 f"(precio × {str(t['mult']).replace('.', ',')})"]
+
+
+def botones(db) -> list:
+    """Lo que la pantalla necesita para pintar un botón por tienda."""
+    out = []
+    for clave, t in TIENDAS.items():
+        out.append({"clave": clave, "nombre": t["nombre"],
+                    "conectada": conexion_de_tienda(db, clave) is not None})
+    return out
 
 
 def _leer_filas(nombre: str, contenido: bytes) -> Tuple[List[str], List[dict]]:
@@ -231,19 +308,20 @@ def _leer_filas(nombre: str, contenido: bytes) -> Tuple[List[str], List[dict]]:
     return [], []
 
 
-def _codigos_web(db) -> Optional[set]:
-    """SKU normalizados de las tiendas que se actualizan. None si no se pudo leer."""
+def _codigos_web(db, subs=None) -> Optional[set]:
+    """SKU normalizados de las tiendas que se actualizan (o de `subs`). None si no se pudo leer."""
     from .services import _create_connector
     from .sku_utils import normalize_sku_for_match
     from .scheduler import get_or_create_config
-    cfg = get_or_create_config(db)
-    subs = db.query(models.ShopifySubscription).filter(models.ShopifySubscription.is_active == True).all()  # noqa: E712
-    if cfg.review_shopify_ids:
-        try:
-            ids = set(json.loads(cfg.review_shopify_ids))
-            subs = [x for x in subs if x.id in ids]
-        except (ValueError, TypeError):
-            pass
+    if subs is None:
+        cfg = get_or_create_config(db)
+        subs = db.query(models.ShopifySubscription).filter(models.ShopifySubscription.is_active == True).all()  # noqa: E712
+        if cfg.review_shopify_ids:
+            try:
+                ids = set(json.loads(cfg.review_shopify_ids))
+                subs = [x for x in subs if x.id in ids]
+            except (ValueError, TypeError):
+                pass
     codigos, leidas = set(), 0
     for sub in subs:
         tienda = db.query(models.Connection).filter(models.Connection.id == sub.connection_id).first()
@@ -258,10 +336,12 @@ def _codigos_web(db) -> Optional[set]:
     return codigos if leidas else None
 
 
-def filtrar_marca(db, nombre: str, contenido: bytes):
-    """Deja del archivo del SYS solo lo de Poedagar: códigos que están en la
-    web o con la marca en la descripción. Devuelve (nombre, contenido,
-    skus_alcance | None, alertas). Si no puede decidir, no filtra y lo avisa."""
+def filtrar_marca(db, nombre: str, contenido: bytes, subs=None, marca: Optional[str] = MARCA,
+                  tienda: Optional[str] = None):
+    """Deja del archivo del SYS solo lo de la tienda: códigos que están en su
+    web o (si hay `marca`) con la marca en la descripción. Devuelve (nombre,
+    contenido, skus_alcance | None, alertas). Si no puede decidir, no filtra y
+    lo avisa. Sin argumentos es el filtro de siempre (Poedagar)."""
     from .review import _alert
     from .sku_utils import normalize_sku_for_match as norm
 
@@ -269,8 +349,9 @@ def filtrar_marca(db, nombre: str, contenido: bytes):
     sku_col = _buscar(headers, SKU_FUENTE)
     if not sku_col:
         return nombre, contenido, None, []
-    desc_col = _buscar(headers, ("descripción", "descripcion", "nombre", "producto"), "nombre")
-    web = _codigos_web(db)
+    desc_col = _buscar(headers, ("descripción", "descripcion", "nombre", "producto"), "nombre") if marca else None
+    web = _codigos_web(db, subs)
+    quien = tienda or (marca or "").title()
 
     quedan, en_web, por_marca = [], set(), []
     for f in filas:
@@ -280,21 +361,32 @@ def filtrar_marca(db, nombre: str, contenido: bytes):
         if web is not None and n in web:
             quedan.append(f)
             en_web.add(n)
-        elif desc_col and MARCA in str(f.get(desc_col) or "").upper():
+        elif marca and desc_col and marca in str(f.get(desc_col) or "").upper():
             quedan.append(f)
             por_marca.append(f.get(sku_col))
 
     alertas = []
     if not quedan:
-        alertas.append(_alert("warning", f"No encontré filas de {MARCA.title()} en el archivo (ni códigos de la web "
-                                         f"ni '{MARCA}' en la descripción): se revisa el archivo completo."))
+        if marca:
+            texto = (f"No encontré filas de {quien} en el archivo (ni códigos de la web "
+                     f"ni '{marca}' en la descripción): se revisa el archivo completo.")
+        elif web is None:
+            texto = f"No pude leer los códigos de la web de {quien}: se revisa el archivo completo."
+        else:
+            texto = (f"Ningún código del archivo está en la web de {quien} (¿las variantes tienen SKU?): "
+                     "se revisa el archivo completo.")
+        alertas.append(_alert("warning", texto))
         return nombre, contenido, None, alertas
 
     alcance = {norm(str(f.get(sku_col) or "")) for f in quedan}
     otras = len(filas) - len(quedan)
-    alertas.append(_alert("info", f"Solo {MARCA.title()}: de {len(filas)} filas del archivo quedan {len(quedan)} "
-                                  f"({len(en_web)} están en la web, {len(por_marca)} nuevas con '{MARCA}' en la "
-                                  f"descripción). Se ignoran {otras} de otras marcas."))
+    if marca:
+        alertas.append(_alert("info", f"Solo {quien}: de {len(filas)} filas del archivo quedan {len(quedan)} "
+                                      f"({len(en_web)} están en la web, {len(por_marca)} nuevas con '{marca}' en la "
+                                      f"descripción). Se ignoran {otras} de otras marcas."))
+    else:
+        alertas.append(_alert("info", f"Solo {quien}: de {len(filas)} filas del archivo quedan {len(quedan)} "
+                                      f"(las que están en la web). Se ignoran {otras} que no están en la web."))
     if web is not None:
         faltan_web = sorted(web - alcance - {""})
         if faltan_web:
@@ -311,32 +403,52 @@ def filtrar_marca(db, nombre: str, contenido: bytes):
     w.writeheader()
     w.writerows(quedan)
     base = os.path.splitext(os.path.basename(nombre or "archivo"))[0]
-    return f"{base} (solo {MARCA}).csv", salida.getvalue().encode("utf-8"), alcance, alertas
+    etiqueta = (marca or quien or "").upper()
+    return f"{base} (solo {etiqueta}).csv", salida.getvalue().encode("utf-8"), alcance, alertas
 
 
-def recibir_archivo(db, nombre: str, contenido: bytes, trigger: str):
+def recibir_archivo(db, nombre: str, contenido: bytes, trigger: str, tienda: Optional[str] = None):
     """Guarda el archivo en la Fuente del SYS (la crea si no hay), deja solo
-    Poedagar y arma la revisión. Devuelve (revisión, cosas configuradas solas)."""
+    lo de la tienda y arma la revisión. Devuelve (revisión, cosas configuradas solas).
+
+    tienda: "poedagar" o "kino" (botones de la pantalla): la revisión toca SOLO
+    esa tienda. None = como antes (las tiendas elegidas en Administración,
+    filtro Poedagar); lo usa la carpeta de Drive buzón."""
     from .review import run_review
     from .scheduler import get_or_create_config
 
     if not contenido:
         raise ActualizarError("El archivo está vacío.")
+    if tienda is not None and tienda not in TIENDAS:
+        raise ActualizarError(f"Tienda desconocida: {tienda}.")
     cfg = get_or_create_config(db)
     conn = conexion_destino(db, cfg)
     configurado = []
+    if tienda is not None and not conexion_de_tienda(db, tienda):
+        raise ActualizarError(_falta_conectar(tienda))  # antes de tocar nada
     if not conn:
         conn, configurado = preparar_fuente(db, nombre, contenido)
-    configurado += asegurar_tienda(db, conn)
 
-    nombre_f, contenido_f, alcance, alertas = filtrar_marca(db, nombre, contenido)
+    if tienda is None:
+        configurado += asegurar_tienda(db, conn)
+        nombre_f, contenido_f, alcance, alertas = filtrar_marca(db, nombre, contenido)
+        ids = None
+    else:
+        t = TIENDAS[tienda]
+        sub, extra = destino_de_tienda(db, tienda, conn)
+        configurado += extra
+        nombre_f, contenido_f, alcance, alertas = filtrar_marca(
+            db, nombre, contenido, subs=[sub], marca=t["marca"], tienda=t["nombre"])
+        ids = [sub.id]
+
     guardar_archivo(db, conn, nombre_f, contenido_f)
     hoja = "CSV Data" if nombre_f.lower().endswith(".csv") else None
     if hoja:  # el filtrado se guarda como CSV: las Fuentes de esta conexión leen esa hoja
         for p in db.query(models.Process).filter(models.Process.source_connection_id == conn.id).all():
             p.source_sheet_name = hoja
         db.commit()
-    return run_review(db, trigger=trigger, solo_skus=alcance, alertas_previas=alertas), configurado
+    return run_review(db, trigger=trigger, solo_skus=alcance, alertas_previas=alertas,
+                      shopify_ids=ids), configurado
 
 
 def ultimo_drive(cfg) -> dict:

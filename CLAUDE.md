@@ -95,7 +95,8 @@ pytest -q
 - **Multiplicador por canal** (`pricing.py`): cada destino Shopify tiene
   `price_multiplier` (default 1.0 = la columna va tal cual). Aplica SOLO al precio,
   no al stock ni al precio comparativo. La web de Poedagar usa **2,8 sobre el precio del SYS**
-  (1401-1: 130.000 → 364.000, verificado 26-oct-2026). El "× 1,4" es sobre el precio de
+  (1401-1: 130.000 → 364.000, verificado 26-oct-2026); **Kino también × 2,8** (decisión
+  5-nov-2026, `TABLASK_MULT_KINO`). El "× 1,4" es sobre el precio de
   Kyte, que ya es SYS × 2.
 - **Cuota de Sheets (429):** respetar el retry con backoff y la caché de lecturas;
   invalidarla al escribir (`invalidate_read_cache`).
@@ -108,6 +109,7 @@ pytest -q
 - **Precio sugerido = precio base × 2** (solo lo muestra Kyte, que es catálogo).
 - **Shopi-Kino:** lleva TODOS los relojes de Base, excluyendo algunos.
 - **Shopi-Poe:** solo productos POEDAGAR.
+- **Pantalla Actualizar:** un botón por tienda (`actualizar.TIENDAS`: Poedagar, Kino); cada revisión toca solo la tienda elegida.
 - **Effi:** debe quedar sincronizado con Shopify por inventario.
 - **Módulos Shopify (son dos, a propósito):**
   - Bajada (Shopify → Maestra): plan de emergencia cuando no está el archivo BASE.

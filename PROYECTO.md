@@ -58,6 +58,12 @@ Todo fusionado en `main` y desplegado (PR #1 … #69):
   Aprobar. También vigila una carpeta de Drive buzón cada 5 min y avisa por
   Telegram. Alertas nuevas: SKU repetidos, stock negativo, SKU que no existen en
   Shopify y códigos de número doble. Todo lo demás pasó a `/admin`.
+- **Botones Poedagar / Kino** (5-nov, rama `boton-kino`): en la pantalla Actualizar
+  se suelta el archivo y se toca "Actualizar Poedagar" o "Actualizar Kino"; la
+  revisión toca SOLO esa tienda. Kino = `60c20d-2.myshopify.com`, destino
+  "Shopi-Kino", precio SYS × 2,8 (igual que Poedagar), sin filtro de marca (quedan
+  los códigos que están en su web). Requisito: las variantes de Kino tienen que
+  tener SKU (hoy el código está en el título) y la tienda conectada con su app.
 - **Script del PC** `herramientas/subir_excel/` (instrucciones en su `LEEME.md`) para subir el Excel
   del día antes de la revisión.
 
@@ -345,6 +351,15 @@ Por dentro, sigue siendo: una Conexión (Google Sheet / archivo subido / API HTT
   subieron (precio/stock que llevaría + razón), en la web sin archivo, retenidos
   del Lavadero y errores al aprobar. `parecidos_en_web` avisa códigos escritos
   distinto (NO:610-1 / NO610-1, 810-1 / 810-1-, P9051-1 / 9051-1): solo pista, no cruza.
+- Botones por tienda (5-nov): `actualizar.TIENDAS` (clave → nombre, destino,
+  dominio, marca, multiplicador). `POST /api/actualizar/archivo?tienda=poedagar|kino`
+  → `recibir_archivo(tienda=…)`: si la tienda no está conectada responde 400 sin
+  tocar nada; si está conectada sin destino, lo crea (`destino_de_tienda`); filtra
+  con `filtrar_marca(subs=[destino], marca=…)` (Kino: marca None = solo códigos
+  de su web) y `run_review(shopify_ids=[destino])`. Sin `tienda` = comportamiento
+  anterior (lo usa el buzón de Drive). Variables: `TABLASK_MULT_KINO` (2.8),
+  `TABLASK_DOMINIO_KINO`, `TABLASK_DOMINIO_POEDAGAR`. `GET /api/actualizar` trae
+  `botones` [{clave, nombre, conectada}].
 
 ## §7. Fuera de Scope (Versión Actual)
 Se discutieron y se marcaron explícitamente como "fuera de scope" (no implementados):
